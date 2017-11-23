@@ -7,11 +7,12 @@ import (
 	"os/exec"
 	"testing"
 )
+
 func check(err error) {
-if err != nil {
-log.Fatal(err)
+	if err != nil {
+		log.Fatal(err)
+	}
 }
-   }
 func TestB2B(t *testing.T) {
 	//Back to Back check
 	// uses current directory as an example
@@ -98,7 +99,7 @@ func TestBuildAll(t *testing.T) {
 	fileToUse := "checksum_test.go"
 	removeMd5(".")
 
-	UpdateDirectory(directory)
+	UpdateDirectory(directory, nil)
 
 	dm := DirectoryMapFromDir(".")
 	_, ok := dm.Get(fileToUse)
@@ -114,12 +115,13 @@ func TestPerlCompat(t *testing.T) {
 	if _, err := os.Stat("./" + Md5FileName); os.IsExist(err) {
 		os.Remove("./" + Md5FileName)
 	}
-
+	log.Println("Running Command")
 	cmd := exec.Command(perlScript, ".")
 	err := cmd.Run()
 	if err != nil {
 		log.Fatal("Erred!", err)
 	}
+	log.Println("Command Run")
 
 	dm := DirectoryMapFromDir(".")
 	v, ok := dm.Get(fileToUse)

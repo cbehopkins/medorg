@@ -1,7 +1,6 @@
 package medorg
 
 import (
-	"bufio"
 	"crypto/md5"
 	"encoding/base64"
 	"encoding/xml"
@@ -15,6 +14,8 @@ import (
 	"time"
 )
 
+var Debug bool
+
 const Md5FileName = ".md5_list.xml"
 const idleWriteDuration = 30 * time.Second
 
@@ -22,7 +23,6 @@ type FileStruct struct {
 	XMLName   struct{} `xml:"fr"`
 	directory string   // Kept as hidden from the xml as this is used for messaging between agents
 	// and that does not want to end up in the final xml file
-	delete   bool   // Should this file be deleted from the structure
 	Name     string `xml:"fname,attr"`
 	Checksum string `xml:"checksum,attr"`
 
@@ -31,6 +31,20 @@ type FileStruct struct {
 	Tags  []string `xml:"tags,omitempty"`
 }
 
+func (fs FileStruct) String() string {
+	retStr := "[FileStruct]{"
+	if fs.directory != "" {
+		retStr += "directory:\"" + fs.directory + "\""
+	}
+	retStr += "Name:\"" + fs.Name + "\""
+	retStr += "Checksum:" + fs.Checksum + "\""
+	retStr += "}"
+
+	return retStr
+}
+func (fs FileStruct) Directory() string {
+	return fs.directory
+}
 func FsFromName(directory, fn string) FileStruct {
 	fp := directory + "/" + fn
 	fs, err := os.Stat(fp)
@@ -43,7 +57,10 @@ func FsFromName(directory, fn string) FileStruct {
 	itm.Name = fn
 	itm.Mtime = fs.ModTime().Unix()
 	itm.Size = fs.Size()
-	log.Println("New FS for file", fp, "Size:", itm.Size, " Time:", itm.Mtime)
+	itm.directory = directory
+	if Debug {
+		log.Println("New FS for file", fp, "Size:", itm.Size, " Time:", itm.Mtime)
+	}
 	return *itm
 }
 
@@ -51,22 +68,30 @@ type Md5File struct {
 	XMLName struct{}     `xml:"dr"`
 	Files   []FileStruct `xml:"fr"`
 }
-type DirectoryMap map[string]FileStruct
+type DirectoryMap struct {
+	mp    map[string]FileStruct
+	stale *bool
+	lock  *sync.RWMutex
+}
 
 func NewDirectoryMap() *DirectoryMap {
 	itm := new(DirectoryMap)
-	*itm = make(DirectoryMap)
+	itm.mp = make(map[string]FileStruct)
+	itm.stale = new(bool)
+	itm.lock = new(sync.RWMutex)
 	return itm
 }
 func (dm DirectoryMap) MarshalXml() (output []byte, err error) {
 	m5f := NewMd5File()
-	for key, value := range dm {
+	dm.lock.RLock()
+	for key, value := range dm.mp {
 		if key == value.Name {
 			m5f.Append(value)
 		} else {
 			log.Fatal("KV not match")
 		}
 	}
+	dm.lock.RUnlock()
 	return m5f.MarshalXml()
 }
 func (dm *DirectoryMap) UnmarshalXml(input []byte) (err error) {
@@ -81,11 +106,24 @@ func (dm *DirectoryMap) UnmarshalXml(input []byte) (err error) {
 	return nil
 }
 func (dm DirectoryMap) Add(fs FileStruct) {
+	dm.lock.Lock()
 	fn := fs.Name
-	dm[fn] = fs
+	dm.mp[fn] = fs
+	*dm.stale = true
+	dm.lock.Unlock()
+}
+func (dm DirectoryMap) Rm(fn string) {
+	dm.lock.Lock()
+	dm.rm(fn)
+	dm.lock.Unlock()
+}
+func (dm DirectoryMap) rm(fn string) {
+	delete(dm.mp, fn)
 }
 func (dm DirectoryMap) Get(fn string) (FileStruct, bool) {
-	fs, ok := dm[fn]
+	dm.lock.RLock()
+	fs, ok := dm.mp[fn]
+	dm.lock.RUnlock()
 	return fs, ok
 }
 func NewMd5File() *Md5File {
@@ -102,6 +140,7 @@ func (md *Md5File) AddFile(filename string) {
 }
 func (md Md5File) MarshalXml() (output []byte, err error) {
 	//output, err = xml.Marshal(md)
+
 	output, err = xml.MarshalIndent(md, "", "  ")
 	return
 }
@@ -177,6 +216,14 @@ func managerWorker(input_chan chan FileStruct, wg *sync.WaitGroup) {
 	log.Println("managerWorker closing")
 	wg.Done()
 }
+func (dm DirectoryMap) PopulateDirectory(directory string) {
+	dm.lock.Lock()
+	for fn, fs := range dm.mp {
+		fs.directory = directory
+		dm.mp[fn] = fs
+	}
+	dm.lock.Unlock()
+}
 
 // DirectoryMapFromDir reads in the dirmap from the supplied dir
 // It does not check anything or compute anythiing
@@ -184,32 +231,19 @@ func DirectoryMapFromDir(directory string) DirectoryMap {
 	// Read in the xml structure to a map/array
 	var dm DirectoryMap
 	dm = *NewDirectoryMap()
-	if dm == nil {
+	if dm.mp == nil {
 		log.Fatal("Initialize malfunction!")
 	}
 	fn := directory + "/" + Md5FileName
 	var f *os.File
 	_, err := os.Stat(fn)
 
-	if os.IsNotExist(err) {
-		f, err = os.Create(fn)
-		if err != nil {
-			log.Fatalf("error creating file: %T,%v\n", err, err)
-		}
-		if dm == nil {
-			log.Fatal("Learn to code Chris Init didn't work")
-		}
-	} else {
+	if !os.IsNotExist(err) {
 		f, err = os.Open(fn)
 
 		if err != nil {
 			log.Fatalf("error opening file: %T,%v\n", err, err)
 		}
-		//var fileContents string
-		//r := bufio.NewReader(f)
-		//for s, e := Readln(r); e == nil; s, e = Readln(r) {
-		//	fileContents += s
-		//}
 		byteValue, err := ioutil.ReadAll(f)
 		f.Close()
 		if err != nil {
@@ -218,9 +252,10 @@ func DirectoryMapFromDir(directory string) DirectoryMap {
 
 		dm.UnmarshalXml(byteValue)
 		//fmt.Printf("******\n%v\n*****%v\n****\n", dm, fileContents)
-		if dm == nil {
+		if dm.mp == nil {
 			log.Fatal("Learn to code Chris")
 		}
+		dm.PopulateDirectory(directory)
 	}
 	return dm
 }
@@ -245,7 +280,25 @@ func appendXml(directory string, fsA []FileStruct) {
 	}
 	dm.WriteDirectory(directory)
 }
+func (dm DirectoryMap) Len() int {
+	dm.lock.RLock()
+	defer dm.lock.RUnlock()
+	return len(dm.mp)
+}
+func (dm DirectoryMap) Stale() bool {
+	dm.lock.RLock()
+	defer dm.lock.RUnlock()
+	return *dm.stale
+}
 func (dm DirectoryMap) WriteDirectory(directory string) {
+	if !dm.Stale() {
+		return
+	}
+	*dm.stale = false
+	if dm.Len() == 0 {
+		removeMd5(directory)
+		return
+	}
 	// Write out a new Xml from the structure
 	ba, err := dm.MarshalXml()
 	switch err {
@@ -256,21 +309,9 @@ func (dm DirectoryMap) WriteDirectory(directory string) {
 	}
 	fn := directory + "/" + Md5FileName
 	removeMd5(directory)
-	if false {
-		f, err := os.Create(fn)
-		if err != nil {
-			log.Fatal("Error creating ", fn)
-		}
-		//fmt.Println("XML out is:", string(ba))
-		fmt.Fprintf(f, string(ba))
-
-		f.Sync()
-		f.Close()
-	} else {
-		err := ioutil.WriteFile(fn, ba, 0600)
-		if err != nil {
-			log.Fatal(err)
-		}
+	err = ioutil.WriteFile(fn, ba, 0600)
+	if err != nil {
+		log.Fatal(err)
 	}
 }
 
@@ -280,6 +321,57 @@ func reduceXml(directory string) {
 	// Read in xml
 	// Write out Xml if changed
 
+}
+func (dm DirectoryMap) Range(fc func(string, FileStruct)) {
+	dm.lock.RLock()
+	for local_fn, v := range dm.mp {
+		fc(local_fn, v)
+	}
+	dm.lock.RUnlock()
+}
+func (dm DirectoryMap) Deleter(fc func(string, FileStruct) bool) {
+	delList := make([]string, 0)
+
+	dm.lock.RLock()
+	for local_fn, v := range dm.mp {
+		toDelete := fc(local_fn, v)
+		if toDelete {
+			delList = append(delList, local_fn)
+		}
+	}
+	dm.lock.RUnlock()
+	if len(delList) > 0 {
+		dm.lock.Lock()
+		for local_fn, _ := range dm.mp {
+			dm.rm(local_fn)
+		}
+		dm.lock.Unlock()
+	}
+}
+func RmFile(dir, fn string) error {
+	dm := DirectoryMapFromDir(dir)
+	return dm.RmFile(dir, fn)
+}
+func (dm DirectoryMap) RmFile(dir, fn string) error {
+	dm.Rm(fn)
+	dm.WriteDirectory(dir)
+	return RemoveFile(dir + "/" + fn)
+
+}
+func MvFile(srcDir, srcFn, dstDir, dstFn string) error {
+	var srcDm, dstDm DirectoryMap
+	srcDm = DirectoryMapFromDir(srcDir)
+	if srcDir == dstDir {
+		dstDm = srcDm
+	} else {
+		dstDm = DirectoryMapFromDir(dstDir)
+	}
+	srcDm.Rm(srcFn)
+	dstFs := FsFromName(dstDir, dstFn)
+	dstDm.Add(dstFs)
+	dstDm.WriteDirectory(dstDir)
+
+	return MoveFile(srcDir+"/"+srcFn, dstDir+"/"+dstFn)
 }
 
 // reduceXmlFe is the front end of reduceXml
@@ -292,13 +384,18 @@ func reduceXmlFe(directory string) DirectoryMap {
 	// if it exists
 	dm := DirectoryMapFromDir(directory)
 	//log.Printf("\n\n%s\n*****\n%v\n\n\n\n",directory,dm)
-	toDelete := make([]string, 0)
-	for local_fn, v := range dm {
+	theFunc := func(local_fn string, v FileStruct) bool {
 		fn := directory + "/" + local_fn
+		if local_fn == "" {
+			if Debug {
+				log.Println("Blank filename in xml", fn)
+			}
+			return true
+		}
 		// for each file, check if it exists
 		if fstat, err := os.Stat(fn); os.IsNotExist(err) {
 			// if it does not, remove from the map
-			toDelete = append(toDelete, fn)
+			return true
 		} else if os.IsExist(err) || (err == nil) {
 			// If it does, then check if the attributes are accurate
 			ftD := fstat.ModTime().Unix()
@@ -308,21 +405,19 @@ func reduceXmlFe(directory string) DirectoryMap {
 
 			if ftD != ftX {
 				log.Println("File times for ", fn, "do not match. File:", ftD, "Xml:", ftX)
-				toDelete = append(toDelete, fn)
-				continue
+				return true
 			}
 			if szD != szX {
 				log.Println("Sizes for ", fn, "do not match. File:", szD, "Xml:", szX)
-				toDelete = append(toDelete, fn)
-				continue
+				return true
 			}
+			return false
 		} else {
 			log.Fatal("A file that neither exists, nor doesn't exist", err)
 		}
+		return false
 	}
-	for _, fn := range toDelete {
-		delete(dm, fn)
-	}
+	dm.Deleter(theFunc)
 
 	// Return the structure we have created as it is useful
 	return dm
@@ -332,7 +427,9 @@ type TreeUpdate struct {
 	walkerToken chan struct{}
 	calcToken   chan struct{}
 	closeChan   chan struct{}
-	wg          *sync.WaitGroup
+	pendToken   chan struct{}
+
+	wg *sync.WaitGroup
 }
 
 // Our Worker will allow up to items to be issued as tokens
@@ -366,23 +463,21 @@ func (tu TreeUpdate) worker(items int, ch chan struct{}) {
 	}
 	tu.wg.Done()
 }
-func NewTreeUpdate(walkCount, calcCount int) (tu TreeUpdate) {
-	tu.walkerToken = make(chan struct{}, walkCount)
-	tu.calcToken = make(chan struct{}, calcCount)
+
+func NewTreeUpdate(walkCount, calcCount, pendCount int) (tu TreeUpdate) {
+	tu.walkerToken = make(chan struct{})
+	tu.calcToken = make(chan struct{})
+	tu.pendToken = make(chan struct{})
 	tu.closeChan = make(chan struct{})
 	tu.wg = new(sync.WaitGroup)
-	tu.wg.Add(2)
-	//for i := 0; i < walkCount; i++ {
-	//	tu.walkerToken <- struct{}{}
-	//}
-	//for i := 0; i < calcCount; i++ {
-	//	tu.calcToken <- struct{}{}
-	//}
+	tu.wg.Add(3)
 	go tu.worker(walkCount, tu.walkerToken)
 	go tu.worker(calcCount, tu.calcToken)
+	go tu.worker(pendCount, tu.pendToken)
 	return
 }
 
+type ModifyFunc func(dir, fn string, fs FileStruct) (FileStruct, bool)
 type CalcingFunc func(dir, fn string) (string, error)
 type WalkingFunc func(dir string, wkf WalkingFunc)
 
@@ -390,9 +485,12 @@ func (tu TreeUpdate) Close() {
 	close(tu.closeChan)
 	tu.wg.Wait()
 }
-func (tu TreeUpdate) UpdateDirectory(directory string) {
+func (tu TreeUpdate) UpdateDirectory(directory string, mf ModifyFunc) {
+
 	tmpFunc := func(dir, fn string) (string, error) {
-		log.Println("Attempting to get cal token for:", dir, "/", fn)
+		if Debug {
+			log.Println("Attempting to get cal token for:", dir, "/", fn)
+		}
 		<-tu.calcToken
 		defer func() {
 			tu.calcToken <- struct{}{}
@@ -401,63 +499,80 @@ func (tu TreeUpdate) UpdateDirectory(directory string) {
 	}
 
 	walkFunc := func(dir string, wkf WalkingFunc) {
-		log.Println("Attemping to get walk token for:", dir)
-		<-tu.walkerToken
-		log.Println("Got Walk Token", dir)
-		updateDirectory(dir, tmpFunc, wkf)
-		tu.walkerToken <- struct{}{}
+		if Debug {
+			log.Println("Attemping to get walk token for:", dir)
+		}
+		updateDirectory(dir, tmpFunc, wkf, tu.pendToken, tu.walkerToken, mf)
 	}
+	<-tu.walkerToken
 	walkFunc(directory, walkFunc)
+	tu.walkerToken <- struct{}{}
 	tu.Close()
 }
 
 // UpdateDirectory will for a specified directory
 // go through and update the xml file
-func UpdateDirectory(directory string) {
+func UpdateDirectory(directory string, mf ModifyFunc) {
+	dirCnt := 4
+	pendCnt := 4
+	dirToken := make(chan struct{}, dirCnt)
+	for i := 0; i < dirCnt; i++ {
+		dirToken <- struct{}{}
+	}
+	pendToken := make(chan struct{}, pendCnt)
+	for i := 0; i < pendCnt; i++ {
+		pendToken <- struct{}{}
+	}
+
 	tmpFunc := func(directory, fn string) (string, error) {
 		return CalcMd5File(directory, fn)
 	}
 
 	walkFunc := func(dir string, wkf WalkingFunc) {
-		updateDirectory(dir, tmpFunc, wkf)
+		<-dirToken
+		updateDirectory(dir, tmpFunc, wkf, pendToken, dirToken, mf)
+		dirToken <- struct{}{}
 	}
 
 	walkFunc(directory, walkFunc)
 }
-func (dm *DirectoryMap) idleWriter(closeChan chan struct{}, locker *sync.Mutex, directory string) *sync.WaitGroup {
+func (dm *DirectoryMap) idleWriter(closeChan chan struct{}, directory string) *sync.WaitGroup {
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
-    var closed bool
+		var closed bool
 		for !closed {
 			select {
 			case <-closeChan:
-				locker.Lock()
 				dm.WriteDirectory(directory)
-				locker.Unlock()
-        closed = true
+				closed = true
 			case <-time.After(idleWriteDuration):
-				locker.Lock()
 				dm.WriteDirectory(directory)
-				locker.Unlock()
 			}
 		}
 		wg.Done()
 	}()
 	return &wg
 }
-func updateDirectory(directory string, calcFunc CalcingFunc, walkFunc WalkingFunc) {
-	var wg sync.WaitGroup
+func updateDirectory(directory string, calcFunc CalcingFunc, walkFunc WalkingFunc, pendTok, dirTok chan struct{}, mf ModifyFunc) {
+	var dwg sync.WaitGroup
+	var fwg sync.WaitGroup
 	closeChan := make(chan struct{})
-	var dlk sync.Mutex
+	//<-dirTok
 	// Reduce the xml to only the items that exist
 	dm := reduceXmlFe(directory)
-	writerWg := dm.idleWriter(closeChan, &dlk, directory)
+
 	// Now read in all files in the current directory
 	stats, err := ioutil.ReadDir(directory)
+
 	if err != nil {
 		log.Fatal(err)
 	}
+	dirTok <- struct{}{}
+	writerWg := dm.idleWriter(closeChan, directory)
+
+	// Put the token back so we will always be able to
+	// recurse at least once
 	for _, file := range stats {
 		fn := file.Name()
 		if strings.HasPrefix(fn, ".") {
@@ -466,38 +581,60 @@ func updateDirectory(directory string, calcFunc CalcingFunc, walkFunc WalkingFun
 			// If it is a directory, then go into it
 		}
 		if file.IsDir() {
-			if true {
-				log.Println("Going into directory:", fn)
-				wg.Add(1)
-				go func() {
-					walkFunc(directory+"/"+fn, walkFunc)
-					wg.Done()
-				}()
-			}
+			log.Println("Going into directory:", fn)
+			dwg.Add(1)
+			<-dirTok
+			go func() {
+				walkFunc(directory+"/"+fn, walkFunc)
+				dwg.Done()
+				log.Println("Finished with directory:", fn)
+				dirTok <- struct{}{}
+			}()
 		} else {
-			if _, ok := dm.Get(fn); !ok {
-				wg.Add(1)
+			var fs FileStruct
+			fs, ok := dm.Get(fn)
+
+			if ok {
+				if mf != nil {
+					fs, update := mf(directory, fn, fs)
+					if update {
+						dm.Add(fs)
+					}
+				}
+			} else {
+				<-pendTok
+				fwg.Add(1)
 				go func() {
-					fs := FsFromName(directory, fn)
+					fs = FsFromName(directory, fn)
 					cs, err := calcFunc(directory, fn)
+					pendTok <- struct{}{}
 					if err == nil {
 						fs.Checksum = cs
-						dlk.Lock()
+						if mf != nil {
+							fsLocal, update := mf(directory, fn, fs)
+							if update {
+								fs = fsLocal
+							}
+						}
 						dm.Add(fs)
-						dlk.Unlock()
 					} else {
 						log.Fatal("Error back from checksum calculation", err)
 					}
-					wg.Done()
+					fwg.Done()
 				}()
 			}
 		}
 	}
-	wg.Wait()
-	close(closeChan)
+	// we've done with using IO ourselves
+	// so allow someone else to
+	dwg.Wait()
+	fwg.Wait()
 	// Now the md struct is up to date
 	// write it out
+	close(closeChan)
 	writerWg.Wait()
+	// retrieve the token we're expected to have
+	<-dirTok
 }
 func CalcMd5File(directory, fn string) (string, error) {
 	fp := directory + "/" + fn
@@ -517,18 +654,62 @@ func CalcMd5File(directory, fn string) (string, error) {
 	return retStr, nil
 }
 
-// Readln read a line from a standard reader
-// TBD remove the need for this
-// It's inefficient copy and paste coding
-func Readln(r *bufio.Reader) (string, error) {
-	var (
-		isPrefix = true
-		err      error
-		line, ln []byte
-	)
-	for isPrefix && err == nil {
-		line, isPrefix, err = r.ReadLine()
-		ln = append(ln, line...)
+type TreeWalker struct{}
+
+func NewTreeWalker() *TreeWalker {
+	itm := new(TreeWalker)
+	return itm
+}
+
+// WalkFunc can modify the dm it is passed
+// if one does this, you must return true
+type WalkFunc func(directory, fn string, fs FileStruct, dm *DirectoryMap) bool
+
+// DirectFunc is called at the end of walking each directory
+type DirectFunc func(directory string, dm *DirectoryMap)
+
+func (tw TreeWalker) WalkTree(directory string, wf WalkFunc, df DirectFunc) {
+	dm := DirectoryMapFromDir(directory)
+	// Now read in all files in the current directory
+	stats, err := ioutil.ReadDir(directory)
+	if err != nil {
+		log.Fatal(err)
 	}
-	return string(ln), err
+	var update bool
+
+	// Put the token back so we will always be able to
+	// recurse at least once
+	for _, file := range stats {
+		fn := file.Name()
+		if strings.HasPrefix(fn, ".") {
+			// Don't build for hidden files
+			continue
+		}
+		// If it is a directory, then go into it
+		if file.IsDir() {
+			log.Println("Going into directory:", directory)
+			tw.WalkTree(directory+"/"+fn, wf, df)
+			log.Println("Finished with directory:", directory)
+		} else {
+			var fs FileStruct
+			fs, ok := dm.Get(fn)
+
+			if ok {
+				if wf != nil {
+					// Annoying syntax to ensure the worker function
+					// always gets run
+					updateTmp := wf(directory, fn, fs, &dm)
+					update = update || updateTmp
+				}
+			} else {
+				log.Fatal("This should not be possible after UpdateDirectory", directory, fn)
+			}
+		}
+	}
+	if update {
+		dm.WriteDirectory(directory)
+	}
+	if df != nil {
+		df(directory, &dm)
+	}
 }
