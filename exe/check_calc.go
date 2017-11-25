@@ -36,11 +36,18 @@ func wkFun(directory, fn string, fs medorg.FileStruct, dm *medorg.DirectoryMap) 
 	cSum := fs.Checksum
 	oldFs, ok := FileHash[cSum]
 	if ok {
-		fs, mod = AF.ResolveTwo(fs, oldFs)
-		modified = modified || mod
+		if fs.Size == oldFs.Size {
+			fs, mod = AF.ResolveTwo(fs, oldFs)
+			modified = modified || mod
+		}
 	}
 
 	FileHash[cSum] = fs
+	if modified {
+		//fmt.Println("Modified FS:", fs)
+		dm.Rm(fn)
+		dm.Add(fs)
+	}
 	// Return true when we modify dm
 	return modified
 }
@@ -73,13 +80,29 @@ func isDir(fn string) bool {
 }
 func main() {
 	var directories []string
-	// TBD Populate this from a file
-  var DomainList = []string{"(.*)_calc"}
-  AF = medorg.NewAutoFix(DomainList)
+	if xmcf := medorg.XmConfig(); xmcf != "" {
+		xc := medorg.NewXMLCfg(xmcf)
+		for _, v := range xc.Af {
+			fmt.Printf("Add AutoFix Rule:%q\n", v)
+		}
+		AF = medorg.NewAutoFix(xc.Af)
+	} else if afcf := medorg.AfConfig(); afcf != "" {
+		AF = medorg.NewAutoFixFile(afcf)
+	} else {
+		var DomainList = []string{"(.*)_calc"}
+		AF = medorg.NewAutoFix(DomainList)
+	}
 	FileHash = make(map[string]medorg.FileStruct)
 	var walkCnt = flag.Int("walk", 2, "Max Number of directory Walkers")
 	var calcCnt = flag.Int("calc", 2, "Max Number of MD5 calculators")
+	var delflg = flag.Bool("delete", false, "Delete duplicated Files")
+	var rnmflg = flag.Bool("rename", false, "Auto Rename Files")
+	var skpflg = flag.Bool("skipu", false, "Skip update phase - go stright to autofix")
+	var bldflg = flag.Bool("buildo", false, "Build Only - do not run autofix")
+	var autflg = flag.Bool("auto", false, "Autofix filenames: -rename and -delete turn this on")
 	flag.Parse()
+	AF.DeleteFiles = *delflg
+	AF.RenameFiles = *rnmflg
 
 	if flag.NArg() > 0 {
 		for _, fl := range flag.Args() {
@@ -91,6 +114,9 @@ func main() {
 		directories = []string{"."}
 	}
 
+	if *delflg || *rnmflg {
+		*autflg = !*bldflg
+	}
 	// Subtle - we want the walk engine to be able to start a calc routing
 	// without that calc routine having a token as yet
 	// i.e. we want the go scheduler to have some things queued up to do
@@ -98,10 +124,16 @@ func main() {
 	// and walkCnt to be set to allow the directory structs to be hammered
 	pendCnt := *calcCnt + *walkCnt
 	for _, directory := range directories {
-		tu := medorg.NewTreeUpdate(*walkCnt, *calcCnt, pendCnt)
-
-		tu.UpdateDirectory(directory, masterMod)
-		tw := medorg.NewTreeWalker()
-		tw.WalkTree(directory, wkFun, drFun)
+		if !*skpflg {
+			tu := medorg.NewTreeUpdate(*walkCnt, *calcCnt, pendCnt)
+			tu.UpdateDirectory(directory, nil)
+		}
+		if *autflg {
+			tw := medorg.NewTreeWalker()
+			if !*skpflg {
+				tw.SetBuildComplete()
+			}
+			tw.WalkTree(directory, wkFun, nil)
+		}
 	}
 }

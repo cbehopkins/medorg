@@ -3,15 +3,43 @@ package medorg
 import (
 	"fmt"
 	"log"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
 )
 
+var testMode bool
+
+// KnownExtensions is a list of extensions we are allowed to operate on
 var KnownExtensions = []string{
 	"go",
 	"jpg",
 	"flv", "mov", "mp4", "mpg",
+}
+
+// AutoFix is the structure for autofixing the files
+type AutoFix struct {
+	DeleteFiles  bool
+	RenameFiles  bool
+	ReStaticNum  *regexp.Regexp
+	ReDomainList []*regexp.Regexp
+}
+
+// NewAutoFix reads in descriptions from an array
+func NewAutoFix(dl []string) *AutoFix {
+	itm := new(AutoFix)
+	itm.afInit(dl)
+	return itm
+}
+
+// NewAutoFixFile reads in autofix expressions from a file
+func NewAutoFixFile(fn string) *AutoFix {
+	var dl []string
+	for s := range LoadFile(fn) {
+		dl = append(dl, s)
+	}
+	return NewAutoFix(dl)
 }
 
 func (af *AutoFix) afInit(dl []string) {
@@ -23,19 +51,6 @@ func (af *AutoFix) afInit(dl []string) {
 	for i, rs := range dl {
 		af.ReDomainList[i] = regexp.MustCompile(rs)
 	}
-}
-
-type AutoFix struct {
-	DeleteFiles  bool
-	RenameFiles  bool
-	ReStaticNum  *regexp.Regexp
-	ReDomainList []*regexp.Regexp
-}
-
-func NewAutoFix(dl []string) *AutoFix {
-	itm := new(AutoFix)
-	itm.afInit(dl)
-	return itm
 }
 
 func stripExtension(fn string) (base, extension string) {
@@ -95,20 +110,35 @@ func swapFile(score1, score2 int) bool {
 	return score2 > score1
 }
 
+// ResolveTwo we have 2 equivalent files
+// Return the one that should remaion
+// return if change  to first one has been made
+// delete if configured
 func (af AutoFix) ResolveTwo(fsOne, fsTwo FileStruct) (FileStruct, bool) {
-	fmt.Println("Matching Files", fsOne, fsTwo)
+	if Debug {
+		fmt.Println("Matching Files", fsOne, fsTwo)
+	}
 
 	score1 := scoreName(fsOne.Directory(), fsOne.Name, fsTwo.Directory(), fsTwo.Name)
 	score2 := scoreName(fsTwo.Directory(), fsTwo.Name, fsOne.Directory(), fsOne.Name)
 
+	//log.Println("Score1:", score1,"Score2:", score2)
+
 	if swapFile(score1, score2) {
-		log.Println("File:", fsTwo, "Preferred over:", fsOne)
+		if Debug {
+			log.Println("File:", fsTwo, "Preferred over:", fsOne)
+		}
 		fsOne, fsTwo = fsTwo, fsOne
 	}
 
 	if af.DeleteFiles {
 		// Delete the file we don's want
 		// By definuition that's the second one
+		fn := fsTwo.Path()
+		log.Println("Deleting:", fn)
+		RemoveFile(fn)
+	} else {
+		log.Println("Delete:", fsTwo.Path(), " as ", fsOne.Path())
 	}
 	return fsOne, false
 }
@@ -127,6 +157,9 @@ func (af AutoFix) stripDomains(fn string) (string, bool) {
 		if len(strA) == 2 {
 			return strA[1], true
 		}
+		if len(strA) == 3 {
+			return strA[1] + strA[2], true
+		}
 	}
 	return fn, false
 }
@@ -134,6 +167,8 @@ func potentialFilename(directory, fn, extension string, i int) (string, bool) {
 	potentialFn := fn + "(" + strconv.Itoa(i) + ")" + extension
 	return potentialFn, FileExist(directory, potentialFn)
 }
+
+// CheckRename Check the supplied structure and tru and rename it
 func (af AutoFix) CheckRename(fs FileStruct) (FileStruct, bool) {
 	var modified bool
 	var mod bool
@@ -149,9 +184,15 @@ func (af AutoFix) CheckRename(fs FileStruct) (FileStruct, bool) {
 		// Do nothing for files we don't recognise
 		return fs, false
 	}
-	base, mod = af.stripNumber(base)
+	for base2, ext2 := stripExtension(base); ext2 != ""; base2, ext2 = stripExtension(base) {
+		//fmt.Println("Base further modified", base2, base)
+		base = base2
+		modified = true
+	}
+
+	fn1, mod := af.stripNumber(base)
 	modified = modified || mod
-	base, mod = af.stripDomains(base)
+	fn1, mod = af.stripDomains(fn1)
 	modified = modified || mod
 
 	if !modified {
@@ -159,21 +200,33 @@ func (af AutoFix) CheckRename(fs FileStruct) (FileStruct, bool) {
 		return fs, false
 	}
 
-	pfn := base + extension
+	pfn := fn1 + extension
 	if FileExist(directory, pfn) {
 		exist := true
 		for i := 0; exist; i++ {
-			pfn, exist = potentialFilename(directory, base, extension, i)
+			pfn, exist = potentialFilename(directory, fn1, extension, i)
+			if pfn == fs.Name {
+				// If we are back to our origional
+				// break!
+				exist = false
+			}
 		}
 	}
 	fsNew.Name = pfn
 	if fsNew.Name != fs.Name {
+		log.Println("Rename:", fs.Path(), " to ", fsNew.Path())
 		if af.RenameFiles {
-			fsNew.Name = base + extension
-			MoveFile(directory+"/"+fs.Name, directory+"/"+fsNew.Name)
+			if !testMode {
+				MoveFile(fs.Path(), fsNew.Path())
+				fp := fsNew.Path()
+				fss, err := os.Stat(fp)
+				if os.IsNotExist(err) {
+					log.Fatal("File we have moved to does not exist", fp)
+				}
+				fsNew.Mtime = fss.ModTime().Unix()
+			}
 			return fsNew, true
 		}
-		log.Println("Rename:", fs.Name, " to ", fsNew.Name)
 	}
 	return fs, false
 }

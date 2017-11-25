@@ -2,6 +2,7 @@ package medorg
 
 import "github.com/icza/gowut/gwu"
 
+// FlSt File Structure
 type FlSt struct {
 	gtab gwu.Table
 	ltab [][]gwu.Label
@@ -65,7 +66,7 @@ func (fs *FlSt) setTxt(x, y int, str string) {
 	fs.ltab[y][x].SetText(str)
 }
 
-// AnaWindow creates the window object that
+// FileWin creates the window object that
 // all the anagram if resides in
 func FileWin(path string) gwu.Window {
 
