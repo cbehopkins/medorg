@@ -165,7 +165,7 @@ func LoadFile(filename string) (theChan chan string) {
 			if os.IsNotExist(err) {
 				return
 			}
-			fmt.Printf("error opening file: %T\n", err)
+			fmt.Printf("error opening  LoadFile file:%s: %T\n", filename, err)
 			os.Exit(1)
 			return
 		}

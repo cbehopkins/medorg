@@ -38,9 +38,11 @@ func serverString(local bool) string {
 	return host_string + ":" + port
 }
 func main() {
+	// Keep it from advertising to external network
+	// Good for windows firewall
 	localServer := true
 	// Create and start a GUI server (omitting error check)
-	server := gwu.NewServer("", serverString(localServer))
+	server := gwu.NewServer("medorg", serverString(localServer))
 	server.SetLogger(log.New(os.Stdout, "", log.Lshortfile))
 	server.SetText("Media Organiser")
 
@@ -51,5 +53,6 @@ func main() {
 
 	server.AddWin(fileWin)
 
-	server.Start("") // Also opens windows list in browser
+	server.Start("file") // Also opens windows list in browser
+	//server.Start("") // Also opens windows list in browser
 }

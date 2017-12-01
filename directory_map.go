@@ -101,9 +101,8 @@ func (dm DirectoryMap) PopulateDirectory(directory string) {
 
 // DirectoryMapFromDir reads in the dirmap from the supplied dir
 // It does not check anything or compute anythiing
-func DirectoryMapFromDir(directory string) DirectoryMap {
+func DirectoryMapFromDir(directory string) (dm DirectoryMap) {
 	// Read in the xml structure to a map/array
-	var dm DirectoryMap
 	dm = *NewDirectoryMap()
 	if dm.mp == nil {
 		log.Fatal("Initialize malfunction!")
@@ -112,26 +111,32 @@ func DirectoryMapFromDir(directory string) DirectoryMap {
 	var f *os.File
 	_, err := os.Stat(fn)
 
-	if !os.IsNotExist(err) {
-		f, err = os.Open(fn)
-
-		if err != nil {
-			log.Fatalf("error opening file: %T,%v\n", err, err)
-		}
-		byteValue, err := ioutil.ReadAll(f)
-		f.Close()
-		if err != nil {
-			log.Fatalf("error loading file: %T,%v\n", err, err)
-		}
-
-		dm.UnmarshalXML(byteValue)
-		//fmt.Printf("******\n%v\n*****%v\n****\n", dm, fileContents)
-		if dm.mp == nil {
-			log.Fatal("Learn to code Chris")
-		}
-		dm.PopulateDirectory(directory)
+	if os.IsNotExist(err) {
+		return
 	}
-	return dm
+	f, err = os.Open(fn)
+
+	if err != nil {
+		log.Printf("error opening directory map file: %T,%v\n", err, err)
+		log.Println("Which is odd as:", os.IsNotExist(err), err)
+		_, err := os.Stat(fn)
+		log.Println("and:", os.IsNotExist(err), err)
+		return
+	}
+	byteValue, err := ioutil.ReadAll(f)
+	f.Close()
+	if err != nil {
+		log.Fatalf("error loading file: %T,%v\n", err, err)
+	}
+
+	dm.UnmarshalXML(byteValue)
+	//fmt.Printf("******\n%v\n*****%v\n****\n", dm, fileContents)
+	if dm.mp == nil {
+		log.Fatal("Learn to code Chris")
+	}
+	dm.PopulateDirectory(directory)
+
+	return
 }
 
 // Len is how many items in the dm

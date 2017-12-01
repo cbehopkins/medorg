@@ -232,22 +232,114 @@ func CalcMd5File(directory, fn string) (string, error) {
 // Calculator is useful where we get streams of bytes in (e.g. from the network)
 // We expose an io.Writer
 // close the trigger chanel then wait for the writes to finish
-func Calculator(fp string) (iw io.Writer, trigger chan struct{}, wg sync.WaitGroup) {
+func Calculator(fp string) (iw io.Writer, trigger chan struct{}, wg *sync.WaitGroup) {
+	trigger = make(chan struct{})
+	wg = new(sync.WaitGroup)
+	iw = md5Calc(trigger, wg, fp)
+	return
+}
+func md5CalcInternal(h hash.Hash, wgl *sync.WaitGroup, fpl string, trigger chan struct{}) {
+	directory, fn := filepath.Split(fpl)
+	dm := DirectoryMapFromDir(directory)
+	completeCalc(trigger, directory, fn, h, dm)
+	dm.WriteDirectory(directory)
+	wgl.Done()
+}
+func completeCalc(trigger chan struct{}, directory string, fn string, h hash.Hash, dm DirectoryMap) {
+	<-trigger
+	fs := FsFromName(directory, fn)
+	fs.Checksum = ReturnChecksumString(h)
+	dm.Add(fs)
+}
+
+// CalcBuffer holds onto writing the directory until later
+// Intermittantly writes
+type CalcBuffer struct {
+	sync.Mutex
+	buff   map[string]*DirectoryMap
+	closer chan struct{}
+	wg     sync.WaitGroup
+}
+
+// NewCalcBuffer return a calc buffer
+func NewCalcBuffer() *CalcBuffer {
+	itm := new(CalcBuffer)
+	itm.closer = make(chan struct{})
+  itm.buff = make(map[string]*DirectoryMap)
+	return itm
+}
+func (cb *CalcBuffer) Close() {
+	close(cb.closer)
+	cb.wg.Wait()
+	for dir, dm := range cb.buff {
+		dm.WriteDirectory(dir)
+	}
+}
+func md5Calc(trigger chan struct{}, wg *sync.WaitGroup, fp string) (iw io.Writer) {
+	var h hash.Hash
+	h = md5.New()
+	iw = io.Writer(h)
+	wg.Add(1)
+	go md5CalcInternal(h, wg, fp, trigger)
+	return
+}
+func (cb *CalcBuffer) Calculate(fp string) (iw io.Writer, trigger chan struct{}) {
 	trigger = make(chan struct{})
 	var h hash.Hash
 	h = md5.New()
-	wg.Add(1)
-
-	go func() {
-		directory, fn := filepath.Split(fp)
-		dm := DirectoryMapFromDir(directory)
-		<-trigger
-		fs := FsFromName(directory, fn)
-		fs.Checksum = ReturnChecksumString(h)
-		dm.Add(fs)
-		dm.WriteDirectory(directory)
-		wg.Done()
-	}()
 	iw = io.Writer(h)
+	cb.wg.Add(1)
+	go cb.calcer(fp, h, trigger)
 	return
+}
+func (cb *CalcBuffer) calcer(fp string, h hash.Hash, trigger chan struct{}) {
+  dm,dir,fn:=cb.getFp(fp)
+	completeCalc(trigger, dir, fn, h, *dm)
+	cb.wg.Done()
+}
+
+// worker intermittantly writes one of the items to the disk
+func (cb *CalcBuffer) worker() {
+	for {
+		select {
+		case <-cb.closer:
+			return
+		default:
+			cb.writeRandom()
+			time.After(time.Second * 10)
+		}
+	}
+}
+func (cb *CalcBuffer) getFp(fp string) (dm *DirectoryMap, dir,fn string) {
+	dir, fn = filepath.Split(fp)
+	dm = cb.getDir(dir)
+return
+}
+// getDir returns a (cached) DirectoryMap for the directory in question
+func (cb *CalcBuffer) getDir(dir string) (dm *DirectoryMap) {
+	var ok bool
+	cb.Lock()
+	dm, ok = cb.buff[dir]
+	cb.Unlock()
+	if ok {
+		return
+	}
+
+	*dm = DirectoryMapFromDir(dir)
+
+	cb.Lock()
+	cb.wg.Add(1)
+	cb.buff[dir] = dm
+	cb.Unlock()
+	return
+}
+func (cb *CalcBuffer) writeRandom() {
+	cb.Lock()
+	defer cb.Unlock()
+	//pick a random item
+	for dir, dm := range cb.buff {
+		dm.WriteDirectory(dir)
+		delete(cb.buff, dir)
+		return
+	}
 }

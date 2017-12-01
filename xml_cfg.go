@@ -24,16 +24,16 @@ func NewXMLCfg(fn string) *XMLCfg {
 		f, err = os.Open(fn)
 
 		if err != nil {
-			log.Fatalf("error opening file: %T,%v\n", err, err)
+			log.Fatalf("error opening NewXMLCfg file: %T,%v\n", err, err)
 		}
 		byteValue, err := ioutil.ReadAll(f)
 		f.Close()
 		if err != nil {
-			log.Fatalf("error loading file: %T,%v\n", err, err)
+			log.Fatalf("error loading NewXMLCfg file: %T,%v\n", err, err)
 		}
 		err = itm.UnmarshalXML(byteValue)
 		if err != nil {
-			log.Fatal("Unable to unmarshal config", err)
+			log.Fatal("Unable to unmarshal config, NewXMLCfg", err)
 		}
 	}
 	return itm
