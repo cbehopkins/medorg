@@ -5,8 +5,6 @@ import (
 	"log"
 	"strconv"
 
-	"path/filepath"
-
 	"github.com/icza/gowut/gwu"
 )
 
@@ -105,20 +103,29 @@ func FileWin(path string) gwu.Window {
 	win.Style().SetFullWidth()
 	win.SetHAlign(gwu.HACenter)
 	win.SetCellPadding(2)
-
-	// A panel for each major thing
-	panelTb := gwu.NewHorizontalPanel()
-	button := gwu.NewButton("Parent")
-	listTable := popDirect(path, panelTb)
-
-	button.AddEHandler(&dirProcessHandler{dir: path, pan: panelTb, gtab: listTable}, gwu.ETypeClick)
-
-	panelTb.Add(listTable)
-	panelTb.Add(button)
+	var prev gwu.Panel
+	panelTb := newPanel(path, prev, myWindow{win})
 	win.Add(panelTb)
 	return win
 }
-func popDirect(path string, pan gwu.Panel) gwu.Table {
+func newPanel(path string, prev gwu.Panel, win myWindow) gwu.Panel {
+	// A panel for each major thing
+	panelTb := gwu.NewHorizontalPanel()
+	button := gwu.NewButton("Parent")
+	if prev == nil {
+		prev = panelTb
+	}
+	listTable := popDirect(path, panelTb, prev, win)
+	log.Printf("New Table for directory:%s\n%v\n", path, listTable)
+	button.AddEHandler(&dirProcessHandler{win: win, dir: path, current:panelTb, parent: prev}, gwu.ETypeClick)
+	log.Println("Creating Button with:", prev)
+	panelTb.Add(listTable)
+	panelTb.Add(button)
+	return panelTb
+}
+
+// Populate the directory
+func popDirect(path string, pan gwu.Panel, prev gwu.Panel, win myWindow) gwu.Table {
 	listTable := gwu.NewTable()
 	fs := FlSt{
 		gtab: listTable,
@@ -126,7 +133,7 @@ func popDirect(path string, pan gwu.Panel) gwu.Table {
 		dir:  path,
 	}
 	sts := getFiles(path)
-	fs.popStatus(sts)
+	fs.popStatus(sts, prev, win)
 	return listTable
 }
 func (fs *FlSt) buildTable(x, y int) {
@@ -136,8 +143,9 @@ func (fs *FlSt) buildTable(x, y int) {
 		}
 	}
 }
-func (fs *FlSt) popStatus(stats []Stats) {
-	//log.Println("Building table of length", len(stats))
+
+// Populate the status
+func (fs *FlSt) popStatus(stats []Stats, prev gwu.Panel, win myWindow) {
 	fs.buildTable(2, len(stats))
 	for i, v := range stats {
 		fs.setTxt(0, i, strconv.Itoa(i))
@@ -147,10 +155,12 @@ func (fs *FlSt) popStatus(stats []Stats) {
 			fs.setDir(1, i)
 		}
 		// Add in an event handler on mouse click to do whatever flProcessHandler wants to
-		fs.ltab[i][1].AddEHandler(&flProcessHandler{fs.ltab[i][1], fs}, gwu.ETypeClick)
+		fs.ltab[i][1].AddEHandler(&flProcessHandler{lab: fs.ltab[i][1], prev: prev, fs: fs, win: win}, gwu.ETypeClick)
 	}
 }
-
+type myWindow struct {
+	gwu.Window
+}
 type Stats struct {
 	Name      string
 	Directory bool
@@ -163,42 +173,48 @@ func (s Stats) String() string {
 }
 
 type flProcessHandler struct {
-	lab gwu.Label
-	fs  *FlSt
+	lab  gwu.Label
+	prev gwu.Panel
+	fs   *FlSt
+	win   myWindow
 }
 
 func (h *flProcessHandler) HandleEvent(e gwu.Event) {
 	if _, isLabel := e.Src().(gwu.Label); isLabel {
-		//h.lab.SetText("")
-		//e.MarkDirty(h.lab)
-
-		// TBD add ability to change up a directory
 		path := h.fs.dir + "/" + h.lab.Text()
+		// TBD add in test for if is a directory
 		h.changeDir(path, e)
 	}
 }
 func (h *flProcessHandler) changeDir(
 	path string,
 	e gwu.Event) {
-	listTable := popDirect(path, h.fs.pan)
-	h.fs.pan.Remove(h.fs.gtab)
-	h.fs.pan.Add(listTable)
-	e.MarkDirty(h.fs.pan)
+	prev := h.prev
+	win := h.win
+	NP := newPanel(path, prev, win)
+	log.Printf("CD to directory:%s\n%v\n", path, NP)
+
+	h.win.Remove(prev)
+	h.win.Add(NP)
+	e.MarkDirty(h.win)
 }
 
 type dirProcessHandler struct {
-	dir  string
-	pan  gwu.Panel
-	gtab gwu.Table
+	dir     string
+	win     myWindow
+	current gwu.Panel
+	parent  gwu.Panel
 }
 
 func (h *dirProcessHandler) HandleEvent(e gwu.Event) {
 	if _, isButton := e.Src().(gwu.Button); isButton {
-		path := filepath.Dir(h.dir)
-		listTable := popDirect(path, h.pan)
-		h.gtab = listTable
-		h.pan.Remove(h.gtab)
-		h.pan.Add(listTable)
-		e.MarkDirty(h.pan)
+		current := h.current
+		prev := h.parent
+		log.Println("Button Pressed with", h.win, prev)
+		h.win.Remove(current)
+		h.win.Add(prev)
+		//e.MarkDirty(current)
+		//e.MarkDirty(prev)
+		e.MarkDirty(h.win)
 	}
 }

@@ -265,7 +265,7 @@ type CalcBuffer struct {
 func NewCalcBuffer() *CalcBuffer {
 	itm := new(CalcBuffer)
 	itm.closer = make(chan struct{})
-  itm.buff = make(map[string]*DirectoryMap)
+	itm.buff = make(map[string]*DirectoryMap)
 	return itm
 }
 func (cb *CalcBuffer) Close() {
@@ -293,7 +293,7 @@ func (cb *CalcBuffer) Calculate(fp string) (iw io.Writer, trigger chan struct{})
 	return
 }
 func (cb *CalcBuffer) calcer(fp string, h hash.Hash, trigger chan struct{}) {
-  dm,dir,fn:=cb.getFp(fp)
+	dm, dir, fn := cb.getFp(fp)
 	completeCalc(trigger, dir, fn, h, *dm)
 	cb.wg.Done()
 }
@@ -310,11 +310,12 @@ func (cb *CalcBuffer) worker() {
 		}
 	}
 }
-func (cb *CalcBuffer) getFp(fp string) (dm *DirectoryMap, dir,fn string) {
+func (cb *CalcBuffer) getFp(fp string) (dm *DirectoryMap, dir, fn string) {
 	dir, fn = filepath.Split(fp)
 	dm = cb.getDir(dir)
-return
+	return
 }
+
 // getDir returns a (cached) DirectoryMap for the directory in question
 func (cb *CalcBuffer) getDir(dir string) (dm *DirectoryMap) {
 	var ok bool
@@ -325,8 +326,8 @@ func (cb *CalcBuffer) getDir(dir string) (dm *DirectoryMap) {
 		return
 	}
 
-	*dm = DirectoryMapFromDir(dir)
-
+	dmL := DirectoryMapFromDir(dir)
+	dm = &dmL
 	cb.Lock()
 	cb.wg.Add(1)
 	cb.buff[dir] = dm

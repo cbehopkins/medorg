@@ -60,12 +60,19 @@ func MvFile(srcDir, srcFn, dstDir, dstFn string) error {
 	} else {
 		dstDm = DirectoryMapFromDir(dstDir)
 	}
+
+	err := MoveFile(srcDir+"/"+srcFn, dstDir+"/"+dstFn)
+	if err != nil {
+		return err
+	}
+
 	srcDm.Rm(srcFn)
+	srcDm.WriteDirectory(srcDir)
 	dstFs := FsFromName(dstDir, dstFn)
 	dstDm.Add(dstFs)
 	dstDm.WriteDirectory(dstDir)
 
-	return MoveFile(srcDir+"/"+srcFn, dstDir+"/"+dstFn)
+	return nil
 }
 
 // CopyFile copies a file from src to dst. If src and dst files exist, and are

@@ -47,12 +47,9 @@ func main() {
 	server.SetText("Media Organiser")
 
 	// Create and build a window
-
 	fileWin := medorg.FileWin(".")
-	//
 
 	server.AddWin(fileWin)
 
 	server.Start("file") // Also opens windows list in browser
-	//server.Start("") // Also opens windows list in browser
 }

@@ -100,6 +100,7 @@ func main() {
 	var skpflg = flag.Bool("skipu", false, "Skip update phase - go stright to autofix")
 	var bldflg = flag.Bool("buildo", false, "Build Only - do not run autofix")
 	var autflg = flag.Bool("auto", false, "Autofix filenames: -rename and -delete turn this on")
+	var conflg = flag.Bool("conc", false, "Concentrate files together in same directory")
 	flag.Parse()
 	AF.DeleteFiles = *delflg
 	AF.RenameFiles = *rnmflg
@@ -134,6 +135,25 @@ func main() {
 				tw.SetBuildComplete()
 			}
 			tw.WalkTree(directory, wkFun, nil)
+		}
+	}
+	if *conflg {
+		for _, directory := range directories {
+			//wf := func(srcDir, fn string, fs medorg.FileStruct, dm *medorg.DirectoryMap) bool {
+			//	return AF.Consolidate(srcDir, fn, directory)
+			//}
+			df := func(dir string, dm *medorg.DirectoryMap) bool {
+				var moved bool
+				fc := func(fn string, fs FileStruct) {
+					var mov bool
+					mov = AF.Consolidate(dir, fn, directory)
+					moved = moved || mov
+				}
+				dm.Range(fc)
+				return moved
+			}
+			tw := medorg.NewTreeWalker()
+			tw.WalkTree(directory, nil, df)
 		}
 	}
 }

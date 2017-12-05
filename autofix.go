@@ -53,7 +53,8 @@ func (af *AutoFix) afInit(dl []string) {
 	}
 }
 
-func stripExtension(fn string) (base, extension string) {
+// StripExtension removes off any known extensions and returns it with modified filename
+func StripExtension(fn string) (base, extension string) {
 	for _, ext := range KnownExtensions {
 		withDot := "." + ext
 		if strings.HasSuffix(fn, withDot) {
@@ -179,12 +180,12 @@ func (af AutoFix) CheckRename(fs FileStruct) (FileStruct, bool) {
 
 	// If what we would like to call it already exists
 	// Rewrite the name to be a non-conflicting (n) format
-	base, extension := stripExtension(fs.Name)
+	base, extension := StripExtension(fs.Name)
 	if extension == "" {
 		// Do nothing for files we don't recognise
 		return fs, false
 	}
-	for base2, ext2 := stripExtension(base); ext2 != ""; base2, ext2 = stripExtension(base) {
+	for base2, ext2 := StripExtension(base); ext2 != ""; base2, ext2 = StripExtension(base) {
 		//fmt.Println("Base further modified", base2, base)
 		base = base2
 		modified = true
@@ -200,19 +201,7 @@ func (af AutoFix) CheckRename(fs FileStruct) (FileStruct, bool) {
 		return fs, false
 	}
 
-	pfn := fn1 + extension
-	if FileExist(directory, pfn) {
-		exist := true
-		for i := 0; exist; i++ {
-			pfn, exist = potentialFilename(directory, fn1, extension, i)
-			if pfn == fs.Name {
-				// If we are back to our origional
-				// break!
-				exist = false
-			}
-		}
-	}
-	fsNew.Name = pfn
+	fsNew.Name = ResolveFnClash(directory, fn1, extension, fs.Name)
 	if fsNew.Name != fs.Name {
 		log.Println("Rename:", fs.Path(), " to ", fsNew.Path())
 		if af.RenameFiles {
@@ -229,4 +218,40 @@ func (af AutoFix) CheckRename(fs FileStruct) (FileStruct, bool) {
 		}
 	}
 	return fs, false
+}
+func ResolveFnClash(directory, fn string, extension, orig string) string {
+	pfn := fn + extension
+	if FileExist(directory, pfn) {
+		exist := true
+		for i := 0; exist; i++ {
+			pfn, exist = potentialFilename(directory, fn, extension, i)
+			if pfn == orig {
+				// If we are back to our origional
+				// break!
+				exist = false
+			}
+		}
+	}
+	return pfn
+}
+
+// Consolidate files into a dest directory
+// Returns true if the file was actually moved
+func (af AutoFix) Consolidate(srcDir, fn, dstDir string) bool {
+	strippedFn, ext := StripExtension(fn)
+	if ext == "" {
+		// unknown extension
+		return false
+	}
+	strippedFn, _ = af.stripNumber(strippedFn)
+	newFn := ResolveFnClash(dstDir, strippedFn, ext, fn)
+	err := MvFile(srcDir, fn, dstDir, newFn)
+	if err != nil {
+		log.Println("Failed to move", srcDir, fn, dstDir, newFn)
+		return false
+	}
+	removeMd5(srcDir)
+
+	return true
+
 }
