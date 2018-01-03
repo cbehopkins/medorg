@@ -142,15 +142,15 @@ func main() {
 			//wf := func(srcDir, fn string, fs medorg.FileStruct, dm *medorg.DirectoryMap) bool {
 			//	return AF.Consolidate(srcDir, fn, directory)
 			//}
-			df := func(dir string, dm *medorg.DirectoryMap) bool {
+			df := func(dir string, dm *medorg.DirectoryMap) {
 				var moved bool
-				fc := func(fn string, fs FileStruct) {
+				fc := func(fn string, fs medorg.FileStruct) {
 					var mov bool
 					mov = AF.Consolidate(dir, fn, directory)
 					moved = moved || mov
 				}
 				dm.Range(fc)
-				return moved
+				return
 			}
 			tw := medorg.NewTreeWalker()
 			tw.WalkTree(directory, nil, df)

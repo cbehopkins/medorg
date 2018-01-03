@@ -246,10 +246,12 @@ func md5CalcInternal(h hash.Hash, wgl *sync.WaitGroup, fpl string, trigger chan 
 	wgl.Done()
 }
 func completeCalc(trigger chan struct{}, directory string, fn string, h hash.Hash, dm DirectoryMap) {
+	tr := logSlow("CompleteCalc" + fn)
 	<-trigger
 	fs := FsFromName(directory, fn)
 	fs.Checksum = ReturnChecksumString(h)
 	dm.Add(fs)
+	close(tr)
 }
 
 // CalcBuffer holds onto writing the directory until later
@@ -270,10 +272,15 @@ func NewCalcBuffer() *CalcBuffer {
 }
 func (cb *CalcBuffer) Close() {
 	close(cb.closer)
+	fmt.Println("CalcBuffer waiting for workers to complete")
+	cb.wg.Add(1)
+	cb.wg.Done()
 	cb.wg.Wait()
+	fmt.Println("Calc Buffer workers complete")
 	for dir, dm := range cb.buff {
 		dm.WriteDirectory(dir)
 	}
+	fmt.Println("CalcBuffer finished Flushing")
 }
 func md5Calc(trigger chan struct{}, wg *sync.WaitGroup, fp string) (iw io.Writer) {
 	var h hash.Hash
@@ -289,13 +296,17 @@ func (cb *CalcBuffer) Calculate(fp string) (iw io.Writer, trigger chan struct{})
 	h = md5.New()
 	iw = io.Writer(h)
 	cb.wg.Add(1)
-	go cb.calcer(fp, h, trigger)
+	tr := logSlow("Calculate" + fp)
+	go func() {
+		cb.calcer(fp, h, trigger)
+		close(tr)
+		cb.wg.Done()
+	}()
 	return
 }
 func (cb *CalcBuffer) calcer(fp string, h hash.Hash, trigger chan struct{}) {
 	dm, dir, fn := cb.getFp(fp)
 	completeCalc(trigger, dir, fn, h, *dm)
-	cb.wg.Done()
 }
 
 // worker intermittantly writes one of the items to the disk
@@ -329,7 +340,6 @@ func (cb *CalcBuffer) getDir(dir string) (dm *DirectoryMap) {
 	dmL := DirectoryMapFromDir(dir)
 	dm = &dmL
 	cb.Lock()
-	cb.wg.Add(1)
 	cb.buff[dir] = dm
 	cb.Unlock()
 	return
@@ -343,4 +353,21 @@ func (cb *CalcBuffer) writeRandom() {
 		delete(cb.buff, dir)
 		return
 	}
+}
+func logSlow(fn string) chan struct{} {
+	startTime := time.Now()
+	closeChan := make(chan struct{})
+	go func() {
+		log.Println("Started computing:\"", fn, "\"", " At:", startTime)
+		defer log.Println("Finsihed computing:\"", fn, "\"", " At:", time.Now())
+		for {
+			select {
+			case <-closeChan:
+				return
+			case <-time.After(time.Minute):
+				log.Println("Still Computing:\"", fn, "\"", " After:", time.Since(startTime))
+			}
+		}
+	}()
+	return closeChan
 }

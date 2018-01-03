@@ -3,6 +3,7 @@ package medorg
 import (
 	"log"
 	"os"
+	"time"
 )
 
 // FileStruct contains all the properties associated with a file
@@ -13,9 +14,10 @@ type FileStruct struct {
 	Name     string `xml:"fname,attr"`
 	Checksum string `xml:"checksum,attr"`
 
-	Mtime int64    `xml:"mtime,attr,omitempty"`
-	Size  int64    `xml:"size,attr,omitempty"`
-	Tags  []string `xml:"tags,omitempty"`
+	Mtime    int64    `xml:"mtime,attr,omitempty"`
+	Size     int64    `xml:"size,attr,omitempty"`
+	Analysed int      `xml:"analysed,omitempty"`
+	Tags     []string `xml:"tags,omitempty"`
 }
 
 func (fs FileStruct) String() string {
@@ -43,12 +45,24 @@ func (fs FileStruct) Path() string {
 // FsFromName creates a file struct from the supplied name
 func FsFromName(directory, fn string) FileStruct {
 	fp := directory + "/" + fn
-	fs, err := os.Stat(fp)
 
-	if os.IsNotExist(err) {
-		log.Fatal("Asked to create a fs for a file that does not exist", fp)
+	var fExist bool
+	var fs os.FileInfo
+	var err error
+	for i := 0; !fExist && (i < 3); i++ {
+		// It can take a little while after file creation for this to appear!
+		fs, err = os.Stat(fp)
+
+		if !os.IsNotExist(err) {
+			fExist = true
+		} else {
+      log.Println("Sleeping until file appears:", fp)
+			time.Sleep(time.Second)
+		}
 	}
-
+	if !fExist {
+		log.Println("Asked to create a fs for a file that does not exist", fp)
+	}
 	itm := new(FileStruct)
 	itm.Name = fn
 	itm.Mtime = fs.ModTime().Unix()

@@ -152,17 +152,20 @@ func (af AutoFix) stripNumber(fn string) (string, bool) {
 	}
 	return fn, false
 }
-func (af AutoFix) stripDomains(fn string) (string, bool) {
+func (af AutoFix) stripDomains(fn string) (newFn string, modified bool) {
+	newFn = fn
 	for _, re := range af.ReDomainList {
-		strA := re.FindStringSubmatch(fn)
+		strA := re.FindStringSubmatch(newFn)
 		if len(strA) == 2 {
-			return strA[1], true
+			modified = true
+			newFn = strA[1]
 		}
 		if len(strA) == 3 {
-			return strA[1] + strA[2], true
+			modified = true
+			newFn = strA[1] + strA[2]
 		}
 	}
-	return fn, false
+	return
 }
 func potentialFilename(directory, fn, extension string, i int) (string, bool) {
 	potentialFn := fn + "(" + strconv.Itoa(i) + ")" + extension
@@ -206,7 +209,11 @@ func (af AutoFix) CheckRename(fs FileStruct) (FileStruct, bool) {
 		log.Println("Rename:", fs.Path(), " to ", fsNew.Path())
 		if af.RenameFiles {
 			if !testMode {
-				MoveFile(fs.Path(), fsNew.Path())
+				err := MoveFile(fs.Path(), fsNew.Path())
+				if err != nil {
+					log.Println("Failed to move:", fs.Path(), "\nTo:", fsNew.Path(), "\nBecause:", err)
+					return fs, false
+				}
 				fp := fsNew.Path()
 				fss, err := os.Stat(fp)
 				if os.IsNotExist(err) {

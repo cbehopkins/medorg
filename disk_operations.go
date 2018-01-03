@@ -123,6 +123,12 @@ func RemoveFile(fn string) error {
 // The inbuilt functions can struccle if hard links won't work
 // i.e. you want to move between mount points
 func MoveFile(src, dst string) (err error) {
+	if _, err := os.Stat(src); os.IsNotExist(err) {
+		return err
+	}
+	if _, err := os.Stat(dst); os.IsExist(err) {
+		return err
+	}
 	err = CopyFile(src, dst)
 	if err != nil {
 		log.Fatalf("Copy problem\nType:%T\nVal:%v\n", err, err)

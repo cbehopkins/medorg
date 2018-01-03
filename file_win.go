@@ -117,7 +117,7 @@ func newPanel(path string, prev gwu.Panel, win myWindow) gwu.Panel {
 	}
 	listTable := popDirect(path, panelTb, prev, win)
 	log.Printf("New Table for directory:%s\n%v\n", path, listTable)
-	button.AddEHandler(&dirProcessHandler{win: win, dir: path, current:panelTb, parent: prev}, gwu.ETypeClick)
+	button.AddEHandler(&dirProcessHandler{win: win, dir: path, current: panelTb, parent: prev}, gwu.ETypeClick)
 	log.Println("Creating Button with:", prev)
 	panelTb.Add(listTable)
 	panelTb.Add(button)
@@ -158,6 +158,7 @@ func (fs *FlSt) popStatus(stats []Stats, prev gwu.Panel, win myWindow) {
 		fs.ltab[i][1].AddEHandler(&flProcessHandler{lab: fs.ltab[i][1], prev: prev, fs: fs, win: win}, gwu.ETypeClick)
 	}
 }
+
 type myWindow struct {
 	gwu.Window
 }
@@ -176,7 +177,7 @@ type flProcessHandler struct {
 	lab  gwu.Label
 	prev gwu.Panel
 	fs   *FlSt
-	win   myWindow
+	win  myWindow
 }
 
 func (h *flProcessHandler) HandleEvent(e gwu.Event) {
