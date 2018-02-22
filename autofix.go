@@ -24,12 +24,21 @@ type AutoFix struct {
 	RenameFiles  bool
 	ReStaticNum  *regexp.Regexp
 	ReDomainList []*regexp.Regexp
+	FileHash     map[string]FileStruct
+}
+
+// InitFileHash needs to be run before we can use the master ceckers
+func (af *AutoFix) InitFileHash() {
+	if af.FileHash == nil {
+		af.FileHash = make(map[string]FileStruct)
+	}
 }
 
 // NewAutoFix reads in descriptions from an array
 func NewAutoFix(dl []string) *AutoFix {
 	itm := new(AutoFix)
 	itm.afInit(dl)
+	itm.InitFileHash()
 	return itm
 }
 
@@ -152,17 +161,26 @@ func (af AutoFix) stripNumber(fn string) (string, bool) {
 	}
 	return fn, false
 }
-func (af AutoFix) stripDomains(fn string) (newFn string, modified bool) {
+func (af AutoFix) stripRegEx(fn string) (newFn string, modified bool) {
 	newFn = fn
-	for _, re := range af.ReDomainList {
-		strA := re.FindStringSubmatch(newFn)
-		if len(strA) == 2 {
-			modified = true
-			newFn = strA[1]
+	doWork := true
+	for doWork {
+		doWork = false
+		var modifiedInner bool
+		for _, re := range af.ReDomainList {
+			strA := re.FindStringSubmatch(newFn)
+			if len(strA) == 2 {
+				modifiedInner = true
+				newFn = strA[1]
+			}
+			if len(strA) == 3 {
+				modifiedInner = true
+				newFn = strA[1] + strA[2]
+			}
 		}
-		if len(strA) == 3 {
+		if modifiedInner {
+			doWork = true
 			modified = true
-			newFn = strA[1] + strA[2]
 		}
 	}
 	return
@@ -196,8 +214,14 @@ func (af AutoFix) CheckRename(fs FileStruct) (FileStruct, bool) {
 
 	fn1, mod := af.stripNumber(base)
 	modified = modified || mod
-	fn1, mod = af.stripDomains(fn1)
+	fn1, mod = af.stripRegEx(fn1)
 	modified = modified || mod
+
+	deDuplicate := []string{".", " "}
+	deSuffix := deDuplicate
+	var lm bool
+	fn1, lm = af.destringize(deDuplicate, deSuffix, fn1)
+	modified = modified || lm
 
 	if !modified {
 		// Changed nothing, so go no further
@@ -226,6 +250,35 @@ func (af AutoFix) CheckRename(fs FileStruct) (FileStruct, bool) {
 	}
 	return fs, false
 }
+
+func (af AutoFix) destringize(deDuplicate, deSuffix []string, fn1 string) (string, bool) {
+	var modified bool
+	for _, dd := range deDuplicate {
+		fn1, modified = af.replaceDoubles(dd, fn1, modified)
+	}
+	for _, ds := range deSuffix {
+		fn1, modified = af.removeSuffix(ds, fn1, modified)
+	}
+	return fn1, modified
+}
+
+func (af AutoFix) removeSuffix(ds string, fn1 string, modified bool) (string, bool) {
+	if strings.HasSuffix(fn1, ds) {
+		fn1 = fn1[:len(fn1)-len(ds)]
+		modified = true
+	}
+	return fn1, modified
+}
+
+func (af AutoFix) replaceDoubles(dd string, fn1 string, modified bool) (string, bool) {
+	ddd := dd + dd
+	for strings.Contains(fn1, ddd) {
+		fn1 = strings.Replace(fn1, ddd, dd, -1)
+		modified = true
+	}
+	return fn1, modified
+}
+
 func ResolveFnClash(directory, fn string, extension, orig string) string {
 	pfn := fn + extension
 	if FileExist(directory, pfn) {
@@ -261,4 +314,45 @@ func (af AutoFix) Consolidate(srcDir, fn, dstDir string) bool {
 
 	return true
 
+}
+
+// WkFun Walk function across the supplied directories
+func (af *AutoFix) WkFun(directory, fn string, fs FileStruct, dm *DirectoryMap) bool {
+	var modified bool
+	if fs.Directory() != directory {
+		log.Fatal("Structure Problem for", directory, fn)
+	}
+	if fs.Size == 0 {
+		log.Println("Zero Length File")
+		if af.DeleteFiles {
+			err := dm.RmFile(directory, fn)
+			if err != nil {
+				log.Fatal("Couldn't delete file", directory, fn)
+			}
+		}
+		return true
+	}
+	// now look to see if we should rename the file
+	var mod bool
+	fs, mod = af.CheckRename(fs)
+	modified = modified || mod
+
+	// Check if two of the checksums are equal
+	cSum := fs.Checksum
+	oldFs, ok := af.FileHash[cSum]
+	if ok {
+		if fs.Size == oldFs.Size {
+			fs, mod = af.ResolveTwo(fs, oldFs)
+			modified = modified || mod
+		}
+	}
+
+	af.FileHash[cSum] = fs
+	if modified {
+		//fmt.Println("Modified FS:", fs)
+		dm.Rm(fn)
+		dm.Add(fs)
+	}
+	// Return true when we modify dm
+	return modified
 }

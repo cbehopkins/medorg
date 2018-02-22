@@ -117,7 +117,13 @@ func UpdateDirectory(directory string, mf ModifyFunc) {
 	walkFunc(directory, walkFunc)
 }
 
-func updateDirectory(directory string, calcFunc CalcingFunc, walkFunc WalkingFunc, pendTok, dirTok chan struct{}, mf ModifyFunc) {
+func updateDirectory(
+	directory string, // The directory to update
+	calcFunc CalcingFunc, // A function which will calculate a new checksum (If Missing)
+	walkFunc WalkingFunc, // A function that will walk the
+	pendTok, dirTok chan struct{},
+	mf ModifyFunc, // If (and when) the checksum exists. Run this to allow modification of the file
+) {
 	var dwg sync.WaitGroup
 	var fwg sync.WaitGroup
 	closeChan := make(chan struct{})
@@ -170,7 +176,7 @@ func updateDirectory(directory string, calcFunc CalcingFunc, walkFunc WalkingFun
 						dm.Add(fs)
 					}
 				}
-			} else {
+			} else if calcFunc != nil {
 				<-pendTok
 				fwg.Add(1)
 				go func() {
