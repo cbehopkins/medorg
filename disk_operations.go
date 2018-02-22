@@ -22,9 +22,9 @@ func tempfilename(dirName string, create bool) string {
 		log.Fatal("Unable to create a temporary file!", err)
 	}
 	filename := tmpfile.Name()
-	tmpfile.Close()
+	_ = tmpfile.Close()
 	if !create {
-		os.Remove(filename)
+		_ = os.Remove(filename)
 	}
 	return filename
 }
@@ -33,7 +33,7 @@ func tempfilename(dirName string, create bool) string {
 func removeMd5(directory string) {
 	fn := directory + "/" + Md5FileName
 	if _, err := os.Stat(fn); !os.IsNotExist(err) {
-		os.Remove(fn)
+		_ = os.Remove(fn)
 	}
 }
 
@@ -109,7 +109,7 @@ func CopyFile(src, dst string) (err error) {
 }
 func rmFilename(fn string) {
 	if _, err := os.Stat(fn); err == nil {
-		os.Remove(fn)
+		_ = os.Remove(fn)
 	}
 }
 
@@ -145,7 +145,7 @@ func copyFileContents(src, dst string) (err error) {
 	if err != nil {
 		return
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 	out, err := os.Create(dst)
 	if err != nil {
 		return
@@ -182,7 +182,7 @@ func LoadFile(filename string) (theChan chan string) {
 			os.Exit(1)
 			return
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 
 		r := bufio.NewReader(f)
 		for s, e := Readln(r); e == nil; s, e = Readln(r) {

@@ -5,6 +5,7 @@ import (
 	"log"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 type reffer struct {
@@ -16,12 +17,14 @@ func (rf reffer) Key() string {
 	return rf.fn + strconv.FormatInt(rf.size, 10)
 }
 
-type trackerMap map[string]string
+type trackerMap struct {
+	tm map[string]string
+	lk *sync.RWMutex
+}
 
 // TreeWalker walks througha  directory tree
 type TreeWalker struct {
 	buildComplete bool
-	tracker       trackerMap
 }
 
 // NewTreeWalker creates a tree walker to control the walking of a directory
@@ -29,10 +32,13 @@ func NewTreeWalker() *TreeWalker {
 	itm := new(TreeWalker)
 	return itm
 }
-func (tw *TreeWalker) initTrackerMap() {
-	if tw.tracker == nil {
-		tw.tracker = make(map[string]string)
-	}
+
+//newTrackerMap create a new tracker of file structs
+func newTrackerMap() *trackerMap {
+	tm := new(trackerMap)
+	tm.tm = make(map[string]string)
+	tm.lk = new(sync.RWMutex)
+	return tm
 }
 
 // SetBuildComplete marks the directory xml complete
@@ -115,17 +121,19 @@ func (tw TreeWalker) WalkTreeMaster(directory string, wf WalkFunc, df DirectFunc
 	}
 }
 
-func (tw TreeWalker) trackWork(directory string, dm *DirectoryMap) {
+func (tw trackerMap) trackWork(directory string, dm *DirectoryMap) {
 	fc := func(fn string, fs FileStruct) {
 		if !FileExist(directory, fn) {
 			//fmt.Println("File dissapeared", fn)
 			keyer := reffer{fn, fs.Size}
-			tw.tracker[keyer.Key()] = fs.Checksum
+			tw.lk.Lock()
+			tw.tm[keyer.Key()] = fs.Checksum
+			tw.lk.Unlock()
 		}
 	}
 	dm.Range(fc)
 }
-func (tw TreeWalker) autoPopWork(directory, fn string, fs FileStruct, dm *DirectoryMap) bool {
+func (tw trackerMap) autoPopWork(directory, fn string, fs FileStruct, dm *DirectoryMap) bool {
 	_, ok := dm.Get(fn)
 	//fmt.Println("File:", fn, ok)
 	if ok {
@@ -133,25 +141,18 @@ func (tw TreeWalker) autoPopWork(directory, fn string, fs FileStruct, dm *Direct
 	}
 	fsl := FsFromName(directory, fn)
 	keyer := reffer{fn, fsl.Size}
-	cSum, ok := tw.tracker[keyer.Key()]
+	tw.lk.RLock()
+	cSum, ok := tw.tm[keyer.Key()]
+	tw.lk.RUnlock()
 	//fmt.Println("Found a file that does not exist", fn, keyer.Key(), ok)
 	if ok {
 		fsl.Checksum = cSum
 		dm.Add(fsl)
-		delete(tw.tracker, keyer.Key())
+		tw.lk.Lock()
+		delete(tw.tm, keyer.Key())
+		tw.lk.Unlock()
 
 		return true
 	}
 	return false
-}
-
-// MoveDetect
-func (tw *TreeWalker) MoveDetect(directories []string) {
-	tw.initTrackerMap()
-	for _, directory := range directories {
-		tw.WalkTree(directory, nil, tw.trackWork)
-	}
-	for _, directory := range directories {
-		tw.WalkTreeMaster(directory, tw.autoPopWork, nil, false)
-	}
 }

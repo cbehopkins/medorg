@@ -3,6 +3,7 @@ package medorg
 import (
 	"crypto/md5"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"hash"
 	"io"
@@ -23,6 +24,9 @@ var Debug bool
 // Md5FileName is the filename we use to save the data in
 const Md5FileName = ".md5_list.xml"
 const idleWriteDuration = 30 * time.Second
+
+//ErrSkipCheck Reports a checksum that we have skipped producing
+var ErrSkipCheck = errors.New("Skipping Checksum")
 
 // NewChannels creates a channel based method for creating checksums
 func NewChannels() (inputChan chan FileStruct, outputChan chan FileStruct, closedChan chan struct{}) {
@@ -120,16 +124,25 @@ func UpdateDirectory(directory string, mf ModifyFunc) {
 func updateDirectory(
 	directory string, // The directory to update
 	calcFunc CalcingFunc, // A function which will calculate a new checksum (If Missing)
-	walkFunc WalkingFunc, // A function that will walk the
+	walkFunc WalkingFunc, // A function that will walk the tree. Generally calls this func
 	pendTok, dirTok chan struct{},
 	mf ModifyFunc, // If (and when) the checksum exists. Run this to allow modification of the file
+) {
+	// Reduce the xml to only the items that exist
+	dm := reduceXMLFe(directory)
+	walkDirectory(directory, calcFunc, walkFunc, pendTok, dirTok, mf, dm)
+}
+func walkDirectory(
+	directory string, // The directory to update
+	calcFunc CalcingFunc, // Run this function when a checksum doesn;t exist
+	walkFunc WalkingFunc, // A function that will walk the tree. Generally calls this func
+	pendTok, dirTok chan struct{},
+	mf ModifyFunc, // If (and when) the checksum exists. Run this to allow modification of the fs
+	dm DirectoryMap,
 ) {
 	var dwg sync.WaitGroup
 	var fwg sync.WaitGroup
 	closeChan := make(chan struct{})
-	//<-dirTok
-	// Reduce the xml to only the items that exist
-	dm := reduceXMLFe(directory)
 
 	// Now read in all files in the current directory
 	stats, err := ioutil.ReadDir(directory)
@@ -185,13 +198,17 @@ func updateDirectory(
 					pendTok <- struct{}{}
 					if err == nil {
 						fs.Checksum = cs
+					}
+					if err == nil || err == ErrSkipCheck {
 						if mf != nil {
 							fsLocal, update := mf(directory, fn, fs)
 							if update {
 								fs = fsLocal
 							}
 						}
-						dm.Add(fs)
+						if err == nil {
+							dm.Add(fs)
+						}
 					} else {
 						log.Fatal("Error back from checksum calculation", err)
 					}
@@ -226,7 +243,7 @@ func CalcMd5File(directory, fn string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	var h hash.Hash
 	h = md5.New()
 	if _, err := io.Copy(h, f); err != nil {
@@ -276,6 +293,8 @@ func NewCalcBuffer() *CalcBuffer {
 	itm.buff = make(map[string]*DirectoryMap)
 	return itm
 }
+
+// Close the calcbuffer and write everything out
 func (cb *CalcBuffer) Close() {
 	close(cb.closer)
 	fmt.Println("CalcBuffer waiting for workers to complete")
@@ -296,6 +315,8 @@ func md5Calc(trigger chan struct{}, wg *sync.WaitGroup, fp string) (iw io.Writer
 	go md5CalcInternal(h, wg, fp, trigger)
 	return
 }
+
+// Calculate the result for the supplied file path
 func (cb *CalcBuffer) Calculate(fp string) (iw io.Writer, trigger chan struct{}) {
 	trigger = make(chan struct{})
 	var h hash.Hash

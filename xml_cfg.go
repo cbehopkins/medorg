@@ -27,11 +27,11 @@ func NewXMLCfg(fn string) *XMLCfg {
 			log.Fatalf("error opening NewXMLCfg file: %T,%v\n", err, err)
 		}
 		byteValue, err := ioutil.ReadAll(f)
-		f.Close()
+		_ = f.Close()
 		if err != nil {
 			log.Fatalf("error loading NewXMLCfg file: %T,%v\n", err, err)
 		}
-		err = itm.UnmarshalXML(byteValue)
+		err = itm.FromXML(byteValue)
 		if err != nil {
 			log.Fatal("Unable to unmarshal config, NewXMLCfg", err)
 		}
@@ -39,8 +39,8 @@ func NewXMLCfg(fn string) *XMLCfg {
 	return itm
 }
 
-// UnmarshalXML populate from an ba
-func (xc *XMLCfg) UnmarshalXML(input []byte) (err error) {
+// FromXML populate from an ba
+func (xc *XMLCfg) FromXML(input []byte) (err error) {
 	err = xml.Unmarshal(input, xc)
 	//fmt.Printf("Unmarshalling completed on:\n%v\nOutput:\n%v\n\n",input, xc)
 	switch err {

@@ -162,6 +162,8 @@ func (fs *FlSt) popStatus(stats []Stats, prev gwu.Panel, win myWindow) {
 type myWindow struct {
 	gwu.Window
 }
+
+//Stats represents the status of a file
 type Stats struct {
 	Name      string
 	Directory bool

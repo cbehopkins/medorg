@@ -43,7 +43,10 @@ func TestB2B(t *testing.T) {
 	log.Println(bob)
 	marshelled := bob.String()
 	fred := NewMd5File()
-	fred.UnmarshalXML([]byte(marshelled))
+	err = fred.FromXML([]byte(marshelled))
+	if err != nil {
+		log.Fatal("um error", err)
+	}
 	log.Println(fred)
 
 	log.Println("All Done")
@@ -113,7 +116,7 @@ func TestPerlCompat(t *testing.T) {
 	perlScript := "/home/cbh/home/script/perl/file_check.pl"
 	fileToUse := "checksum_test.go"
 	if _, err := os.Stat("./" + Md5FileName); os.IsExist(err) {
-		os.Remove("./" + Md5FileName)
+		_ = os.Remove("./" + Md5FileName)
 	}
 	log.Println("Running Command")
 	cmd := exec.Command(perlScript, ".")
@@ -132,7 +135,7 @@ func TestPerlCompat(t *testing.T) {
 	if checksum == "" {
 		log.Fatal("Missing Checksum from perl version")
 	}
-	os.Remove("./" + Md5FileName)
+	_ = os.Remove("./" + Md5FileName)
 	dm = *NewDirectoryMap()
 	toMd5Chan, toUpdateXML, closedChan := NewChannels()
 	wg := NewXMLManager(toUpdateXML)

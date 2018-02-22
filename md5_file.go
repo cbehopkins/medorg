@@ -30,8 +30,8 @@ func (md *Md5File) AddFile(filename string) {
 	md.Append(FileStruct{Name: filename})
 }
 
-// MarshalXML standard marshaller
-func (md Md5File) MarshalXML() (output []byte, err error) {
+// ToXML standard marshaller
+func (md Md5File) ToXML() (output []byte, err error) {
 	//output, err = xml.Marshal(md)
 
 	output, err = xml.MarshalIndent(md, "", "  ")
@@ -48,8 +48,8 @@ func (md Md5File) String() string {
 	return string(txt)
 }
 
-// UnmarshalXML Standard unmarshaller
-func (md *Md5File) UnmarshalXML(input []byte) (err error) {
+// FromXML Standard unmarshaller
+func (md *Md5File) FromXML(input []byte) (err error) {
 	err = xml.Unmarshal(input, md)
 	//fmt.Printf("Unmarshalling completed on:\n%v\nOutput:\n%v\n\n",input, md)
 	switch err {

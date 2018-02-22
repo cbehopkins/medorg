@@ -62,8 +62,9 @@ func main() {
 	if *delflg || *rnmflg {
 		*autflg = !*bldflg
 	}
+	pendCnt := *calcCnt + *walkCnt
 	if *mvdflg {
-		tw := medorg.NewTreeWalker()
+		tw := medorg.NewTreeUpdate(*walkCnt, *calcCnt, pendCnt)
 		tw.MoveDetect(directories)
 	}
 	// Subtle - we want the walk engine to be able to start a calc routing
@@ -71,7 +72,6 @@ func main() {
 	// i.e. we want the go scheduler to have some things queued up to do
 	// This allows us to set calcCnt to the amount of IO we want
 	// and walkCnt to be set to allow the directory structs to be hammered
-	pendCnt := *calcCnt + *walkCnt
 	for _, directory := range directories {
 		if !*skpflg {
 			tu := medorg.NewTreeUpdate(*walkCnt, *calcCnt, pendCnt)

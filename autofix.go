@@ -107,7 +107,7 @@ func scoreName(dir0, fn0, dir1, fn1 string) (score int) {
 		score -= 2
 	}
 	if len(fn0) > len(fn1) {
-		score -= 1
+		score--
 	}
 	if isXDirectory(dir0, "favs") {
 		score += 2
@@ -146,7 +146,7 @@ func (af AutoFix) ResolveTwo(fsOne, fsTwo FileStruct) (FileStruct, bool) {
 		// By definuition that's the second one
 		fn := fsTwo.Path()
 		log.Println("Deleting:", fn)
-		RemoveFile(fn)
+		_ = RemoveFile(fn)
 	} else {
 		log.Println("Delete:", fsTwo.Path(), " as ", fsOne.Path())
 	}
@@ -279,6 +279,7 @@ func (af AutoFix) replaceDoubles(dd string, fn1 string, modified bool) (string, 
 	return fn1, modified
 }
 
+// ResolveFnClash Resolve filename clashes
 func ResolveFnClash(directory, fn string, extension, orig string) string {
 	pfn := fn + extension
 	if FileExist(directory, pfn) {

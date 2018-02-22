@@ -7,11 +7,14 @@ import (
 
 // TreeUpdate runs through a tree and updates stuff
 type TreeUpdate struct {
-	walkerToken chan struct{}
-	calcToken   chan struct{}
-	closeChan   chan struct{}
-	pendToken   chan struct{}
-	wg          *sync.WaitGroup
+	walkCount, calcCount, pendCount int
+	walkerToken                     chan struct{}
+	calcToken                       chan struct{}
+	closeChan                       chan struct{}
+	pendToken                       chan struct{}
+	wg                              *sync.WaitGroup
+
+	tm *trackerMap
 }
 
 // Our Worker will allow up to items to be issued as tokens
@@ -48,16 +51,22 @@ func (tu TreeUpdate) worker(items int, ch chan struct{}) {
 
 // NewTreeUpdate creates a tree walker
 func NewTreeUpdate(walkCount, calcCount, pendCount int) (tu TreeUpdate) {
+	tu.walkCount, tu.calcCount, tu.pendCount = walkCount, calcCount, pendCount
+	tu.Init()
+	return
+}
+
+// Init initialise the struct
+func (tu *TreeUpdate) Init() {
 	tu.walkerToken = make(chan struct{})
 	tu.calcToken = make(chan struct{})
 	tu.pendToken = make(chan struct{})
 	tu.closeChan = make(chan struct{})
 	tu.wg = new(sync.WaitGroup)
 	tu.wg.Add(3)
-	go tu.worker(walkCount, tu.walkerToken)
-	go tu.worker(calcCount, tu.calcToken)
-	go tu.worker(pendCount, tu.pendToken)
-	return
+	go tu.worker(tu.walkCount, tu.walkerToken)
+	go tu.worker(tu.calcCount, tu.calcToken)
+	go tu.worker(tu.pendCount, tu.pendToken)
 }
 
 // ModifyFunc is what is called duriong the walk to allow modification of the fs
@@ -95,8 +104,67 @@ func (tu TreeUpdate) UpdateDirectory(directory string, mf ModifyFunc) {
 		}
 		updateDirectory(dir, tmpFunc, wkf, tu.pendToken, tu.walkerToken, mf)
 	}
+
+	tu.WalkDirectory(directory, walkFunc, mf)
+
+}
+
+// WalkDirectory walk the supplied directory using the walkfunc supplied
+// TBD remove ModifyFunc as unused
+func (tu TreeUpdate) WalkDirectory(directory string, walkFunc WalkingFunc, mf ModifyFunc) {
 	<-tu.walkerToken
 	walkFunc(directory, walkFunc)
 	tu.walkerToken <- struct{}{}
 	tu.Close()
+}
+
+// MoveDetect detect moved files by looking for files of same name and size
+// that have gone missing elsewhere
+func (tu *TreeUpdate) MoveDetect(directories []string) {
+	tu.tm = newTrackerMap()
+	cf := func(dir, fn string) (string, error) {
+		fsl := FsFromName(dir, fn)
+		keyer := reffer{fn, fsl.Size}
+		tu.tm.lk.RLock()
+		cSum, ok := tu.tm.tm[keyer.Key()]
+		tu.tm.lk.RUnlock()
+
+		if ok {
+			return cSum, nil
+		}
+		return "", ErrSkipCheck
+	}
+	wf := func(dir string, wkf WalkingFunc) {
+		dm := DirectoryMapFromDir(dir)
+		tu.tm.trackWork(dir, &dm)
+		//log.Println("Into:", dir)
+		walkDirectory(dir, nil, wkf, tu.pendToken, tu.walkerToken, nil, dm)
+		//log.Println("Out of:", dir)
+	}
+
+	<-tu.walkerToken
+	for _, directory := range directories {
+		//.WalkTree(directory, nil, tm.trackWork)
+		wf(directory, wf)
+		//log.Println("Walked:", directory)
+	}
+	tu.walkerToken <- struct{}{}
+	tu.Close()
+
+	tu.Init()
+	<-tu.walkerToken
+	pf := func(dir string, wkf WalkingFunc) {
+		dm := DirectoryMapFromDir(dir)
+		//log.Println("Pop Into:", dir)
+		walkDirectory(dir, cf, wkf, tu.pendToken, tu.walkerToken, nil, dm)
+		//log.Println("Pop Out of:", dir)
+
+	}
+	for _, directory := range directories {
+		//tu.WalkTreeMaster(directory, tm.autoPopWork, nil, false)
+		pf(directory, pf)
+	}
+	tu.walkerToken <- struct{}{}
+	tu.Close()
+	tu.Init()
 }

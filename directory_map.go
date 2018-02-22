@@ -25,8 +25,8 @@ func NewDirectoryMap() *DirectoryMap {
 	return itm
 }
 
-//MarshalXML is a standard marshaller
-func (dm DirectoryMap) MarshalXML() (output []byte, err error) {
+//ToXML is a standard marshaller
+func (dm DirectoryMap) ToXML() (output []byte, err error) {
 	m5f := NewMd5File()
 	dm.lock.RLock()
 	for key, value := range dm.mp {
@@ -37,13 +37,13 @@ func (dm DirectoryMap) MarshalXML() (output []byte, err error) {
 		}
 	}
 	dm.lock.RUnlock()
-	return m5f.MarshalXML()
+	return m5f.ToXML()
 }
 
-// UnmarshalXML is a standard unmarshaller
-func (dm *DirectoryMap) UnmarshalXML(input []byte) (err error) {
+// FromXML is a standard unmarshaller
+func (dm *DirectoryMap) FromXML(input []byte) (err error) {
 	var m5f Md5File
-	err = m5f.UnmarshalXML(input)
+	err = m5f.FromXML(input)
 	if err != nil {
 		return err
 	}
@@ -124,12 +124,15 @@ func DirectoryMapFromDir(directory string) (dm DirectoryMap) {
 		return
 	}
 	byteValue, err := ioutil.ReadAll(f)
-	f.Close()
+	_ = f.Close()
 	if err != nil {
 		log.Fatalf("error loading file: %T,%v\n", err, err)
 	}
 
-	dm.UnmarshalXML(byteValue)
+	err = dm.FromXML(byteValue)
+	if err != nil {
+		return
+	}
 	//fmt.Printf("******\n%v\n*****%v\n****\n", dm, fileContents)
 	if dm.mp == nil {
 		log.Fatal("Learn to code Chris")
@@ -165,7 +168,7 @@ func (dm DirectoryMap) WriteDirectory(directory string) {
 		return
 	}
 	// Write out a new Xml from the structure
-	ba, err := dm.MarshalXML()
+	ba, err := dm.ToXML()
 	switch err {
 	case nil:
 	case io.EOF:
