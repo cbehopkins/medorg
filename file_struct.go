@@ -56,7 +56,7 @@ func FsFromName(directory, fn string) FileStruct {
 		if !os.IsNotExist(err) {
 			fExist = true
 		} else {
-      log.Println("Sleeping until file appears:", fp)
+			log.Println("Sleeping until file appears:", fp)
 			time.Sleep(time.Second)
 		}
 	}
@@ -75,11 +75,6 @@ func FsFromName(directory, fn string) FileStruct {
 }
 
 func (fs FileStruct) checkDelete(directory, fn string) bool {
-	if (directory != fs.directory) || (fn != fs.Name) {
-		// TBD this should be able to be removed if tests prove good
-		log.Fatal("Mismatch in expected directoty and name")
-	}
-	//fp := directory + "/" + fn
 	fp := fs.Path()
 	if fn == "" {
 		if Debug {

@@ -158,7 +158,12 @@ func (dm DirectoryMap) Stale() bool {
 
 // WriteDirectory writes the dm out to the directory specified
 func (dm DirectoryMap) WriteDirectory(directory string) {
-	// TBD add in checking that all structs are in the correct directory
+	fc := func(fn string, fs FileStruct) {
+		if fs.Directory() != directory {
+			log.Fatal("Self check problem. FS has directory of ", fs.Directory, " for ", directory)
+		}
+	}
+	dm.Range(fc)
 	if !dm.Stale() {
 		return
 	}

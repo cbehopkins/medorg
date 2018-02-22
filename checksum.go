@@ -59,6 +59,8 @@ func md5Calcer(inputChan chan FileStruct, outputChan chan FileStruct, closedChan
 // NewXMLManager creates a new file manager
 // This receives FileStructs and stroes those contents in
 // an appropriate .md5_file.xml
+// Note there is now CalcBuffer which will cache open structs
+// This trades memory for cpu & IO
 func NewXMLManager(inputChan chan FileStruct) *sync.WaitGroup {
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -72,7 +74,6 @@ func managerWorker(inputChan chan FileStruct, wg *sync.WaitGroup) {
 		if direct == "" {
 			log.Fatal("Empty Directory description")
 		}
-		// TBD create a local cache and flush mechanism here
 		appendXML(direct, []FileStruct{fs})
 	}
 	log.Println("managerWorker closing")

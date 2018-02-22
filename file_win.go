@@ -24,7 +24,6 @@ func newInputCel(x, y int, tab gwu.Table) {
 	tab.Add(tmpTextBox, y, x)
 }
 func (fs *FlSt) getLabelRow(y int) []gwu.Label {
-	// TBD can we use cap here to save workload
 	numRows := len(fs.ltab)
 	if y < numRows {
 		return fs.ltab[y]
@@ -171,8 +170,14 @@ type Stats struct {
 }
 
 func (s Stats) String() string {
-	// TBD update this to return more
-	return s.Name
+	str := s.Name
+	if s.Directory {
+		str = "Directory:" + str
+	}
+	if s.Exe {
+		str = str + ":Executable"
+	}
+	return str
 }
 
 type flProcessHandler struct {
@@ -185,8 +190,9 @@ type flProcessHandler struct {
 func (h *flProcessHandler) HandleEvent(e gwu.Event) {
 	if _, isLabel := e.Src().(gwu.Label); isLabel {
 		path := h.fs.dir + "/" + h.lab.Text()
-		// TBD add in test for if is a directory
-		h.changeDir(path, e)
+		if isDir(path) {
+			h.changeDir(path, e)
+		}
 	}
 }
 func (h *flProcessHandler) changeDir(

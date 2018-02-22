@@ -66,7 +66,6 @@ func TestMd5(t *testing.T) {
 	// In the final application this will be the only thing that can update the xml files
 	wg := NewXMLManager(toUpdateXML)
 
-	// TBD do something better here
 	toMd5Chan <- FileStruct{Name: "bob", directory: "."}
 	log.Println("Sent the file to check")
 	close(toMd5Chan)

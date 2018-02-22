@@ -51,6 +51,22 @@ func FileExist(directory, fn string) bool {
 	return !os.IsNotExist(err)
 }
 
+// isDir is a quick check that it is a directory
+func IsDir(directory, fn string) bool {
+	fp := directory + "/" + fn
+	return isDir(fp)
+}
+func isDir(fp string) bool {
+	stat, err := os.Stat(fp)
+	if os.IsNotExist(err) {
+		return false
+	}
+	if !stat.IsDir() {
+		return false
+	}
+	return true
+}
+
 // MvFile moves a dile updating the md5 files as it goes
 func MvFile(srcDir, srcFn, dstDir, dstFn string) error {
 	var srcDm, dstDm DirectoryMap

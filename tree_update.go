@@ -105,13 +105,12 @@ func (tu TreeUpdate) UpdateDirectory(directory string, mf ModifyFunc) {
 		updateDirectory(dir, tmpFunc, wkf, tu.pendToken, tu.walkerToken, mf)
 	}
 
-	tu.WalkDirectory(directory, walkFunc, mf)
+	tu.WalkDirectory(directory, walkFunc)
 
 }
 
 // WalkDirectory walk the supplied directory using the walkfunc supplied
-// TBD remove ModifyFunc as unused
-func (tu TreeUpdate) WalkDirectory(directory string, walkFunc WalkingFunc, mf ModifyFunc) {
+func (tu TreeUpdate) WalkDirectory(directory string, walkFunc WalkingFunc) {
 	<-tu.walkerToken
 	walkFunc(directory, walkFunc)
 	tu.walkerToken <- struct{}{}
