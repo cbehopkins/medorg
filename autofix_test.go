@@ -15,7 +15,7 @@ func TestRename0(t *testing.T) {
 	fs := FileStruct{Name: "test_calc.flv"}
 	fs, mod := AF.CheckRename(fs)
 	if mod {
-		log.Fatal("Modified while   disabled", fs)
+		log.Fatal("Modified while disabled", fs)
 	} else {
 		if fs.Name != "test_calc.flv" {
 			log.Fatal("Name was modified", fs)
@@ -49,6 +49,10 @@ func TestRename1(t *testing.T) {
 		{"test_calc", "test_calc", false},
 		{"test_bob_c.mpg", "testc.mpg", true},
 		{"test_calc_bob.jpg", "test.jpg", true},
+		{"Party.mp4.mp4", "Party.mp4", true},
+		{"This is a - weird filename.wmv.mp4", "This is a - weird filename.mp4", true},
+		{"fred.jpg.doc", "fred.jpg.doc", false},
+		{"/xvideos.com_4cbb7934338409b928a4ee6b86725738.mp4.mp4", "/xvideos.com_4cbb7934338409b928a4ee6b86725738.mp4", true},
 	}
 	AF := NewAutoFix(DomainList)
 	AF.RenameFiles = true

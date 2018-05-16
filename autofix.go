@@ -15,7 +15,7 @@ var testMode bool
 var KnownExtensions = []string{
 	"go",
 	"jpg",
-	"flv", "mov", "mp4", "mpg",
+	"wmv", "flv", "mov", "mp4", "mpg",
 }
 
 // AutoFix is the structure for autofixing the files
@@ -206,17 +206,13 @@ func (af AutoFix) CheckRename(fs FileStruct) (FileStruct, bool) {
 		// Do nothing for files we don't recognise
 		return fs, false
 	}
-	for base2, ext2 := StripExtension(base); ext2 != ""; base2, ext2 = StripExtension(base) {
-		//fmt.Println("Base further modified", base2, base)
-		base = base2
-		modified = true
-	}
 
 	fn1, mod := af.stripNumber(base)
 	modified = modified || mod
 	fn1, mod = af.stripRegEx(fn1)
 	modified = modified || mod
-
+	fn1, mod = af.stripAllExtension(fn1)
+	modified = modified || mod
 	deDuplicate := []string{".", " "}
 	deSuffix := deDuplicate
 	var lm bool
@@ -249,6 +245,15 @@ func (af AutoFix) CheckRename(fs FileStruct) (FileStruct, bool) {
 		}
 	}
 	return fs, false
+}
+
+func (af AutoFix) stripAllExtension(base string) (string, bool) {
+	var modified bool
+	for base2, ext2 := StripExtension(base); ext2 != ""; base2, ext2 = StripExtension(base) {
+		base = base2
+		modified = true
+	}
+	return base, modified
 }
 
 func (af AutoFix) destringize(deDuplicate, deSuffix []string, fn1 string) (string, bool) {
