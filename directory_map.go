@@ -138,7 +138,7 @@ func DirectoryMapFromDir(directory string) (dm DirectoryMap) {
 		log.Fatal("Learn to code Chris")
 	}
 	dm.PopulateDirectory(directory)
-
+	dm.SelfCheck(directory)
 	return
 }
 
@@ -156,14 +156,19 @@ func (dm DirectoryMap) Stale() bool {
 	return *dm.stale
 }
 
-// WriteDirectory writes the dm out to the directory specified
-func (dm DirectoryMap) WriteDirectory(directory string) {
+func (dm DirectoryMap) SelfCheck(directory string) {
 	fc := func(fn string, fs FileStruct) {
 		if fs.Directory() != directory {
-			log.Fatal("Self check problem. FS has directory of ", fs.Directory, " for ", directory)
+			log.Fatal("Self check problem. FS has directory of ", fs.Directory(), " for ", directory)
 		}
 	}
 	dm.Range(fc)
+
+}
+
+// WriteDirectory writes the dm out to the directory specified
+func (dm DirectoryMap) WriteDirectory(directory string) {
+	dm.SelfCheck(directory)
 	if !dm.Stale() {
 		return
 	}

@@ -45,7 +45,6 @@ func (fs FileStruct) Path() string {
 // FsFromName creates a file struct from the supplied name
 func FsFromName(directory, fn string) FileStruct {
 	fp := directory + "/" + fn
-
 	var fExist bool
 	var fs os.FileInfo
 	var err error

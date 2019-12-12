@@ -4,7 +4,6 @@ import (
 	"crypto/md5"
 	"encoding/base64"
 	"errors"
-	"fmt"
 	"hash"
 	"io"
 	"io/ioutil"
@@ -41,7 +40,6 @@ func md5Calcer(inputChan chan FileStruct, outputChan chan FileStruct, closedChan
 	for itm := range inputChan {
 		// Calculate the MD5 here and send it
 		fn := itm.Name
-		log.Println("Received fn")
 		cks, err := CalcMd5File(".", fn)
 		if err != nil {
 			log.Fatal("Calculation error", err)
@@ -239,7 +237,6 @@ func ReturnChecksumString(h hash.Hash) string {
 // CalcMd5File calculates the checksum for a specified filename
 func CalcMd5File(directory, fn string) (string, error) {
 	fp := directory + "/" + fn
-	fmt.Println("Calculating Checksum for", fp)
 	f, err := os.Open(fp)
 	if err != nil {
 		return "", err
@@ -298,15 +295,12 @@ func NewCalcBuffer() *CalcBuffer {
 // Close the calcbuffer and write everything out
 func (cb *CalcBuffer) Close() {
 	close(cb.closer)
-	fmt.Println("CalcBuffer waiting for workers to complete")
 	cb.wg.Add(1)
 	cb.wg.Done()
 	cb.wg.Wait()
-	fmt.Println("Calc Buffer workers complete")
 	for dir, dm := range cb.buff {
 		dm.WriteDirectory(dir)
 	}
-	fmt.Println("CalcBuffer finished Flushing")
 }
 func md5Calc(trigger chan struct{}, wg *sync.WaitGroup, fp string) (iw io.Writer) {
 	var h hash.Hash
@@ -386,14 +380,18 @@ func logSlow(fn string) chan struct{} {
 	startTime := time.Now()
 	closeChan := make(chan struct{})
 	go func() {
-		log.Println("Started computing:\"", fn, "\"", " At:", startTime)
-		defer log.Println("Finsihed computing:\"", fn, "\"", " At:", time.Now())
+		if Debug {
+			log.Println("Started computing:\"", fn, "\"", " At:", startTime)
+			defer log.Println("Finsihed computing:\"", fn, "\"", " At:", time.Now())
+		}
 		for {
 			select {
 			case <-closeChan:
 				return
 			case <-time.After(time.Minute):
-				log.Println("Still Computing:\"", fn, "\"", " After:", time.Since(startTime))
+				if Debug {
+					log.Println("Still Computing:\"", fn, "\"", " After:", time.Since(startTime))
+				}
 			}
 		}
 	}()
