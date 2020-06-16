@@ -88,7 +88,7 @@ func (tw TreeWalker) WalkTreeMaster(directory string, wf WalkFunc, df DirectFunc
 			var fs FileStruct
 			fs, ok := dm.Get(fn)
 
-			if ok {
+			if ok || !okNeeded {
 				//log.Println("Found File", fn)
 				if wf != nil {
 					// Annoying syntax to ensure the worker function
@@ -96,20 +96,6 @@ func (tw TreeWalker) WalkTreeMaster(directory string, wf WalkFunc, df DirectFunc
 					updateTmp := wf(directory, fn, fs, &dm)
 					update = update || updateTmp
 				}
-			} else if !okNeeded {
-				//} else {
-				log.Println("Missing File:", fn, okNeeded)
-				if wf != nil {
-					// Annoying syntax to ensure the worker function
-					// always gets run
-					updateTmp := wf(directory, fn, fs, &dm)
-					update = update || updateTmp
-				}
-
-			} else if tw.buildComplete {
-				//	log.Fatal("This should not be possible after UpdateDirectory", directory, fn)
-				//} else {
-				//	log.Fatal("Que???", okNeeded)
 			}
 		}
 	}
@@ -124,7 +110,6 @@ func (tw TreeWalker) WalkTreeMaster(directory string, wf WalkFunc, df DirectFunc
 func (tw trackerMap) trackWork(directory string, dm *DirectoryMap) {
 	fc := func(fn string, fs FileStruct) {
 		if !FileExist(directory, fn) {
-			//fmt.Println("File dissapeared", fn)
 			keyer := reffer{fn, fs.Size}
 			tw.lk.Lock()
 			tw.tm[keyer.Key()] = fs.Checksum
@@ -132,27 +117,4 @@ func (tw trackerMap) trackWork(directory string, dm *DirectoryMap) {
 		}
 	}
 	dm.Range(fc)
-}
-func (tw trackerMap) autoPopWork(directory, fn string, fs FileStruct, dm *DirectoryMap) bool {
-	_, ok := dm.Get(fn)
-	//fmt.Println("File:", fn, ok)
-	if ok {
-		return false
-	}
-	fsl := FsFromName(directory, fn)
-	keyer := reffer{fn, fsl.Size}
-	tw.lk.RLock()
-	cSum, ok := tw.tm[keyer.Key()]
-	tw.lk.RUnlock()
-	//fmt.Println("Found a file that does not exist", fn, keyer.Key(), ok)
-	if ok {
-		fsl.Checksum = cSum
-		dm.Add(fsl)
-		tw.lk.Lock()
-		delete(tw.tm, keyer.Key())
-		tw.lk.Unlock()
-
-		return true
-	}
-	return false
 }

@@ -84,8 +84,11 @@ func MvFile(srcDir, srcFn, dstDir, dstFn string) error {
 
 	srcDm.Rm(srcFn)
 	srcDm.WriteDirectory(srcDir)
-	dstFs := FsFromName(dstDir, dstFn)
-	dstDm.Add(dstFs)
+	dstFs, err := NewFileStruct(dstDir, dstFn)
+	if err != nil {
+		return err
+	}
+	dstDm.Add(*dstFs)
 	dstDm.WriteDirectory(dstDir)
 
 	return nil

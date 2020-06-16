@@ -122,7 +122,10 @@ func (tu TreeUpdate) WalkDirectory(directory string, walkFunc WalkingFunc) {
 func (tu *TreeUpdate) MoveDetect(directories []string) {
 	tu.tm = newTrackerMap()
 	cf := func(dir, fn string) (string, error) {
-		fsl := FsFromName(dir, fn)
+		fsl, err := NewFileStruct(dir, fn)
+		if err != nil {
+			return "", ErrSkipCheck
+		}
 		keyer := reffer{fn, fsl.Size}
 		tu.tm.lk.RLock()
 		cSum, ok := tu.tm.tm[keyer.Key()]
@@ -160,7 +163,6 @@ func (tu *TreeUpdate) MoveDetect(directories []string) {
 
 	}
 	for _, directory := range directories {
-		//tu.WalkTreeMaster(directory, tm.autoPopWork, nil, false)
 		pf(directory, pf)
 	}
 	tu.walkerToken <- struct{}{}

@@ -191,26 +191,9 @@ func walkDirectory(
 			} else if calcFunc != nil {
 				<-pendTok
 				fwg.Add(1)
+
 				go func() {
-					fs = FsFromName(directory, fn)
-					cs, err := calcFunc(directory, fn)
-					pendTok <- struct{}{}
-					if err == nil {
-						fs.Checksum = cs
-					}
-					if err == nil || err == ErrSkipCheck {
-						if mf != nil {
-							fsLocal, update := mf(directory, fn, fs)
-							if update {
-								fs = fsLocal
-							}
-						}
-						if err == nil {
-							dm.Add(fs)
-						}
-					} else {
-						log.Fatal("Error back from checksum calculation", err)
-					}
+					calcOne(directory, fn, pendTok, calcFunc, mf, dm)
 					fwg.Done()
 				}()
 			}
@@ -226,6 +209,29 @@ func walkDirectory(
 	writerWg.Wait()
 	// retrieve the token we're expected to have
 	<-dirTok
+}
+func calcOne(directory, fn string, pendTok chan struct{}, calcFunc CalcingFunc, mf ModifyFunc, dm DirectoryMap) {
+	fs_i, err := NewFileStruct(directory, fn)
+	if err != nil {
+		log.Fatal("Error in file creation", err)
+	}
+	cs, err := calcFunc(directory, fn)
+	pendTok <- struct{}{}
+	if err != nil && err != ErrSkipCheck {
+		log.Fatal("Error back from checksum calculation", err)
+	}
+
+	fs_i.Checksum = cs
+
+	if mf != nil {
+		fsLocal, update := mf(directory, fn, *fs_i)
+		if update {
+			*fs_i = fsLocal
+		}
+	}
+	if err == nil {
+		dm.Add(*fs_i)
+	}
 }
 
 // ReturnChecksumString gets the hash into the format we like it
@@ -269,10 +275,13 @@ func md5CalcInternal(h hash.Hash, wgl *sync.WaitGroup, fpl string, trigger chan 
 func completeCalc(trigger chan struct{}, directory string, fn string, h hash.Hash, dm DirectoryMap) {
 	tr := logSlow("CompleteCalc" + fn)
 	<-trigger
-	fs := FsFromName(directory, fn)
+	defer close(tr)
+	fs, err := NewFileStruct(directory, fn)
+	if err != nil {
+		log.Fatal("Error in filename to calc", err)
+	}
 	fs.Checksum = ReturnChecksumString(h)
-	dm.Add(fs)
-	close(tr)
+	dm.Add(*fs)
 }
 
 // CalcBuffer holds onto writing the directory until later

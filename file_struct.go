@@ -1,9 +1,10 @@
 package medorg
 
 import (
+	"errors"
+	"fmt"
 	"log"
 	"os"
-	"time"
 )
 
 // FileStruct contains all the properties associated with a file
@@ -14,10 +15,11 @@ type FileStruct struct {
 	Name     string `xml:"fname,attr"`
 	Checksum string `xml:"checksum,attr"`
 
-	Mtime    int64    `xml:"mtime,attr,omitempty"`
-	Size     int64    `xml:"size,attr,omitempty"`
-	Analysed int      `xml:"analysed,omitempty"`
-	Tags     []string `xml:"tags,omitempty"`
+	Mtime      int64    `xml:"mtime,attr,omitempty"`
+	Size       int64    `xml:"size,attr,omitempty"`
+	Analysed   int      `xml:"analysed,omitempty"`
+	Tags       []string `xml:"tags,omitempty"`
+	ArchivedAt []string `xml:"ArchivedAt,omitempty"`
 }
 
 func (fs FileStruct) String() string {
@@ -42,35 +44,22 @@ func (fs FileStruct) Path() string {
 	return fs.directory + "/" + fs.Name
 }
 
-// FsFromName creates a file struct from the supplied name
-func FsFromName(directory, fn string) FileStruct {
+func NewFileStruct(directory string, fn string) (*FileStruct, error) {
 	fp := directory + "/" + fn
-	var fExist bool
-	var fs os.FileInfo
-	var err error
-	for i := 0; !fExist && (i < 3); i++ {
-		// It can take a little while after file creation for this to appear!
-		fs, err = os.Stat(fp)
+	fs, err := os.Stat(fp)
+	if err != nil {
+		return nil, err
+	}
+	return NewFileStructFromStat(directory, fn, fs)
+}
 
-		if !os.IsNotExist(err) {
-			fExist = true
-		} else {
-			log.Println("Sleeping until file appears:", fp)
-			time.Sleep(time.Second)
-		}
-	}
-	if !fExist {
-		log.Println("Asked to create a fs for a file that does not exist", fp)
-	}
+func NewFileStructFromStat(directory string, fn string, fs os.FileInfo) (*FileStruct, error) {
 	itm := new(FileStruct)
 	itm.Name = fn
 	itm.Mtime = fs.ModTime().Unix()
 	itm.Size = fs.Size()
 	itm.directory = directory
-	if Debug {
-		log.Println("New FS for file", fp, "Size:", itm.Size, " Time:", itm.Mtime)
-	}
-	return *itm
+	return itm, nil
 }
 
 func (fs FileStruct) checkDelete(directory, fn string) bool {
@@ -84,7 +73,6 @@ func (fs FileStruct) checkDelete(directory, fn string) bool {
 	// for each file, check if it exists
 	if fstat, err := os.Stat(fp); os.IsNotExist(err) {
 		// if it does not, remove from the map
-		//fmt.Println("Removing XML entry as file not exist", fn)
 		return true
 	} else if os.IsExist(err) || (err == nil) {
 		// If it does, then check if the attributes are accurate
@@ -106,4 +94,28 @@ func (fs FileStruct) checkDelete(directory, fn string) bool {
 		log.Fatal("A file that neither exists, nor doesn't exist", err)
 	}
 	return false
+}
+
+var SameFileErrMtime = errors.New("They do not have the same Mtime")
+var SameFileErrdirectory = errors.New("They do not have the same directory")
+var SameFileErrSize = errors.New("They do not have the same Size")
+var SameFileErrName = errors.New("They do not have the same Name")
+
+func (fs FileStruct) SameFile(fs_i FileStruct) error {
+	if fs.Name != fs_i.Name {
+		return fmt.Errorf("%w: %v, %v", SameFileErrName, fs.Name, fs_i.Name)
+	}
+
+	if fs.Size != fs_i.Size {
+		return fmt.Errorf("%w: %v, %v", SameFileErrSize, fs.Size, fs_i.Size)
+	}
+
+	if fs.directory != fs_i.directory {
+		return fmt.Errorf("%w: %v, %v", SameFileErrdirectory, fs.directory, fs_i.directory)
+	}
+
+	if fs.Mtime != fs_i.Mtime {
+		return fmt.Errorf("%w: %v, %v", SameFileErrMtime, fs.Mtime, fs_i.Mtime)
+	}
+	return nil
 }
