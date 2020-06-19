@@ -1,6 +1,7 @@
 package medorg
 
 import (
+	"crypto/rand"
 	"io/ioutil"
 	"log"
 	"os"
@@ -51,9 +52,26 @@ func TestB2B(t *testing.T) {
 
 	log.Println("All Done")
 }
-
+func makeFile() string {
+	buff := make([]byte, 75000)
+	rand.Read(buff)
+	tmpfile, err := ioutil.TempFile(".", "example")
+	if err != nil {
+		log.Fatal(err)
+	}
+	if _, err := tmpfile.Write(buff); err != nil {
+		log.Fatal(err)
+	}
+	if err := tmpfile.Close(); err != nil {
+		log.Fatal(err)
+	}
+	return tmpfile.Name()
+}
 func TestMd5(t *testing.T) {
 	// Check the MD5 creation mechanism
+
+	tmp_filename := makeFile()
+	defer os.Remove(tmp_filename) // clean up
 
 	// So get us a channel to send the files to be md5'd to
 	// This returns 2 channels, one that files to be checked should be sent to
@@ -66,7 +84,7 @@ func TestMd5(t *testing.T) {
 	// In the final application this will be the only thing that can update the xml files
 	wg := NewXMLManager(toUpdateXML)
 
-	toMd5Chan <- FileStruct{Name: "bob", directory: "."}
+	toMd5Chan <- FileStruct{Name: tmp_filename, directory: "."}
 	log.Println("Sent the file to check")
 	close(toMd5Chan)
 	log.Println("Waiting for channel to close")
@@ -117,7 +135,7 @@ func TestPerlCompat(t *testing.T) {
 	if _, err := os.Stat("./" + Md5FileName); os.IsExist(err) {
 		_ = os.Remove("./" + Md5FileName)
 	}
-	log.Println("Running Command")
+	log.Println("Running Command", perlScript)
 	cmd := exec.Command(perlScript, ".")
 	err := cmd.Run()
 	if err != nil {
