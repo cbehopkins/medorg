@@ -1,6 +1,7 @@
 package medorg
 
 import (
+	"errors"
 	"io"
 	"io/ioutil"
 	"log"
@@ -25,18 +26,21 @@ func NewDirectoryMap() *DirectoryMap {
 	return itm
 }
 
+var ErrKey = errors.New("KV not match")
+
 //ToXML is a standard marshaller
 func (dm DirectoryMap) ToXML() (output []byte, err error) {
 	m5f := NewMd5File()
 	dm.lock.RLock()
+	defer dm.lock.RUnlock()
+
 	for key, value := range dm.mp {
 		if key == value.Name {
 			m5f.Append(value)
 		} else {
-			log.Fatal("KV not match")
+			return nil, ErrKey
 		}
 	}
-	dm.lock.RUnlock()
 	return m5f.ToXML()
 }
 
@@ -163,7 +167,6 @@ func (dm DirectoryMap) SelfCheck(directory string) {
 		}
 	}
 	dm.Range(fc)
-
 }
 
 // WriteDirectory writes the dm out to the directory specified

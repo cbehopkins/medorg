@@ -117,38 +117,44 @@ func (tu TreeUpdate) WalkDirectory(directory string, walkFunc WalkingFunc) {
 	tu.Close()
 }
 
+func (tu *TreeUpdate) getChecksum(keyer reffer) (string, bool) {
+	tu.tm.lk.RLock()
+	defer tu.tm.lk.RUnlock()
+	cSum, ok := tu.tm.tm[keyer.Key()]
+	return cSum, ok
+}
+func (tu *TreeUpdate) retrieveChecksum(dir, fn string) (string, error) {
+	fsl, err := NewFileStruct(dir, fn)
+	if err != nil {
+		return "", ErrSkipCheck
+	}
+	// Here's the clever bit!
+	// If we find a file of the same name and size with a checksum entry
+	// i.e. a file that looked like it was deleted
+	// then it's the file, but moved.
+	cSum, ok := tu.getChecksum(reffer{fn, fsl.Size})
+
+	if ok {
+		return cSum, nil
+	}
+	return "", ErrSkipCheck
+}
+
+// Look for files that are missing and save their size & checksums
+func (tu *TreeUpdate) collectMissingFileChecksums(dir string, wkf WalkingFunc) {
+	dm := DirectoryMapFromDir(dir)
+	tu.tm.trackWork(dir, &dm)
+	walkDirectory(dir, nil, wkf, tu.pendToken, tu.walkerToken, nil, dm)
+}
+
 // MoveDetect detect moved files by looking for files of same name and size
 // that have gone missing elsewhere
 func (tu *TreeUpdate) MoveDetect(directories []string) {
 	tu.tm = newTrackerMap()
-	cf := func(dir, fn string) (string, error) {
-		fsl, err := NewFileStruct(dir, fn)
-		if err != nil {
-			return "", ErrSkipCheck
-		}
-		keyer := reffer{fn, fsl.Size}
-		tu.tm.lk.RLock()
-		cSum, ok := tu.tm.tm[keyer.Key()]
-		tu.tm.lk.RUnlock()
-
-		if ok {
-			return cSum, nil
-		}
-		return "", ErrSkipCheck
-	}
-	wf := func(dir string, wkf WalkingFunc) {
-		dm := DirectoryMapFromDir(dir)
-		tu.tm.trackWork(dir, &dm)
-		//log.Println("Into:", dir)
-		walkDirectory(dir, nil, wkf, tu.pendToken, tu.walkerToken, nil, dm)
-		//log.Println("Out of:", dir)
-	}
 
 	<-tu.walkerToken
 	for _, directory := range directories {
-		//.WalkTree(directory, nil, tm.trackWork)
-		wf(directory, wf)
-		//log.Println("Walked:", directory)
+		tu.collectMissingFileChecksums(directory, tu.collectMissingFileChecksums)
 	}
 	tu.walkerToken <- struct{}{}
 	tu.Close()
@@ -157,15 +163,11 @@ func (tu *TreeUpdate) MoveDetect(directories []string) {
 	<-tu.walkerToken
 	pf := func(dir string, wkf WalkingFunc) {
 		dm := DirectoryMapFromDir(dir)
-		//log.Println("Pop Into:", dir)
-		walkDirectory(dir, cf, wkf, tu.pendToken, tu.walkerToken, nil, dm)
-		//log.Println("Pop Out of:", dir)
-
+		walkDirectory(dir, tu.retrieveChecksum, wkf, tu.pendToken, tu.walkerToken, nil, dm)
 	}
 	for _, directory := range directories {
 		pf(directory, pf)
 	}
 	tu.walkerToken <- struct{}{}
 	tu.Close()
-	tu.Init()
 }

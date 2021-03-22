@@ -52,11 +52,8 @@ func FileExist(directory, fn string) bool {
 }
 
 // isDir is a quick check that it is a directory
-func IsDir(directory, fn string) bool {
+func isDir(directory, fn string) bool {
 	fp := directory + "/" + fn
-	return isDir(fp)
-}
-func isDir(fp string) bool {
 	stat, err := os.Stat(fp)
 	if os.IsNotExist(err) {
 		return false
@@ -139,7 +136,7 @@ func RemoveFile(fn string) error {
 }
 
 // MoveFile Implements a move function that works across file systems
-// The inbuilt functions can struccle if hard links won't work
+// The inbuilt functions can struggle if hard links won't work
 // i.e. you want to move between mount points
 func MoveFile(src, dst string) (err error) {
 	if _, err := os.Stat(src); os.IsNotExist(err) {

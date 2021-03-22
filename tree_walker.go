@@ -18,6 +18,7 @@ func (rf reffer) Key() string {
 }
 
 type trackerMap struct {
+	// Given a filename & size, map to the checksum
 	tm map[string]string
 	lk *sync.RWMutex
 }
@@ -106,14 +107,20 @@ func (tw TreeWalker) WalkTreeMaster(directory string, wf WalkFunc, df DirectFunc
 		df(directory, &dm)
 	}
 }
+func (tw trackerMap) setChecksum(keyer reffer, checksum string) {
+	tw.lk.Lock()
+	tw.tm[keyer.Key()] = checksum
+	tw.lk.Unlock()
+}
 
+// trackWork updates the trackerMap
+// so that it contains the checksums for files that are in the
+// DirectoryMap, bit not on the disk
 func (tw trackerMap) trackWork(directory string, dm *DirectoryMap) {
 	fc := func(fn string, fs FileStruct) {
 		if !FileExist(directory, fn) {
 			keyer := reffer{fn, fs.Size}
-			tw.lk.Lock()
-			tw.tm[keyer.Key()] = fs.Checksum
-			tw.lk.Unlock()
+			tw.setChecksum(keyer, fs.Checksum)
 		}
 	}
 	dm.Range(fc)

@@ -190,7 +190,7 @@ type flProcessHandler struct {
 func (h *flProcessHandler) HandleEvent(e gwu.Event) {
 	if _, isLabel := e.Src().(gwu.Label); isLabel {
 		path := h.fs.dir + "/" + h.lab.Text()
-		if isDir(path) {
+		if isDir(h.fs.dir, h.lab.Text()) {
 			h.changeDir(path, e)
 		}
 	}

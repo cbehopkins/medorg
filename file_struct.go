@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 )
 
 // FileStruct contains all the properties associated with a file
@@ -41,11 +42,11 @@ func (fs FileStruct) Directory() string {
 
 // Path return the path of the file
 func (fs FileStruct) Path() string {
-	return fs.directory + "/" + fs.Name
+	return filepath.Join(fs.directory, fs.Name)
 }
 
 func NewFileStruct(directory string, fn string) (*FileStruct, error) {
-	fp := directory + "/" + fn
+	fp := filepath.Join(directory, fn)
 	fs, err := os.Stat(fp)
 	if err != nil {
 		return nil, err
@@ -96,26 +97,45 @@ func (fs FileStruct) checkDelete(directory, fn string) bool {
 	return false
 }
 
-var SameFileErrMtime = errors.New("They do not have the same Mtime")
-var SameFileErrdirectory = errors.New("They do not have the same directory")
-var SameFileErrSize = errors.New("They do not have the same Size")
-var SameFileErrName = errors.New("They do not have the same Name")
+var ErrSameFileMtime = errors.New("They do not have the same Mtime")
+var ErrSameFiledirectory = errors.New("They do not have the same directory")
+var ErrSameFileSize = errors.New("They do not have the same Size")
+var ErrSameFileName = errors.New("They do not have the same Name")
 
-func (fs FileStruct) SameFile(fs_i FileStruct) error {
+func (fs FileStruct) SameFileFast(fs_i FileStruct) error {
 	if fs.Name != fs_i.Name {
-		return fmt.Errorf("%w: %v, %v", SameFileErrName, fs.Name, fs_i.Name)
+		return ErrSameFileName
 	}
 
 	if fs.Size != fs_i.Size {
-		return fmt.Errorf("%w: %v, %v", SameFileErrSize, fs.Size, fs_i.Size)
+		return ErrSameFileSize
 	}
 
 	if fs.directory != fs_i.directory {
-		return fmt.Errorf("%w: %v, %v", SameFileErrdirectory, fs.directory, fs_i.directory)
+		return ErrSameFiledirectory
 	}
 
 	if fs.Mtime != fs_i.Mtime {
-		return fmt.Errorf("%w: %v, %v", SameFileErrMtime, fs.Mtime, fs_i.Mtime)
+		return ErrSameFileMtime
+	}
+	return nil
+}
+
+func (fs FileStruct) SameFile(fs_i FileStruct) error {
+	if fs.Name != fs_i.Name {
+		return fmt.Errorf("%w: %v, %v", ErrSameFileName, fs.Name, fs_i.Name)
+	}
+
+	if fs.Size != fs_i.Size {
+		return fmt.Errorf("%w: %v, %v", ErrSameFileSize, fs.Size, fs_i.Size)
+	}
+
+	if fs.directory != fs_i.directory {
+		return fmt.Errorf("%w: %v, %v", ErrSameFiledirectory, fs.directory, fs_i.directory)
+	}
+
+	if fs.Mtime != fs_i.Mtime {
+		return fmt.Errorf("%w: %v, %v", ErrSameFileMtime, fs.Mtime, fs_i.Mtime)
 	}
 	return nil
 }

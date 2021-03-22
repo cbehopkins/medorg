@@ -87,9 +87,6 @@ func main() {
 	}
 	if *conflg {
 		for _, directory := range directories {
-			//wf := func(srcDir, fn string, fs medorg.FileStruct, dm *medorg.DirectoryMap) bool {
-			//	return AF.Consolidate(srcDir, fn, directory)
-			//}
 			df := func(dir string, dm *medorg.DirectoryMap) {
 				var moved bool
 				fc := func(fn string, fs medorg.FileStruct) {
