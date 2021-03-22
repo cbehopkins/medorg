@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 )
@@ -80,7 +81,7 @@ func (dm DirectoryMap) rm(fn string) {
 func (dm DirectoryMap) RmFile(dir, fn string) error {
 	dm.Rm(fn)
 	dm.WriteDirectory(dir)
-	return RemoveFile(dir + "/" + fn)
+	return RemoveFile(filepath.Join(dir, fn))
 
 }
 

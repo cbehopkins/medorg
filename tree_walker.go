@@ -3,6 +3,7 @@ package medorg
 import (
 	"io/ioutil"
 	"log"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -59,11 +60,6 @@ type DirectFunc func(directory string, dm *DirectoryMap)
 // walk func is the func to run on the file walked
 // direct func is run every directory and should call itself recursively
 func (tw TreeWalker) WalkTree(directory string, wf WalkFunc, df DirectFunc) {
-	tw.WalkTreeMaster(directory, wf, df, true)
-}
-
-// WalkTreeMaster as WalkTree but allows more programmability
-func (tw TreeWalker) WalkTreeMaster(directory string, wf WalkFunc, df DirectFunc, okNeeded bool) {
 	dm := DirectoryMapFromDir(directory)
 	// Now read in all files in the current directory
 	stats, err := ioutil.ReadDir(directory)
@@ -79,9 +75,9 @@ func (tw TreeWalker) WalkTreeMaster(directory string, wf WalkFunc, df DirectFunc
 		}
 		// If it is a directory, then go into it
 		if file.IsDir() {
-			nd := directory + "/" + fn
+			nd := filepath.Join(directory, fn)
 			log.Println("Going into walk directory:", nd)
-			tw.WalkTreeMaster(nd, wf, df, okNeeded)
+			tw.WalkTree(nd, wf, df)
 			if Debug {
 				log.Println("Finished with directory:", nd)
 			}
@@ -89,13 +85,12 @@ func (tw TreeWalker) WalkTreeMaster(directory string, wf WalkFunc, df DirectFunc
 			var fs FileStruct
 			fs, ok := dm.Get(fn)
 
-			if ok || !okNeeded {
+			if ok {
 				//log.Println("Found File", fn)
 				if wf != nil {
 					// Annoying syntax to ensure the worker function
 					// always gets run
-					updateTmp := wf(directory, fn, fs, &dm)
-					update = update || updateTmp
+					update = wf(directory, fn, fs, &dm) || update
 				}
 			}
 		}

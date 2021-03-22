@@ -97,10 +97,10 @@ func (fs FileStruct) checkDelete(directory, fn string) bool {
 	return false
 }
 
-var ErrSameFileMtime = errors.New("They do not have the same Mtime")
-var ErrSameFiledirectory = errors.New("They do not have the same directory")
-var ErrSameFileSize = errors.New("They do not have the same Size")
-var ErrSameFileName = errors.New("They do not have the same Name")
+var ErrSameFileMtime = errors.New("they do not have the same Mtime")
+var ErrSameFiledirectory = errors.New("they do not have the same directory")
+var ErrSameFileSize = errors.New("they do not have the same Size")
+var ErrSameFileName = errors.New("they do not have the same Name")
 
 func (fs FileStruct) SameFileFast(fs_i FileStruct) error {
 	if fs.Name != fs_i.Name {

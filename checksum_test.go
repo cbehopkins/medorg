@@ -21,14 +21,7 @@ func TestB2B(t *testing.T) {
 	// Representation then reads in that XML representation
 	// Then prints that out as well for good measure
 
-	var dirToProc string
-	dirToProc = "."
-	//	if len(os.Args) > 1 {
-	//		dir_to_proc = os.Args[1]
-	//	}
-	//	if dir_to_proc == "" {
-	//		log.Fatalln("Please provide directory to process")
-	//	}
+	dirToProc := "."
 
 	log.Println("Processing Directory", dirToProc)
 	files, err := ioutil.ReadDir(dirToProc)
@@ -131,6 +124,10 @@ func TestBuildAll(t *testing.T) {
 }
 func TestPerlCompat(t *testing.T) {
 	perlScript := "/home/cbh/home/script/perl/file_check.pl"
+	if _, err := os.Stat(perlScript); os.IsNotExist(err) {
+		t.Skip()
+	}
+
 	fileToUse := "checksum_test.go"
 	if _, err := os.Stat("./" + Md5FileName); os.IsExist(err) {
 		_ = os.Remove("./" + Md5FileName)

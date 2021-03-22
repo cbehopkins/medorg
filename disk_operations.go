@@ -4,30 +4,30 @@ import (
 	"bufio"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"os"
 	"os/user"
+	"path/filepath"
 	"strings"
 )
 
 // tempfilename is a useful helper function
 // always gives a temp filename you can write to
-func tempfilename(dirName string, create bool) string {
-	if dirName == "" {
-		dirName = os.TempDir()
-	}
-	tmpfile, err := ioutil.TempFile(dirName, "grabTemp_")
-	if err != nil {
-		log.Fatal("Unable to create a temporary file!", err)
-	}
-	filename := tmpfile.Name()
-	_ = tmpfile.Close()
-	if !create {
-		_ = os.Remove(filename)
-	}
-	return filename
-}
+// func tempfilename(dirName string, create bool) string {
+// 	if dirName == "" {
+// 		dirName = os.TempDir()
+// 	}
+// 	tmpfile, err := ioutil.TempFile(dirName, "grabTemp_")
+// 	if err != nil {
+// 		log.Fatal("Unable to create a temporary file!", err)
+// 	}
+// 	filename := tmpfile.Name()
+// 	_ = tmpfile.Close()
+// 	if !create {
+// 		_ = os.Remove(filename)
+// 	}
+// 	return filename
+// }
 
 // removeMd5 removes the md5 file
 func removeMd5(directory string) {
@@ -46,23 +46,23 @@ func RmFile(dir, fn string) error {
 
 // FileExist tests if a file exists in a convenient fashion
 func FileExist(directory, fn string) bool {
-	fp := directory + "/" + fn
+	fp := filepath.Join(directory, fn)
 	_, err := os.Stat(fp)
 	return !os.IsNotExist(err)
 }
 
 // isDir is a quick check that it is a directory
-func isDir(directory, fn string) bool {
-	fp := directory + "/" + fn
-	stat, err := os.Stat(fp)
-	if os.IsNotExist(err) {
-		return false
-	}
-	if !stat.IsDir() {
-		return false
-	}
-	return true
-}
+// func isDir(directory, fn string) bool {
+// 	fp := directory + "/" + fn
+// 	stat, err := os.Stat(fp)
+// 	if os.IsNotExist(err) {
+// 		return false
+// 	}
+// 	if !stat.IsDir() {
+// 		return false
+// 	}
+// 	return true
+// }
 
 // MvFile moves a dile updating the md5 files as it goes
 func MvFile(srcDir, srcFn, dstDir, dstFn string) error {
@@ -123,10 +123,11 @@ func CopyFile(src, dst string) (err error) {
 	err = copyFileContents(src, dst)
 	return
 }
-func rmFilename(fn string) {
+func rmFilename(fn string) error {
 	if _, err := os.Stat(fn); err == nil {
 		_ = os.Remove(fn)
 	}
+	return nil
 }
 
 // RemoveFile simply deletes the file from disk

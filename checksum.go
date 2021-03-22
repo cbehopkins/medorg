@@ -25,7 +25,7 @@ const Md5FileName = ".md5_list.xml"
 const idleWriteDuration = 30 * time.Second
 
 //ErrSkipCheck Reports a checksum that we have skipped producing
-var ErrSkipCheck = errors.New("Skipping Checksum")
+var ErrSkipCheck = errors.New("skipping Checksum")
 
 // NewChannels creates a channel based method for creating checksums
 func NewChannels() (inputChan chan FileStruct, outputChan chan FileStruct, closedChan chan struct{}) {
@@ -133,7 +133,7 @@ func updateDirectory(
 }
 func walkDirectory(
 	directory string, // The directory to update
-	calcFunc CalcingFunc, // Run this function when a checksum doesn;t exist
+	calcFunc CalcingFunc, // Run this function when a checksum doesn't exist
 	walkFunc WalkingFunc, // A function that will walk the tree. Generally calls this func
 	pendTok, dirTok chan struct{},
 	mf ModifyFunc, // If (and when) the checksum exists. Run this to allow modification of the fs
@@ -165,7 +165,7 @@ func walkDirectory(
 			// If it is a directory, then go into it
 		}
 		if file.IsDir() {
-			nd := directory + "/" + fn
+			nd := filepath.Join(directory, fn)
 			log.Println("Going into Update directory:", nd)
 			dwg.Add(1)
 			<-dirTok
@@ -242,14 +242,13 @@ func ReturnChecksumString(h hash.Hash) string {
 
 // CalcMd5File calculates the checksum for a specified filename
 func CalcMd5File(directory, fn string) (string, error) {
-	fp := directory + "/" + fn
+	fp := filepath.Join(directory, fn)
 	f, err := os.Open(fp)
 	if err != nil {
 		return "", err
 	}
 	defer func() { _ = f.Close() }()
-	var h hash.Hash
-	h = md5.New()
+	h := md5.New()
 	if _, err := io.Copy(h, f); err != nil {
 		return "", err
 	}
@@ -312,8 +311,7 @@ func (cb *CalcBuffer) Close() {
 	}
 }
 func md5Calc(trigger chan struct{}, wg *sync.WaitGroup, fp string) (iw io.Writer) {
-	var h hash.Hash
-	h = md5.New()
+	h := md5.New()
 	iw = io.Writer(h)
 	wg.Add(1)
 	go md5CalcInternal(h, wg, fp, trigger)
@@ -323,8 +321,7 @@ func md5Calc(trigger chan struct{}, wg *sync.WaitGroup, fp string) (iw io.Writer
 // Calculate the result for the supplied file path
 func (cb *CalcBuffer) Calculate(fp string) (iw io.Writer, trigger chan struct{}) {
 	trigger = make(chan struct{})
-	var h hash.Hash
-	h = md5.New()
+	h := md5.New()
 	iw = io.Writer(h)
 	cb.wg.Add(1)
 	tr := logSlow("Calculate" + fp)
@@ -340,18 +337,6 @@ func (cb *CalcBuffer) calcer(fp string, h hash.Hash, trigger chan struct{}) {
 	completeCalc(trigger, dir, fn, h, *dm)
 }
 
-// worker intermittantly writes one of the items to the disk
-func (cb *CalcBuffer) worker() {
-	for {
-		select {
-		case <-cb.closer:
-			return
-		default:
-			cb.writeRandom()
-			time.After(time.Second * 10)
-		}
-	}
-}
 func (cb *CalcBuffer) getFp(fp string) (dm *DirectoryMap, dir, fn string) {
 	dir, fn = filepath.Split(fp)
 	dm = cb.getDir(dir)
@@ -375,23 +360,14 @@ func (cb *CalcBuffer) getDir(dir string) (dm *DirectoryMap) {
 	cb.Unlock()
 	return
 }
-func (cb *CalcBuffer) writeRandom() {
-	cb.Lock()
-	defer cb.Unlock()
-	//pick a random item
-	for dir, dm := range cb.buff {
-		dm.WriteDirectory(dir)
-		delete(cb.buff, dir)
-		return
-	}
-}
+
 func logSlow(fn string) chan struct{} {
 	startTime := time.Now()
 	closeChan := make(chan struct{})
 	go func() {
 		if Debug {
 			log.Println("Started computing:\"", fn, "\"", " At:", startTime)
-			defer log.Println("Finsihed computing:\"", fn, "\"", " At:", time.Now())
+			defer log.Println("Finished computing:\"", fn, "\"", " At:", time.Now())
 		}
 		for {
 			select {

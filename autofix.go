@@ -14,7 +14,7 @@ var testMode bool
 // KnownExtensions is a list of extensions we are allowed to operate on
 var KnownExtensions = []string{
 	"go",
-	"jpg",
+	"jpg", "gif", "jpeg",
 	"wmv", "flv", "mov", "mp4", "mpg",
 }
 
@@ -27,8 +27,8 @@ type AutoFix struct {
 	FileHash     map[string]FileStruct
 }
 
-// InitFileHash needs to be run before we can use the master ceckers
-func (af *AutoFix) InitFileHash() {
+// initFileHash needs to be run before we can use the master checkers
+func (af *AutoFix) initFileHash() {
 	if af.FileHash == nil {
 		af.FileHash = make(map[string]FileStruct)
 	}
@@ -38,7 +38,7 @@ func (af *AutoFix) InitFileHash() {
 func NewAutoFix(dl []string) *AutoFix {
 	itm := new(AutoFix)
 	itm.afInit(dl)
-	itm.InitFileHash()
+	itm.initFileHash()
 	return itm
 }
 
@@ -52,7 +52,7 @@ func NewAutoFixFile(fn string) *AutoFix {
 }
 
 func (af *AutoFix) afInit(dl []string) {
-	af.ReStaticNum = regexp.MustCompile("(.*)(\\(\\d+\\))$")
+	af.ReStaticNum = regexp.MustCompile(`(.*)(\(\d+\))$`)
 	af.ReDomainList = make([]*regexp.Regexp, len(dl))
 	if len(dl) == 0 {
 		log.Fatal("Unexpected init order")
@@ -95,7 +95,7 @@ func isXDirectory(dir, x string) bool {
 
 // scoreName for relative merit to another
 func scoreName(dir0, fn0, dir1, fn1 string) (score int) {
-	// Some rules (+/- indicate ggod or bad for that file)
+	// Some rules (+/- indicate good or bad for that file)
 	// A longer directory name implies it is more sorted ++
 	// being in the "to" directory implies it is unsorted --
 	// A longer name is discouraged -
@@ -142,7 +142,7 @@ func (af AutoFix) ResolveTwo(fsOne, fsTwo FileStruct) (FileStruct, bool) {
 	}
 
 	if af.DeleteFiles {
-		// Delete the file we don's want
+		// Delete the file we don't want
 		// By definuition that's the second one
 		fn := fsTwo.Path()
 		log.Println("Deleting:", fn)
@@ -190,7 +190,7 @@ func potentialFilename(directory, fn, extension string, i int) (string, bool) {
 	return potentialFn, FileExist(directory, potentialFn)
 }
 
-// CheckRename Check the supplied structure and tru and rename it
+// CheckRename Check the supplied structure and try and rename it
 func (af AutoFix) CheckRename(fs FileStruct) (FileStruct, bool) {
 	var modified bool
 	var mod bool
