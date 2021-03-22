@@ -18,7 +18,7 @@ type FileStruct struct {
 
 	Mtime      int64    `xml:"mtime,attr,omitempty"`
 	Size       int64    `xml:"size,attr,omitempty"`
-	Analysed   int      `xml:"analysed,omitempty"`
+	Analysed   int64    `xml:"analysed,omitempty"`
 	Tags       []string `xml:"tags,omitempty"`
 	ArchivedAt []string `xml:"ArchivedAt,omitempty"`
 }

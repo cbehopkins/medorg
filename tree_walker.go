@@ -24,6 +24,32 @@ type trackerMap struct {
 	lk *sync.RWMutex
 }
 
+//newTrackerMap create a new tracker of file structs
+func newTrackerMap() *trackerMap {
+	tm := new(trackerMap)
+	tm.tm = make(map[string]string)
+	tm.lk = new(sync.RWMutex)
+	return tm
+}
+func (tm trackerMap) setChecksum(keyer reffer, checksum string) {
+	tm.lk.Lock()
+	tm.tm[keyer.Key()] = checksum
+	tm.lk.Unlock()
+}
+
+// trackWork updates the trackerMap
+// so that it contains the checksums for files that are in the
+// DirectoryMap, but not on the disk
+func (tm trackerMap) trackWork(directory string, dm *DirectoryMap) {
+	fc := func(fn string, fs FileStruct) {
+		if !FileExist(directory, fn) {
+			keyer := reffer{fn, fs.Size}
+			tm.setChecksum(keyer, fs.Checksum)
+		}
+	}
+	dm.Range(fc)
+}
+
 // TreeWalker walks througha  directory tree
 type TreeWalker struct {
 	buildComplete bool
@@ -33,14 +59,6 @@ type TreeWalker struct {
 func NewTreeWalker() *TreeWalker {
 	itm := new(TreeWalker)
 	return itm
-}
-
-//newTrackerMap create a new tracker of file structs
-func newTrackerMap() *trackerMap {
-	tm := new(trackerMap)
-	tm.tm = make(map[string]string)
-	tm.lk = new(sync.RWMutex)
-	return tm
 }
 
 // SetBuildComplete marks the directory xml complete
@@ -88,8 +106,6 @@ func (tw TreeWalker) WalkTree(directory string, wf WalkFunc, df DirectFunc) {
 			if ok {
 				//log.Println("Found File", fn)
 				if wf != nil {
-					// Annoying syntax to ensure the worker function
-					// always gets run
 					update = wf(directory, fn, fs, &dm) || update
 				}
 			}
@@ -101,22 +117,4 @@ func (tw TreeWalker) WalkTree(directory string, wf WalkFunc, df DirectFunc) {
 	if df != nil {
 		df(directory, &dm)
 	}
-}
-func (tw trackerMap) setChecksum(keyer reffer, checksum string) {
-	tw.lk.Lock()
-	tw.tm[keyer.Key()] = checksum
-	tw.lk.Unlock()
-}
-
-// trackWork updates the trackerMap
-// so that it contains the checksums for files that are in the
-// DirectoryMap, bit not on the disk
-func (tw trackerMap) trackWork(directory string, dm *DirectoryMap) {
-	fc := func(fn string, fs FileStruct) {
-		if !FileExist(directory, fn) {
-			keyer := reffer{fn, fs.Size}
-			tw.setChecksum(keyer, fs.Checksum)
-		}
-	}
-	dm.Range(fc)
 }

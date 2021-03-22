@@ -45,10 +45,10 @@ func TestB2B(t *testing.T) {
 
 	log.Println("All Done")
 }
-func makeFile() string {
+func makeFile(directory string) string {
 	buff := make([]byte, 75000)
 	rand.Read(buff)
-	tmpfile, err := ioutil.TempFile(".", "example")
+	tmpfile, err := ioutil.TempFile(directory, "example")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func makeFile() string {
 func TestMd5(t *testing.T) {
 	// Check the MD5 creation mechanism
 
-	tmp_filename := makeFile()
+	tmp_filename := makeFile(".")
 	defer os.Remove(tmp_filename) // clean up
 
 	// So get us a channel to send the files to be md5'd to

@@ -50,6 +50,9 @@ func (tu TreeUpdate) worker(items int, ch chan struct{}) {
 }
 
 // NewTreeUpdate creates a tree walker
+// walkCount = how many directory walkers
+// calcCount - How many calculate engines
+// pendCount - How many things can actually be accessing the disk at once
 func NewTreeUpdate(walkCount, calcCount, pendCount int) (tu TreeUpdate) {
 	tu.walkCount, tu.calcCount, tu.pendCount = walkCount, calcCount, pendCount
 	tu.Init()
