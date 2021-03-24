@@ -41,8 +41,13 @@ func (fs FileStruct) Directory() string {
 }
 
 // Path return the path of the file
-func (fs FileStruct) Path() string {
-	return filepath.Join(fs.directory, fs.Name)
+func (fs FileStruct) Path() fpath {
+	return Fpath(fs.directory, fs.Name)
+}
+
+// Equal return the path of the file
+func (fs FileStruct) Equal(ca FileStruct) bool {
+	return (fs.Size == ca.Size) && (fs.Checksum == ca.Checksum)
 }
 
 func NewFileStruct(directory string, fn string) (*FileStruct, error) {
@@ -64,7 +69,7 @@ func NewFileStructFromStat(directory string, fn string, fs os.FileInfo) (*FileSt
 }
 
 func (fs FileStruct) checkDelete(directory, fn string) bool {
-	fp := fs.Path()
+	fp := string(fs.Path())
 	if fn == "" {
 		if Debug {
 			log.Println("Blank filename in xml", fp)

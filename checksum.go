@@ -144,6 +144,7 @@ func walkDirectory(
 	closeChan := make(chan struct{})
 
 	// Now read in all files in the current directory
+	// FIXME remove depriciated ioutil usage
 	stats, err := ioutil.ReadDir(directory)
 
 	if err != nil {

@@ -32,8 +32,8 @@ func createTestBackupDirectories(numberOfFiles, numberOfDuplicates int) ([]strin
 	for i := 0; i < numberOfDuplicates; i++ {
 		selectedFilename := filenames[randomSrc[i]]
 		stem := filepath.Base(selectedFilename)
-		dstFile := filepath.Join(directoriesCreated[1], stem)
-		err := CopyFile(selectedFilename, dstFile)
+		dstFile := Fpath(directoriesCreated[1], stem)
+		err := CopyFile(fpath(selectedFilename), dstFile)
 		if err != nil {
 			return nil, err
 		}
@@ -45,7 +45,6 @@ type backupKey struct {
 	size     int64
 	checksum string
 }
-type fpath string
 type backupDupeMap map[backupKey]fpath
 
 func (bdm backupDupeMap) add(fs FileStruct) {
