@@ -14,7 +14,8 @@ import (
 type DirectoryMap struct {
 	mp    map[string]FileStruct
 	stale *bool
-	lock  *sync.RWMutex
+	// We want to copy the DirectoryMap elsewhere
+	lock *sync.RWMutex
 }
 
 // NewDirectoryMap creates a new dm
@@ -137,10 +138,7 @@ func DirectoryMapFromDir(directory string) (dm DirectoryMap) {
 	if err != nil {
 		return
 	}
-	//fmt.Printf("******\n%v\n*****%v\n****\n", dm, fileContents)
-	if dm.mp == nil {
-		log.Fatal("Learn to code Chris")
-	}
+
 	dm.PopulateDirectory(directory)
 	dm.SelfCheck(directory)
 	return
@@ -248,17 +246,17 @@ func (dm DirectoryMap) idleWriter(closeChan chan struct{}, directory string) *sy
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
-		var closed bool
-		for !closed {
+		defer wg.Done()
+		for {
 			select {
 			case <-closeChan:
 				dm.WriteDirectory(directory)
-				closed = true
+				return
 			case <-time.After(idleWriteDuration):
 				dm.WriteDirectory(directory)
 			}
 		}
-		wg.Done()
+
 	}()
 	return &wg
 }

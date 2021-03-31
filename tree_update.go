@@ -55,12 +55,15 @@ func (tu TreeUpdate) worker(items int, ch chan struct{}) {
 // pendCount - How many things can actually be accessing the disk at once
 func NewTreeUpdate(walkCount, calcCount, pendCount int) (tu TreeUpdate) {
 	tu.walkCount, tu.calcCount, tu.pendCount = walkCount, calcCount, pendCount
-	tu.Init()
+	tu.init()
 	return
 }
 
 // Init initialise the struct
-func (tu *TreeUpdate) Init() {
+func (tu *TreeUpdate) init() {
+	if tu.wg != nil {
+		return
+	}
 	tu.walkerToken = make(chan struct{})
 	tu.calcToken = make(chan struct{})
 	tu.pendToken = make(chan struct{})
@@ -70,6 +73,13 @@ func (tu *TreeUpdate) Init() {
 	go tu.worker(tu.walkCount, tu.walkerToken)
 	go tu.worker(tu.calcCount, tu.calcToken)
 	go tu.worker(tu.pendCount, tu.pendToken)
+}
+func (tu *TreeUpdate) deInit() {
+	tu.walkerToken = nil
+	tu.calcToken = nil
+	tu.pendToken = nil
+	tu.closeChan = nil
+	tu.wg = nil
 }
 
 // ModifyFunc is what is called duriong the walk to allow modification of the fs
@@ -81,15 +91,16 @@ type CalcingFunc func(dir, fn string) (string, error)
 // WalkingFunc A walking funciton is one that walks the tree - it will probably recurse
 type WalkingFunc func(dir string, wkf WalkingFunc)
 
-// Close is a starnadrd close function
-func (tu TreeUpdate) Close() {
+// Close is a standard close function
+func (tu *TreeUpdate) Close() {
 	close(tu.closeChan)
 	tu.wg.Wait()
+	tu.deInit()
 }
 
 // UpdateDirectory Commands the update of a tree
-func (tu TreeUpdate) UpdateDirectory(directory string, mf ModifyFunc) {
-
+func (tu *TreeUpdate) UpdateDirectory(directory string, mf ModifyFunc) {
+	tu.init()
 	tmpFunc := func(dir, fn string) (string, error) {
 		if Debug {
 			log.Println("Attempting to get cal token for:", dir, "/", fn)
@@ -108,12 +119,6 @@ func (tu TreeUpdate) UpdateDirectory(directory string, mf ModifyFunc) {
 		updateDirectory(dir, tmpFunc, wkf, tu.pendToken, tu.walkerToken, mf)
 	}
 
-	tu.WalkDirectory(directory, walkFunc)
-
-}
-
-// WalkDirectory walk the supplied directory using the walkfunc supplied
-func (tu TreeUpdate) WalkDirectory(directory string, walkFunc WalkingFunc) {
 	<-tu.walkerToken
 	walkFunc(directory, walkFunc)
 	tu.walkerToken <- struct{}{}
@@ -154,7 +159,6 @@ func (tu *TreeUpdate) collectMissingFileChecksums(dir string, wkf WalkingFunc) {
 // that have gone missing elsewhere
 func (tu *TreeUpdate) MoveDetect(directories []string) {
 	tu.tm = newTrackerMap()
-
 	<-tu.walkerToken
 	for _, directory := range directories {
 		tu.collectMissingFileChecksums(directory, tu.collectMissingFileChecksums)
@@ -162,7 +166,7 @@ func (tu *TreeUpdate) MoveDetect(directories []string) {
 	tu.walkerToken <- struct{}{}
 	tu.Close()
 
-	tu.Init()
+	tu.init()
 	<-tu.walkerToken
 	pf := func(dir string, wkf WalkingFunc) {
 		dm := DirectoryMapFromDir(dir)

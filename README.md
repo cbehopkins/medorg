@@ -55,3 +55,8 @@ Each of the source and destination trees are checked to see if either of the tre
 
      Large files are copied first
 
+# Work ToDo
+* create a backup volume xml config file
+* Several fixmes in the files
+* NewTreeUpdate(...).UpdateDirectory very similar to NewTreeWalker().WalkTree() - can we consolidate/simplify?
+* A GUI to tag files, GUI where one can select several tags and files with those tags are returned/opened

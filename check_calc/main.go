@@ -25,13 +25,14 @@ func isDir(fn string) bool {
 func main() {
 	var directories []string
 	if xmcf := medorg.XmConfig(); xmcf != "" {
-		xc := medorg.NewXMLCfg(xmcf)
+		// FIXME should we be casting to string here or fixing then interfaces?
+		xc := medorg.NewXMLCfg(string(xmcf))
 		for _, v := range xc.Af {
 			fmt.Printf("Add AutoFix Rule:%q\n", v)
 		}
 		AF = medorg.NewAutoFix(xc.Af)
 	} else if afcf := medorg.AfConfig(); afcf != "" {
-		AF = medorg.NewAutoFixFile(afcf)
+		AF = medorg.NewAutoFixFile(string(afcf))
 	} else {
 		var DomainList = []string{"(.*)_calc"}
 		AF = medorg.NewAutoFix(DomainList)
@@ -90,12 +91,10 @@ func main() {
 			df := func(dir string, dm *medorg.DirectoryMap) {
 				var moved bool
 				fc := func(fn string, fs medorg.FileStruct) {
-					var mov bool
-					mov = AF.Consolidate(dir, fn, directory)
+					mov := AF.Consolidate(dir, fn, directory)
 					moved = moved || mov
 				}
 				dm.Range(fc)
-				return
 			}
 			tw := medorg.NewTreeWalker()
 			tw.WalkTree(directory, nil, df)

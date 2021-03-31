@@ -144,3 +144,22 @@ func (fs FileStruct) SameFile(fs_i FileStruct) error {
 	}
 	return nil
 }
+
+// HasTag return true is the tag is already in ArchivedAt
+func (fs FileStruct) HasTag(tag string) bool {
+	for _, v := range fs.ArchivedAt {
+		if v == tag {
+			return true
+		}
+	}
+	return false
+}
+
+// Add a tag to the fs, return true if it was modified
+func (fs *FileStruct) AddTag(tag string) bool {
+	if fs.HasTag(tag) {
+		return false
+	}
+	fs.ArchivedAt = append(fs.ArchivedAt, tag)
+	return true
+}

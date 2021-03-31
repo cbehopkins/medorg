@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 )
 
 func createTestBackupDirectories(numberOfFiles, numberOfDuplicates int) ([]string, error) {
@@ -68,7 +67,6 @@ func TestDuplicateDetect(t *testing.T) {
 
 	// First we populate the src dir
 	tu.UpdateDirectory(dirs[1], mfSrc)
-	tu.Init() // FIXME - bit rubbish that this is needed
 	tu.UpdateDirectory(dirs[0], mfDst)
 	matchChan := srcTm.findDuplicates(dstTm)
 	expectedDuplicates := 10
@@ -82,7 +80,9 @@ func TestDuplicateDetect(t *testing.T) {
 	}
 }
 
-func TestDuplicatePopulation(t *testing.T) {
+func TestDuplicateArchivedAtPopulation(t *testing.T) {
+	// As per TestDuplicateDetect, but have they had the
+	// ArchivedAt tag populated appropriatly
 	dirs, err := createTestBackupDirectories(20, 10)
 	if err != nil {
 		t.Error("Failed to create test Directories", err)
@@ -92,42 +92,107 @@ func TestDuplicatePopulation(t *testing.T) {
 			os.RemoveAll(dirs[i])
 		}
 	}()
+
+	backupLabelName := "tstBackup"
 	t.Log("Created Test Directories:", dirs)
-	tu := NewTreeUpdate(1, 1, 1)
-	srcTm := make(backupDupeMap)
-	dstTm := make(backupDupeMap)
+	scanBackupDirectories(dirs[1], dirs[0], backupLabelName)
 
-	mfSrc := func(dir, fn string, fs FileStruct) (FileStruct, bool) {
-		srcTm.add(fs)
-		return fs, false
-	}
-	mfDst := func(dir, fn string, fs FileStruct) (FileStruct, bool) {
-		key := backupKey{fs.Size, fs.Checksum}
-		_, ok := srcTm[key]
-		if ok {
-			fs.ArchivedAt = append(fs.ArchivedAt, "tstBackup")
-		}
-		dstTm.add(fs)
-		fs.Analysed = time.Now().Unix()
-
-		return fs, true
-	}
 	expectedDuplicates := 10
 	archiveWalkFunc := func(directory, fn string, fs FileStruct, dm *DirectoryMap) bool {
-		for _, v := range fs.ArchivedAt {
-			if v == "tstBackup" {
-				expectedDuplicates--
-			}
+		if fs.HasTag(backupLabelName) {
+			expectedDuplicates--
 		}
 		return false
 	}
-	// First we populate the src dir
-	tu.UpdateDirectory(dirs[1], mfSrc)
-	tu.Init() // FIXME - bit rubbish that this is needed
-	tu.UpdateDirectory(dirs[0], mfDst)
 
 	NewTreeWalker().WalkTree(dirs[0], archiveWalkFunc, nil)
 	if expectedDuplicates != 0 {
 		t.Error("Expected 0 duplicates left, got:", expectedDuplicates)
+	}
+}
+
+// TBD add a test where the source already contains references to stuff in the destination
+
+func TestBackupExtract(t *testing.T) {
+	// Following on from TestDuplicateArchivedAtPopulation
+	// We have correctly detected the duplicates and populated the
+	// tags with this information.
+	// Knowing this, we wnat to make sure when we scan though that tagged dir
+	// we select the correct files to back up.
+	srcFiles := 20
+	numberBackedUp := 10
+	dirs, err := createTestBackupDirectories(srcFiles, numberBackedUp)
+	if err != nil {
+		t.Error("Failed to create test Directories", err)
+	}
+	defer func() {
+		for i := range dirs {
+			os.RemoveAll(dirs[i])
+		}
+	}()
+
+	backupLabelName := "tstBackup0"
+	altBackupLabelName := "tstBackup1"
+	t.Log("Created Test Directories:", dirs)
+
+	scanBackupDirectories(dirs[1], dirs[0], backupLabelName)
+
+	// Now hack it about so that we pretend  n of the files
+	// are additionally backed up to an alternate location
+	// This should not change the number sent, but
+	// should change the order things come out ijn
+	numDuplicates := 1
+	numExtra := 1
+	extraMap := make(map[fpath]struct{})
+
+	directoryWalker := func(dir, fn string, fs FileStruct) (FileStruct, bool) {
+		if fs.HasTag(backupLabelName) {
+			if numDuplicates > 0 {
+				numDuplicates--
+				fs.AddTag(altBackupLabelName)
+				t.Log("Pretending", fn, "has additionally been backed up to alt location")
+				return fs, true
+			}
+		} else {
+			if numExtra > 0 {
+				numExtra--
+				fs.AddTag(altBackupLabelName)
+				extraMap[fs.Path()] = struct{}{}
+				t.Log("Pretending", fn, "has been backed up to alternate location")
+				return fs, true
+			}
+		}
+		return fs, false
+	}
+
+	tu := NewTreeUpdate(1, 1, 1)
+	tu.UpdateDirectory(dirs[0], directoryWalker)
+
+	copyFiles := extractCopyFiles(dirs[0], backupLabelName)
+
+	cnt := 0
+	expectedFilesToBackup := srcFiles - numberBackedUp
+	primaryFileCount := expectedFilesToBackup - len(extraMap)
+	for file := range copyFiles {
+		t.Log("Received a file:", file)
+		cnt++
+
+		_, ok := extraMap[file]
+		if ok {
+			if primaryFileCount > 0 {
+				t.Error("Got a file that is backed up elsewhere while we are still expecting primary files")
+			}
+			delete(extraMap, file)
+		} else {
+			if primaryFileCount > 0 {
+				primaryFileCount--
+			} else {
+				t.Error("Extra primary file", file)
+			}
+		}
+
+	}
+	if cnt != expectedFilesToBackup {
+		t.Error("Expected ", expectedFilesToBackup, " found:", cnt)
 	}
 }
