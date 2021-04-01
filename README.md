@@ -59,4 +59,6 @@ Each of the source and destination trees are checked to see if either of the tre
 * create a backup volume xml config file
 * Several fixmes in the files
 * NewTreeUpdate(...).UpdateDirectory very similar to NewTreeWalker().WalkTree() - can we consolidate/simplify?
+* The backup currently has extractCopyFiles which has all files to be copied in memory - this could 
+cause us to run out of memory. We should break this down into more managable chunks - while still keeping the priorities
 * A GUI to tag files, GUI where one can select several tags and files with those tags are returned/opened

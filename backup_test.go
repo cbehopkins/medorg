@@ -53,15 +53,15 @@ func TestDuplicateDetect(t *testing.T) {
 	}()
 	t.Log("Created Test Directories:", dirs)
 	tu := NewTreeUpdate(1, 1, 1)
-	srcTm := make(backupDupeMap)
-	dstTm := make(backupDupeMap)
+	srcTm := NewBackupDupeMap()
+	dstTm := NewBackupDupeMap()
 
 	mfSrc := func(dir, fn string, fs FileStruct) (FileStruct, bool) {
-		srcTm.add(fs)
+		srcTm.Add(fs)
 		return fs, false
 	}
 	mfDst := func(dir, fn string, fs FileStruct) (FileStruct, bool) {
-		dstTm.add(fs)
+		dstTm.Add(fs)
 		return fs, false
 	}
 
@@ -111,7 +111,7 @@ func TestDuplicateArchivedAtPopulation(t *testing.T) {
 	}
 }
 
-// TBD add a test where the source already contains references to stuff in the destination
+// FIXME add a test where the source already contains references to stuff in the destination
 
 func TestBackupExtract(t *testing.T) {
 	// Following on from TestDuplicateArchivedAtPopulation
@@ -168,31 +168,65 @@ func TestBackupExtract(t *testing.T) {
 	tu := NewTreeUpdate(1, 1, 1)
 	tu.UpdateDirectory(dirs[0], directoryWalker)
 
-	copyFiles := extractCopyFiles(dirs[0], backupLabelName)
+	copyFilesArray := extractCopyFiles(dirs[0], backupLabelName)
 
 	cnt := 0
 	expectedFilesToBackup := srcFiles - numberBackedUp
 	primaryFileCount := expectedFilesToBackup - len(extraMap)
-	for file := range copyFiles {
-		t.Log("Received a file:", file)
-		cnt++
+	for _, copyFiles := range copyFilesArray {
+		for _, file := range copyFiles {
+			t.Log("Received a file:", file)
+			cnt++
 
-		_, ok := extraMap[file]
-		if ok {
-			if primaryFileCount > 0 {
-				t.Error("Got a file that is backed up elsewhere while we are still expecting primary files")
-			}
-			delete(extraMap, file)
-		} else {
-			if primaryFileCount > 0 {
-				primaryFileCount--
+			_, ok := extraMap[file]
+			if ok {
+				if primaryFileCount > 0 {
+					t.Error("Got a file that is backed up elsewhere while we are still expecting primary files")
+				}
+				delete(extraMap, file)
 			} else {
-				t.Error("Extra primary file", file)
+				if primaryFileCount > 0 {
+					primaryFileCount--
+				} else {
+					t.Error("Extra primary file", file)
+				}
 			}
 		}
-
+		if primaryFileCount > 0 {
+			t.Error("Primary file logic error")
+		}
 	}
 	if cnt != expectedFilesToBackup {
 		t.Error("Expected ", expectedFilesToBackup, " found:", cnt)
+	}
+}
+func TestBackupMain(t *testing.T) {
+	// Following on from TestDuplicateArchivedAtPopulation
+	// We have correctly detected the duplicates and populated the
+	// tags with this information.
+	// Knowing this, we wnat to make sure when we scan though that tagged dir
+	// we select the correct files to back up.
+	srcFiles := 20
+	numberBackedUp := 11
+	dirs, err := createTestBackupDirectories(srcFiles, numberBackedUp)
+	if err != nil {
+		t.Error("Failed to create test Directories", err)
+	}
+	defer func() {
+		for i := range dirs {
+			os.RemoveAll(dirs[i])
+		}
+	}()
+	callCount := 0
+
+	// FIXME Provide a proper dummy object here for testing
+	var xc XMLCfg
+	BackupRunner(&xc, dirs[0], dirs[1], func(src, dst fpath) error {
+		t.Log("Copy", src, "to", dst)
+		callCount++
+		return nil
+	})
+	if callCount != (srcFiles - numberBackedUp) {
+		t.Error("Incorrect call count:", callCount, srcFiles-numberBackedUp)
 	}
 }

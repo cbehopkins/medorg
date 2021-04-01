@@ -52,3 +52,10 @@ func (xc *XMLCfg) FromXML(input []byte) (err error) {
 	}
 	return
 }
+
+// Add a volume label
+// returns false if the label already exists
+func (xc *XMLCfg) AddLabel(label string) bool {
+	//FIXME The chances of needing this are slim, but non 0
+	return true
+}

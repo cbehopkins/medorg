@@ -11,16 +11,6 @@ import (
 	"strings"
 )
 
-// fpath is used to indicate we are talking about the full file path
-type fpath string
-
-func (f fpath) String() string {
-	return string(f)
-}
-func Fpath(directory, fn string) fpath {
-	return fpath(filepath.Join(directory, fn))
-}
-
 // removeMd5 removes the md5 file
 func removeMd5(directory string) {
 	fn := filepath.Join(directory, Md5FileName)
@@ -42,19 +32,6 @@ func FileExist(directory, fn string) bool {
 	_, err := os.Stat(fp)
 	return !os.IsNotExist(err)
 }
-
-// isDir is a quick check that it is a directory
-// func isDir(directory, fn string) bool {
-// 	fp := directory + "/" + fn
-// 	stat, err := os.Stat(fp)
-// 	if os.IsNotExist(err) {
-// 		return false
-// 	}
-// 	if !stat.IsDir() {
-// 		return false
-// 	}
-// 	return true
-// }
 
 // MvFile moves a dile updating the md5 files as it goes
 func MvFile(srcDir, srcFn, dstDir, dstFn string) error {
