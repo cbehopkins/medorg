@@ -3,15 +3,12 @@ package main
 import (
 	"flag"
 	"fmt"
-	"log"
-	"math/rand"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/cbehopkins/medorg"
-	"github.com/cheggaaa/pb"
 )
 
 const (
@@ -50,15 +47,6 @@ func sizeOf(fn string) int {
 }
 
 func main() {
-
-	// start pool
-	pool, err := pb.StartPool()
-	if err != nil {
-		panic(err)
-	}
-	// update bars
-	wg := new(sync.WaitGroup)
-
 	var directories []string
 	var xc *medorg.XMLCfg
 	if xmcf := medorg.XmConfig(); xmcf != "" {
@@ -90,69 +78,34 @@ func main() {
 		fmt.Println("Error, expected 2 directories!")
 		os.Exit(ExitTwoDirectoriesOnly)
 	}
-	for _, name := range []string{"First", "second", "Third"} {
-		go func(name string) {
-			log.Println("Creating ", name, "size", 200)
-			bar := pb.New(200).Prefix(name)
-			pool.Add(bar)
-			wg.Add(1)
-			go func(cb *pb.ProgressBar) {
-				//defer cb.Finish()
-				defer wg.Done()
-				for n := 0; n < 200; n++ {
-					cb.Set(n)
-					time.Sleep(time.Millisecond * time.Duration(rand.Intn(100)))
-				}
-			}(bar)
-		}(name)
-	}
-	time.Sleep(1 * time.Second)
-	wg.Wait()
-	// close pool
-	pool.Stop()
-
-	// start pool
-	pool, err = pb.StartPool()
-	if err != nil {
-		fmt.Println("Unable to start progress Bar:", err)
-		os.Exit(ExitProgressBar)
-	}
-	defer pool.Stop()
 
 	copyer := func(src, dst medorg.Fpath) error {
 		var wg sync.WaitGroup
-		srcSize := sizeOf(string(src))
-		fmt.Println("Creating ", string(dst), "size", srcSize)
-		progBar := pb.New(srcSize).Prefix(string(src))
-		pool.Add(progBar)
+		//srcSize := sizeOf(string(src))
 		closeChan := make(chan struct{})
 		wg.Add(1)
 		go func() {
-			defer progBar.Finish()
 			defer wg.Done()
 			for {
 				select {
 				case <-time.After(2 * time.Second):
 					dstSize := sizeOf(string(dst))
-					//fmt.Println("Updating Destsize", dstSize)
-					progBar.Set(dstSize)
+					fmt.Println("Updating Destsize", dstSize)
 				case <-closeChan:
-					//fmt.Println("Closing:", src)
 					return
 				}
 			}
 		}()
-		err = medorg.CopyFile(src, dst)
+		err := medorg.CopyFile(src, dst)
 		close(closeChan)
 		wg.Wait()
 		return err
 	}
 	fmt.Println("Starting Backup Run")
-	err = medorg.BackupRunner(xc, copyer, directories[0], directories[1])
+	err := medorg.BackupRunner(xc, copyer, directories[0], directories[1])
 	fmt.Println("Completed Backup Run")
 
 	if err != nil {
-
 		fmt.Println("Unable to complete backup:", err)
 		os.Exit(ExitIncompleteBackup)
 	}
