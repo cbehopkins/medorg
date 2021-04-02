@@ -43,7 +43,7 @@ func MvFile(srcDir, srcFn, dstDir, dstFn string) error {
 		dstDm = DirectoryMapFromDir(dstDir)
 	}
 
-	err := MoveFile(Fpath(srcDir, srcFn), Fpath(dstDir, dstFn))
+	err := MoveFile(NewFpath(srcDir, srcFn), NewFpath(dstDir, dstFn))
 	if err != nil {
 		return err
 	}
@@ -63,7 +63,7 @@ func MvFile(srcDir, srcFn, dstDir, dstFn string) error {
 // CopyFile copies a file from src to dst. If src and dst files exist, and are
 // the same, then return success. Otherise, attempt to create a hard link
 // between the two files. If that fail, copy the file contents from src to dst.
-func CopyFile(src, dst fpath) (err error) {
+func CopyFile(src, dst Fpath) (err error) {
 	srcs := string(src)
 	dsts := string(dst)
 	sfi, err := os.Stat(srcs)
@@ -88,13 +88,13 @@ func CopyFile(src, dst fpath) (err error) {
 			return
 		}
 	}
-	if err = os.Link(srcs, dsts); err == nil {
-		return
-	}
+	// if err = os.Link(srcs, dsts); err == nil {
+	// 	return
+	// }
 	err = copyFileContents(src, dst)
 	return
 }
-func rmFilename(fn fpath) error {
+func rmFilename(fn Fpath) error {
 	fns := string(fn)
 	if _, err := os.Stat(fns); err == nil {
 		// FIXME return an error here
@@ -104,7 +104,7 @@ func rmFilename(fn fpath) error {
 }
 
 // RemoveFile simply deletes the file from disk
-func RemoveFile(fn fpath) error {
+func RemoveFile(fn Fpath) error {
 	// FIXME remove this function
 	rmFilename(fn)
 	return nil
@@ -113,7 +113,7 @@ func RemoveFile(fn fpath) error {
 // MoveFile Implements a move function that works across file systems
 // The inbuilt functions can struggle if hard links won't work
 // i.e. you want to move between mount points
-func MoveFile(src, dst fpath) (err error) {
+func MoveFile(src, dst Fpath) (err error) {
 	srcs := string(src)
 	dsts := string(dst)
 	if _, err := os.Stat(srcs); os.IsNotExist(err) {
@@ -133,7 +133,7 @@ func MoveFile(src, dst fpath) (err error) {
 // by dst. The file will be created if it does not already exist. If the
 // destination file exists, all it's contents will be replaced by the contents
 // of the source file.
-func copyFileContents(src, dst fpath) (err error) {
+func copyFileContents(src, dst Fpath) (err error) {
 	srcs := string(src)
 	dsts := string(dst)
 	in, err := os.Open(srcs)
@@ -211,16 +211,16 @@ func Readln(r *bufio.Reader) (string, error) {
 }
 
 // HomeDir returns the user's home directory
-func HomeDir() fpath {
+func HomeDir() Fpath {
 	usr, err := user.Current()
 	if err != nil {
 		log.Fatal(err)
 	}
-	return fpath(usr.HomeDir)
+	return Fpath(usr.HomeDir)
 }
 
 // AfConfig return the location of the xml config file if it exists in a known place
-func AfConfig() fpath {
+func AfConfig() Fpath {
 	fn := filepath.Join(string(HomeDir()), "/.autofix")
 	if _, err := os.Stat(fn); os.IsNotExist(err) {
 		fn = filepath.Join(string(HomeDir()), "/home/.autofix")
@@ -228,11 +228,11 @@ func AfConfig() fpath {
 	if _, err := os.Stat(fn); os.IsNotExist(err) {
 		fn = ""
 	}
-	return fpath(fn)
+	return Fpath(fn)
 }
 
 // XmConfig return the location of the xml config file if it exists in a known place
-func XmConfig() fpath {
+func XmConfig() Fpath {
 	fn := filepath.Join(string(HomeDir()), "/.medorg.xml")
 	if _, err := os.Stat(fn); os.IsNotExist(err) {
 		fn = filepath.Join(string(HomeDir()), "/home/.medorg.xml")
@@ -240,5 +240,5 @@ func XmConfig() fpath {
 	if _, err := os.Stat(fn); os.IsNotExist(err) {
 		fn = ""
 	}
-	return fpath(fn)
+	return Fpath(fn)
 }

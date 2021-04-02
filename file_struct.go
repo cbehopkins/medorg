@@ -41,8 +41,8 @@ func (fs FileStruct) Directory() string {
 }
 
 // Path return the path of the file
-func (fs FileStruct) Path() fpath {
-	return Fpath(fs.directory, fs.Name)
+func (fs FileStruct) Path() Fpath {
+	return NewFpath(fs.directory, fs.Name)
 }
 
 // Equal return the path of the file
@@ -144,15 +144,19 @@ func (fs FileStruct) SameFile(fs_i FileStruct) error {
 	}
 	return nil
 }
+func (fs FileStruct) indexTag(tag string) int {
+	for i, v := range fs.ArchivedAt {
+		if v == tag {
+			return i
+		}
+	}
+	return -1
+}
 
 // HasTag return true is the tag is already in ArchivedAt
 func (fs FileStruct) HasTag(tag string) bool {
-	for _, v := range fs.ArchivedAt {
-		if v == tag {
-			return true
-		}
-	}
-	return false
+
+	return fs.indexTag(tag) >= 0
 }
 
 // Add a tag to the fs, return true if it was modified
@@ -161,5 +165,17 @@ func (fs *FileStruct) AddTag(tag string) bool {
 		return false
 	}
 	fs.ArchivedAt = append(fs.ArchivedAt, tag)
+	return true
+}
+
+// Remove a tag from the fs, return true if it was modified
+func (fs *FileStruct) RemoveTag(tag string) bool {
+	index := fs.indexTag(tag)
+	if index < 0 {
+		return false
+	}
+	// Order is not important, so swap interesting element to the end and remove
+	fs.ArchivedAt[len(fs.ArchivedAt)-1], fs.ArchivedAt[index] = fs.ArchivedAt[index], fs.ArchivedAt[len(fs.ArchivedAt)-1]
+	fs.ArchivedAt = fs.ArchivedAt[:len(fs.ArchivedAt)-1]
 	return true
 }

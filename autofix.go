@@ -20,11 +20,12 @@ var KnownExtensions = []string{
 
 // AutoFix is the structure for autofixing the files
 type AutoFix struct {
-	DeleteFiles  bool
-	RenameFiles  bool
-	ReStaticNum  *regexp.Regexp
-	ReDomainList []*regexp.Regexp
-	FileHash     map[string]FileStruct
+	DeleteFiles    bool
+	RenameFiles    bool
+	ReStaticNum    *regexp.Regexp
+	ReDomainList   []*regexp.Regexp
+	FileHash       map[string]FileStruct
+	SilenceLogging bool
 }
 
 // initFileHash needs to be run before we can use the master checkers
@@ -54,9 +55,6 @@ func NewAutoFixFile(fn string) *AutoFix {
 func (af *AutoFix) afInit(dl []string) {
 	af.ReStaticNum = regexp.MustCompile(`(.*)(\(\d+\))$`)
 	af.ReDomainList = make([]*regexp.Regexp, len(dl))
-	if len(dl) == 0 {
-		log.Fatal("Unexpected init order")
-	}
 	for i, rs := range dl {
 		af.ReDomainList[i] = regexp.MustCompile(rs)
 	}
@@ -147,7 +145,7 @@ func (af AutoFix) ResolveTwo(fsOne, fsTwo FileStruct) (FileStruct, bool) {
 		fn := fsTwo.Path()
 		log.Println("Deleting:", fn)
 		_ = RemoveFile(fn)
-	} else {
+	} else if !af.SilenceLogging {
 		log.Println("Delete:", fsTwo.Path(), " as ", fsOne.Path())
 	}
 	return fsOne, false

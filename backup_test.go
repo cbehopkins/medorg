@@ -31,8 +31,8 @@ func createTestBackupDirectories(numberOfFiles, numberOfDuplicates int) ([]strin
 	for i := 0; i < numberOfDuplicates; i++ {
 		selectedFilename := filenames[randomSrc[i]]
 		stem := filepath.Base(selectedFilename)
-		dstFile := Fpath(directoriesCreated[1], stem)
-		err := CopyFile(fpath(selectedFilename), dstFile)
+		dstFile := NewFpath(directoriesCreated[1], stem)
+		err := CopyFile(Fpath(selectedFilename), dstFile)
 		if err != nil {
 			return nil, err
 		}
@@ -143,7 +143,7 @@ func TestBackupExtract(t *testing.T) {
 	// should change the order things come out ijn
 	numDuplicates := 1
 	numExtra := 1
-	extraMap := make(map[fpath]struct{})
+	extraMap := make(map[Fpath]struct{})
 
 	directoryWalker := func(dir, fn string, fs FileStruct) (FileStruct, bool) {
 		if fs.HasTag(backupLabelName) {
@@ -221,11 +221,12 @@ func TestBackupMain(t *testing.T) {
 
 	// FIXME Provide a proper dummy object here for testing
 	var xc XMLCfg
-	BackupRunner(&xc, dirs[0], dirs[1], func(src, dst fpath) error {
+	fc := func(src, dst Fpath) error {
 		t.Log("Copy", src, "to", dst)
 		callCount++
 		return nil
-	})
+	}
+	BackupRunner(&xc, fc, dirs[0], dirs[1])
 	if callCount != (srcFiles - numberBackedUp) {
 		t.Error("Incorrect call count:", callCount, srcFiles-numberBackedUp)
 	}

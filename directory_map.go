@@ -81,7 +81,7 @@ func (dm DirectoryMap) rm(fn string) {
 func (dm DirectoryMap) RmFile(dir, fn string) error {
 	dm.Rm(fn)
 	dm.WriteDirectory(dir)
-	return RemoveFile(Fpath(dir, fn))
+	return RemoveFile(NewFpath(dir, fn))
 
 }
 

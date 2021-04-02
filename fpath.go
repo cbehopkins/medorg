@@ -2,19 +2,19 @@ package medorg
 
 import "path/filepath"
 
-// fpath is used to indicate we are talking about the full file path
-type fpath string
+// Fpath is used to indicate we are talking about the full file path
+type Fpath string
 
-func (f fpath) String() string {
+func (f Fpath) String() string {
 	return string(f)
 }
-func Fpath(directory, fn string) fpath {
-	return fpath(filepath.Join(directory, fn))
+func NewFpath(directory, fn string) Fpath {
+	return Fpath(filepath.Join(directory, fn))
 }
 
-type fpathList []fpath
+type fpathList []Fpath
 
-func (fpl *fpathList) Add(fp fpath) {
+func (fpl *fpathList) Add(fp Fpath) {
 	*fpl = append(*fpl, fp)
 }
 
@@ -23,7 +23,7 @@ func (fpl *fpathList) Add(fp fpath) {
 // To have a method of limiting memory usage
 type fpathListList []fpathList
 
-func (fpll *fpathListList) Add(index int, fp fpath) {
+func (fpll *fpathListList) Add(index int, fp Fpath) {
 	for len(*fpll) <= index {
 		// append until we have a list that is long enough
 		// TBD potentially add several in one go

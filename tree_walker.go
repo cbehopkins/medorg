@@ -74,7 +74,7 @@ type WalkFunc func(directory, fn string, fs FileStruct, dm *DirectoryMap) bool
 // DirectFunc is called at the end of walking each directory
 type DirectFunc func(directory string, dm *DirectoryMap)
 
-// WalkTree wlak through a directory tree, runnind the specified
+// WalkTree wlak through a directory tree, running the specified
 // walk func is the func to run on the file walked
 // direct func is run every directory and should call itself recursively
 func (tw TreeWalker) WalkTree(directory string, wf WalkFunc, df DirectFunc) {
@@ -87,6 +87,7 @@ func (tw TreeWalker) WalkTree(directory string, wf WalkFunc, df DirectFunc) {
 	var update bool
 	for _, file := range stats {
 		fn := file.Name()
+
 		if strings.HasPrefix(fn, ".") {
 			// Don't build for hidden files
 			continue
