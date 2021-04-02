@@ -1,7 +1,9 @@
 package medorg
 
 import (
+	"errors"
 	"log"
+	"os"
 	"path/filepath"
 	"sync"
 	"time"
@@ -124,7 +126,7 @@ func extractCopyFiles(targetDir, volumeName string) fpathListList {
 
 type FileCopier func(src, dst Fpath) error
 
-func doACopy(srcDir, destDir string, file Fpath, fc FileCopier) error {
+func doACopy(srcDir, destDir, backupLabelName string, file Fpath, fc FileCopier) error {
 	if fc == nil {
 		fc = CopyFile
 	}
@@ -138,8 +140,25 @@ func doACopy(srcDir, destDir string, file Fpath, fc FileCopier) error {
 	// Actually copy the file
 	fc(file, NewFpath(destDir, rel))
 	// Update the srcDir .md5 file with the fact we've backed this up now
-
+	dmSrc := DirectoryMapFromDir(srcDir)
+	src, ok := dmSrc.Get(rel)
+	if !ok {
+		return errors.New("Missing file")
+	}
+	_ = src.AddTag(backupLabelName)
+	dmSrc.Add(src)
+	dmSrc.WriteDirectory(srcDir)
+	_ = src.RemoveTag(backupLabelName)
 	// Update the destDir with the checksum from the srcDir
+	dmDst := DirectoryMapFromDir(destDir)
+	fs, err := os.Stat(filepath.Join(destDir, rel))
+	if err != nil {
+		return err
+	}
+	src.directory = destDir
+	src.Mtime = fs.ModTime().Unix()
+	dmDst.Add(src)
+	dmDst.WriteDirectory(destDir)
 	return nil
 }
 
@@ -159,7 +178,7 @@ func BackupRunner(xc *XMLCfg, fc FileCopier, srcDir, destDir string) error {
 	// Now do the copy, updating srcDir's labels as we go
 	for _, copyFiles := range copyFilesArray {
 		for _, file := range copyFiles {
-			err := doACopy(srcDir, destDir, file, fc)
+			err := doACopy(srcDir, destDir, backupLabelName, file, fc)
 			// TBD catch destination full error
 			if err != nil {
 				return err

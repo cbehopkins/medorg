@@ -33,7 +33,7 @@ func FileExist(directory, fn string) bool {
 	return !os.IsNotExist(err)
 }
 
-// MvFile moves a dile updating the md5 files as it goes
+// MvFile moves a file updating the md5 files as it goes
 func MvFile(srcDir, srcFn, dstDir, dstFn string) error {
 	var srcDm, dstDm DirectoryMap
 	srcDm = DirectoryMapFromDir(srcDir)
@@ -88,6 +88,7 @@ func CopyFile(src, dst Fpath) (err error) {
 			return
 		}
 	}
+	// FIXME This is here for testing purposes to intentionally slow things down
 	// if err = os.Link(srcs, dsts); err == nil {
 	// 	return
 	// }

@@ -108,7 +108,6 @@ func main() {
 				select {
 				case <-time.After(2 * time.Second):
 					dstSize := sizeOf(string(dst))
-					//fmt.Println("Updating Destsize", dstSize)
 					bar.SetCurrent(int64(dstSize))
 				case <-closeChan:
 					return
