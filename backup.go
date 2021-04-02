@@ -2,12 +2,15 @@ package medorg
 
 import (
 	"errors"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
 )
+
+var ErrMissingEntry = errors.New("attempting to copy a file there seems to be no directory entry for")
 
 type backupKey struct {
 	size     int64
@@ -102,6 +105,10 @@ func scanBackupDirectories(destDir, srcDir, volumeName string) {
 	if backupDestination.Len() > 0 {
 		// There's stuff on the backup that's not in the Source
 		// We'll need to do somethign about this soon!
+		log.Println("Unexpected items left in backup destination")
+		for _, v := range backupDestination.dupeMap {
+			log.Println(v)
+		}
 	}
 }
 
@@ -143,7 +150,7 @@ func doACopy(srcDir, destDir, backupLabelName string, file Fpath, fc FileCopier)
 	dmSrc := DirectoryMapFromDir(srcDir)
 	src, ok := dmSrc.Get(rel)
 	if !ok {
-		return errors.New("Missing file")
+		return fmt.Errorf("%w: %s", ErrMissingEntry, file)
 	}
 	_ = src.AddTag(backupLabelName)
 	dmSrc.Add(src)
