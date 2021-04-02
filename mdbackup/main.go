@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/cbehopkins/medorg"
+	"github.com/cheggaaa/pb/v3"
 )
 
 const (
@@ -78,19 +79,37 @@ func main() {
 		fmt.Println("Error, expected 2 directories!")
 		os.Exit(ExitTwoDirectoriesOnly)
 	}
+	var lk sync.Mutex
+	bar := pb.New(0)
 
+	defer func() {
+		if bar.IsStarted() {
+			lk.Lock()
+			bar.Finish()
+			lk.Unlock()
+		}
+	}()
+	var wg sync.WaitGroup
 	copyer := func(src, dst medorg.Fpath) error {
-		var wg sync.WaitGroup
-		//srcSize := sizeOf(string(src))
+		srcSize := sizeOf(string(src))
+
 		closeChan := make(chan struct{})
 		wg.Add(1)
 		go func() {
+			lk.Lock()
+			defer lk.Unlock()
 			defer wg.Done()
+			if !bar.IsStarted() {
+				bar.Start()
+			}
+
+			bar.SetTotal(int64(srcSize))
 			for {
 				select {
 				case <-time.After(2 * time.Second):
 					dstSize := sizeOf(string(dst))
-					fmt.Println("Updating Destsize", dstSize)
+					//fmt.Println("Updating Destsize", dstSize)
+					bar.SetCurrent(int64(dstSize))
 				case <-closeChan:
 					return
 				}
@@ -98,7 +117,6 @@ func main() {
 		}()
 		err := medorg.CopyFile(src, dst)
 		close(closeChan)
-		wg.Wait()
 		return err
 	}
 	fmt.Println("Starting Backup Run")
@@ -109,4 +127,6 @@ func main() {
 		fmt.Println("Unable to complete backup:", err)
 		os.Exit(ExitIncompleteBackup)
 	}
+	wg.Wait()
+	fmt.Println("Completed Copying")
 }
