@@ -200,6 +200,7 @@ func TestBackupExtract(t *testing.T) {
 		t.Error("Expected ", expectedFilesToBackup, " found:", cnt)
 	}
 }
+
 func TestBackupMain(t *testing.T) {
 	// Following on from TestDuplicateArchivedAtPopulation
 	// We have correctly detected the duplicates and populated the

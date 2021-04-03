@@ -229,15 +229,10 @@ func (dm DirectoryMap) Deleter(fc func(string, FileStruct) bool) {
 // that only contains files that exist
 // If the file attributes have changed then that counts
 // as not existing
-func reduceXMLFe(directory string) DirectoryMap {
+func reduceXMLFe(dm DirectoryMap) DirectoryMap {
 	// Read in the current file
 	// if it exists
-	dm := DirectoryMapFromDir(directory)
 	//log.Printf("\n\n%s\n*****\n%v\n\n\n\n",directory,dm)
-	theFunc := func(fn string, v FileStruct) bool {
-		return v.checkDelete(directory, fn)
-	}
-	dm.Deleter(theFunc)
 
 	// Return the structure we have created as it is useful
 	return dm

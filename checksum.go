@@ -20,6 +20,8 @@ import (
 // Only used in TB at the moment
 var Debug bool
 
+type DirectoryMapMod func(DirectoryMap, string)
+
 // Md5FileName is the filename we use to save the data in
 const Md5FileName = ".md5_list.xml"
 const idleWriteDuration = 30 * time.Second
@@ -113,31 +115,26 @@ func UpdateDirectory(directory string, mf ModifyFunc) {
 
 	walkFunc := func(dir string, wkf WalkingFunc) {
 		<-dirToken
-		updateDirectory(dir, tmpFunc, wkf, pendToken, dirToken, mf)
+		walkDirectory(dir, tmpFunc, wkf, pendToken, dirToken, mf, reducer)
 		dirToken <- struct{}{}
 	}
 
 	walkFunc(directory, walkFunc)
 }
-
-func updateDirectory(
-	directory string, // The directory to update
-	calcFunc CalcingFunc, // A function which will calculate a new checksum (If Missing)
-	walkFunc WalkingFunc, // A function that will walk the tree. Generally calls this func
-	pendTok, dirTok chan struct{},
-	mf ModifyFunc, // If (and when) the checksum exists. Run this to allow modification of the file
-) {
+func reducer(dm DirectoryMap, directory string) {
 	// Reduce the xml to only the items that exist
-	dm := reduceXMLFe(directory)
-	walkDirectory(directory, calcFunc, walkFunc, pendTok, dirTok, mf, dm)
+	dm.Deleter(func(fn string, v FileStruct) bool {
+		return v.checkDelete(directory, fn)
+	})
 }
+
 func walkDirectory(
 	directory string, // The directory to update
 	calcFunc CalcingFunc, // Run this function when a checksum doesn't exist
 	walkFunc WalkingFunc, // A function that will walk the tree. Generally calls this func
 	pendTok, dirTok chan struct{},
 	mf ModifyFunc, // If (and when) the checksum exists. Run this to allow modification of the fs
-	dm DirectoryMap,
+	dmm DirectoryMapMod, // Modify the directory map, before walking
 ) {
 	var dwg sync.WaitGroup
 	var fwg sync.WaitGroup
@@ -151,7 +148,10 @@ func walkDirectory(
 		log.Fatal(err)
 	}
 	dirTok <- struct{}{}
-
+	dm := DirectoryMapFromDir(directory)
+	if dmm != nil {
+		dmm(dm, directory)
+	}
 	// Spawn the writer that will update the xml
 	// Needed in case we abort part way through
 	// we don't want to lose the progress we have made

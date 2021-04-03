@@ -37,19 +37,6 @@ func (tm trackerMap) setChecksum(keyer reffer, checksum string) {
 	tm.lk.Unlock()
 }
 
-// trackWork updates the trackerMap
-// so that it contains the checksums for files that are in the
-// DirectoryMap, but not on the disk
-func (tm trackerMap) trackWork(directory string, dm *DirectoryMap) {
-	fc := func(fn string, fs FileStruct) {
-		if !FileExist(directory, fn) {
-			keyer := reffer{fn, fs.Size}
-			tm.setChecksum(keyer, fs.Checksum)
-		}
-	}
-	dm.Range(fc)
-}
-
 // TreeWalker walks througha  directory tree
 type TreeWalker struct {
 	buildComplete bool
@@ -77,6 +64,7 @@ type DirectFunc func(directory string, dm *DirectoryMap)
 // WalkTree wlak through a directory tree, running the specified
 // walk func is the func to run on the file walked
 // direct func is run every directory and should call itself recursively
+// FIXME why do we also have checksum.go's walkDirectory & tree_update's UpdateDirectory ?
 func (tw TreeWalker) WalkTree(directory string, wf WalkFunc, df DirectFunc) {
 	dm := DirectoryMapFromDir(directory)
 	// Now read in all files in the current directory

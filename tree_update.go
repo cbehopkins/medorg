@@ -113,10 +113,7 @@ func (tu *TreeUpdate) UpdateDirectory(directory string, mf ModifyFunc) {
 	}
 
 	walkFunc := func(dir string, wkf WalkingFunc) {
-		if Debug {
-			log.Println("Attemping to get walk token for:", dir)
-		}
-		updateDirectory(dir, tmpFunc, wkf, tu.pendToken, tu.walkerToken, mf)
+		walkDirectory(dir, tmpFunc, wkf, tu.pendToken, tu.walkerToken, mf, reducer)
 	}
 
 	<-tu.walkerToken
@@ -147,12 +144,19 @@ func (tu *TreeUpdate) retrieveChecksum(dir, fn string) (string, error) {
 	}
 	return "", ErrSkipCheck
 }
+func (tu *TreeUpdate) saveMissing(dm DirectoryMap, dir string) {
+	fc := func(fn string, fs FileStruct) {
+		if !FileExist(dir, fn) {
+			keyer := reffer{fn, fs.Size}
+			tu.tm.setChecksum(keyer, fs.Checksum)
+		}
+	}
+	dm.Range(fc)
+}
 
 // Look for files that are missing and save their size & checksums
 func (tu *TreeUpdate) collectMissingFileChecksums(dir string, wkf WalkingFunc) {
-	dm := DirectoryMapFromDir(dir)
-	tu.tm.trackWork(dir, &dm)
-	walkDirectory(dir, nil, wkf, tu.pendToken, tu.walkerToken, nil, dm)
+	walkDirectory(dir, nil, wkf, tu.pendToken, tu.walkerToken, nil, tu.saveMissing)
 }
 
 // MoveDetect detect moved files by looking for files of same name and size
@@ -169,8 +173,7 @@ func (tu *TreeUpdate) MoveDetect(directories []string) {
 	tu.init()
 	<-tu.walkerToken
 	pf := func(dir string, wkf WalkingFunc) {
-		dm := DirectoryMapFromDir(dir)
-		walkDirectory(dir, tu.retrieveChecksum, wkf, tu.pendToken, tu.walkerToken, nil, dm)
+		walkDirectory(dir, tu.retrieveChecksum, wkf, tu.pendToken, tu.walkerToken, nil, nil)
 	}
 	for _, directory := range directories {
 		pf(directory, pf)

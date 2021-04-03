@@ -188,6 +188,7 @@ func BackupRunner(xc *XMLCfg, fc FileCopier, srcDir, destDir string) error {
 			err := doACopy(srcDir, destDir, backupLabelName, file, fc)
 			// TBD catch destination full error
 			if err != nil {
+				log.Println("Received Error", err)
 				return err
 			}
 		}
