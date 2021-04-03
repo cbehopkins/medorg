@@ -223,6 +223,7 @@ func TestBackupMain(t *testing.T) {
 	var xc XMLCfg
 	fc := func(src, dst Fpath) error {
 		t.Log("Copy", src, "to", dst)
+		CopyFile(src, dst)
 		callCount++
 		return nil
 	}
@@ -231,3 +232,6 @@ func TestBackupMain(t *testing.T) {
 		t.Error("Incorrect call count:", callCount, srcFiles-numberBackedUp)
 	}
 }
+
+// FIXME Add Test that the checksum/filestamp are up-to-date in the new file
+// FIXME add test that files in dest but not in src are reported correctly.
