@@ -9,13 +9,21 @@ import (
 	"sync"
 )
 
+type DirectoryRecordInterface interface {
+	NewDirectory(directory string) DirectoryRecordInterface
+	CloseDirectory(directory string) <-chan error
+	VisitFile(dir, file string, d fs.DirEntry)
+}
+
 type DirTracker struct {
-	dm       map[string]DirectoryEntry
+	dm       map[string]DirectoryRecordInterface
+	baseType DirectoryRecordInterface
 	lastPath string
 }
 
-func NewDirTracker() (dt DirTracker) {
-	dt.dm = make(map[string]DirectoryEntry)
+func NewDirTracker(baseType DirectoryRecordInterface) (dt DirTracker) {
+	dt.dm = make(map[string]DirectoryRecordInterface)
+	dt.baseType = baseType
 	return
 }
 
@@ -38,9 +46,8 @@ func (dt *DirTracker) DirectoryWalker(path string, d fs.DirEntry, err error) err
 		}
 
 		fmt.Println("Into directory:", path)
-		dt.loadDirectoryXml(path, d)
 		dt.pathCloser(path)
-		dt.dm[path] = NewDirectoryEntry(path, nil)
+		dt.dm[path] = dt.baseType.NewDirectory(path)
 		return nil
 	}
 	dir, file := filepath.Split(path)
@@ -58,23 +65,20 @@ func (dt *DirTracker) DirectoryWalker(path string, d fs.DirEntry, err error) err
 	if !ok {
 		return errors.New("missing directory when evaluating path")
 	}
-	dt.processSingleFile(dir, file, d)
-	return err
+	dt.dm[dir].VisitFile(dir, file, d)
+	return nil
 }
-func (dt DirTracker) loadDirectoryXml(dir string, d fs.DirEntry) {}
-func (dt DirTracker) closeDirectory(dir string, errorChan chan<- error) {
-	for err := range dt.dm[dir].Close() {
-		errorChan <- err
-	}
-}
-func (dt DirTracker) processSingleFile(dir, file string, d fs.DirEntry) {
-	dt.dm[dir].workItems <- WorkItem{dir, file, d}
-}
+
+// func (dt DirTracker) processSingleFile(dir, file string, d fs.DirEntry) {
+// 	dt.dm[dir].workItems <- WorkItem{dir, file, d}
+// }
 func (dt DirTracker) Close() <-chan error {
 	errorChan := make(chan error)
 	go func() {
 		for path := range dt.dm {
-			dt.closeDirectory(path, errorChan)
+			for err := range dt.dm[path].CloseDirectory(path) {
+				errorChan <- err
+			}
 		}
 		close(errorChan)
 	}()
@@ -99,6 +103,15 @@ type DirectoryEntry struct {
 	errorChan  chan error
 }
 
+func (de DirectoryEntry) NewDirectory(directory string) DirectoryRecordInterface {
+	return NewDirectoryEntry(directory, nil)
+}
+func (de DirectoryEntry) CloseDirectory(directory string) <-chan error {
+	return de.Close()
+}
+func (de DirectoryEntry) VisitFile(dir, file string, d fs.DirEntry) {
+	de.workItems <- WorkItem{dir, file, d}
+}
 func NewDirectoryEntry(path string, fw func(string, string, fs.DirEntry)) DirectoryEntry {
 	itm := new(DirectoryEntry)
 	itm.dir = path
@@ -150,15 +163,16 @@ func (de DirectoryEntry) persist() error {
 }
 
 func main() {
-	dirMap := NewDirTracker()
 
-	err := filepath.WalkDir(".", dirMap.DirectoryWalker)
+	dt := NewDirTracker(DirectoryEntry{})
+
+	err := filepath.WalkDir(".", dt.DirectoryWalker)
 	fmt.Println("Finished walking")
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
-	for err := range dirMap.Close() {
+	for err := range dt.Close() {
 		fmt.Println("Error received on closing:", err)
 		os.Exit(2)
 	}
