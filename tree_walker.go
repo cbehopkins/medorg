@@ -36,6 +36,12 @@ func (tm trackerMap) setChecksum(keyer reffer, checksum string) {
 	tm.tm[keyer.Key()] = checksum
 	tm.lk.Unlock()
 }
+func (tm *trackerMap) getChecksum(keyer reffer) (string, bool) {
+	tm.lk.RLock()
+	defer tm.lk.RUnlock()
+	cSum, ok := tm.tm[keyer.Key()]
+	return cSum, ok
+}
 
 // TreeWalker walks througha  directory tree
 type TreeWalker struct {

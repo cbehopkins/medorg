@@ -84,6 +84,7 @@ func (de DirectoryEntry) persist() error {
 }
 
 func (fs FileStruct) Changed(info fs.FileInfo) bool {
+	// FIXME move this to the right file
 	if fs.Mtime != info.ModTime().Unix() {
 		return true
 	}
@@ -118,6 +119,9 @@ func (de DirectoryEntry) UpdateValues(d fs.DirEntry) error {
 	fs.Checksum = ""
 	de.dm.Add(fs)
 	return nil
+}
+func (de DirectoryEntry) SetFs(fs FileStruct) {
+	de.dm.Add(fs)
 }
 
 // UpdateChecksum should only be called if you are sure

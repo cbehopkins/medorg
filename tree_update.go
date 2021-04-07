@@ -122,12 +122,6 @@ func (tu *TreeUpdate) UpdateDirectory(directory string, mf ModifyFunc) {
 	tu.Close()
 }
 
-func (tu *TreeUpdate) getChecksum(keyer reffer) (string, bool) {
-	tu.tm.lk.RLock()
-	defer tu.tm.lk.RUnlock()
-	cSum, ok := tu.tm.tm[keyer.Key()]
-	return cSum, ok
-}
 func (tu *TreeUpdate) retrieveChecksum(dir, fn string) (string, error) {
 	fsl, err := NewFileStruct(dir, fn)
 	if err != nil {
@@ -137,7 +131,7 @@ func (tu *TreeUpdate) retrieveChecksum(dir, fn string) (string, error) {
 	// If we find a file of the same name and size with a checksum entry
 	// i.e. a file that looked like it was deleted
 	// then it's the file, but moved.
-	cSum, ok := tu.getChecksum(reffer{fn, fsl.Size})
+	cSum, ok := tu.tm.getChecksum(reffer{fn, fsl.Size})
 
 	if ok {
 		return cSum, nil

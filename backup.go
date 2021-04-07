@@ -3,14 +3,20 @@ package medorg
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
 
+var MaxBackups = 4
+
 var ErrMissingEntry = errors.New("attempting to copy a file there seems to be no directory entry for")
+var ErrMissingSrcEntry = errors.New("missing source entry")
+var ErrMissingCopyEntry = errors.New("copying a file without an entry")
 
 type backupKey struct {
 	size     int64
@@ -72,19 +78,31 @@ func (bdm0 backupDupeMap) findDuplicates(bdm1 backupDupeMap) <-chan []Fpath {
 // scanBackupDirectories will mark srcDir's ArchiveAt
 // tag, with any files that are already found in the destination
 func scanBackupDirectories(destDir, srcDir, volumeName string) {
-	tu := NewTreeUpdate(1, 1, 1)
 	backupDestination := NewBackupDupeMap()
 	backupSource := NewBackupDupeMap()
-
-	modifyFuncDestination := func(dir, fn string, fs FileStruct) (FileStruct, bool) {
+	modifyFuncDestination := func(de DirectoryEntry, dir, fn string, d fs.DirEntry) error {
+		if strings.HasPrefix(fn, ".") {
+			return nil
+		}
 		// Add everything we find to the destination map
+		fs, ok := de.dm.Get(fn)
+		if !ok {
+			return fmt.Errorf("%w: %s/%s", ErrMissingSrcEntry, dir, fn)
+		}
 		backupDestination.Add(fs)
-		return fs, false
+		return nil
 	}
-	modifyFuncSource := func(dir, fn string, fs FileStruct) (FileStruct, bool) {
+	modifyFuncSource := func(de DirectoryEntry, dir, fn string, d fs.DirEntry) error {
+		if strings.HasPrefix(fn, ".") {
+			return nil
+		}
+		fs, ok := de.dm.Get(fn)
+		if !ok {
+			return fmt.Errorf("%w: %s/%s", ErrMissingSrcEntry, dir, fn)
+		}
 		key := backupKey{fs.Size, fs.Checksum}
 		// If it exists in the destination already
-		_, ok := backupDestination.Lookup(key)
+		_, ok = backupDestination.Lookup(key)
 		if ok {
 			// Then mark in the source as already backed up
 			_ = fs.AddTag(volumeName)
@@ -97,11 +115,23 @@ func scanBackupDirectories(destDir, srcDir, volumeName string) {
 
 		backupSource.Add(fs)
 		fs.Analysed = time.Now().Unix()
-
-		return fs, true
+		de.SetFs(fs)
+		return nil
 	}
-	tu.UpdateDirectory(destDir, modifyFuncDestination)
-	tu.UpdateDirectory(srcDir, modifyFuncSource)
+
+	makerFuncDest := func(dir string) DirectoryTrackerInterface {
+		return NewDirectoryEntry(dir, modifyFuncDestination)
+	}
+	makerFuncSrc := func(dir string) DirectoryTrackerInterface {
+		return NewDirectoryEntry(dir, modifyFuncSource)
+	}
+	// FIXME we should be able to run this in parallel
+	for err := range NewDirTracker(destDir, makerFuncDest) {
+		fmt.Println("Error received on closing:", err)
+	}
+	for err := range NewDirTracker(srcDir, makerFuncSrc) {
+		fmt.Println("Error received on closing:", err)
+	}
 	if backupDestination.Len() > 0 {
 		// There's stuff on the backup that's not in the Source
 		// We'll need to do somethign about this soon!
@@ -115,19 +145,34 @@ func scanBackupDirectories(destDir, srcDir, volumeName string) {
 // extractCopyFiles will look for files that are not backed up
 func extractCopyFiles(targetDir, volumeName string) fpathListList {
 	remainingFiles := fpathListList{}
-	tu := NewTreeUpdate(1, 1, 1)
-	modifyFunc := func(dir, fn string, fs FileStruct) (FileStruct, bool) {
+	modifyFunc := func(de DirectoryEntry, dir, fn string, d fs.DirEntry) error {
+		if strings.HasPrefix(fn, ".") {
+			return nil
+		}
+		fs, ok := de.dm.Get(fn)
+		if !ok {
+			return fmt.Errorf("%w: %s/%s", ErrMissingCopyEntry, dir, fn)
+		}
+		if fs.HasTag(volumeName) {
+			return nil
+		}
 		fp := NewFpath(dir, fn)
 		lenArchive := len(fs.ArchivedAt)
-		if fs.HasTag(volumeName) {
-			return fs, false
+		if lenArchive > MaxBackups {
+			return nil
 		}
-		// FIXME Add a "do not add if already backed up to >= n places"
 		remainingFiles.Add(lenArchive, fp)
 
-		return fs, false
+		return nil
 	}
-	tu.UpdateDirectory(targetDir, modifyFunc)
+
+	makerFunc := func(dir string) DirectoryTrackerInterface {
+		return NewDirectoryEntry(dir, modifyFunc)
+	}
+	// FIXME we should be able to run this in parallel
+	for err := range NewDirTracker(targetDir, makerFunc) {
+		fmt.Println("Error received on closing:", err)
+	}
 	return remainingFiles
 }
 

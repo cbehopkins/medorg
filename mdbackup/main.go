@@ -71,6 +71,9 @@ func main() {
 	} else {
 		directories = []string{"."}
 	}
+
+	///////////////////////////////////
+	// Pass 1, go through and make sure everything is up to date
 	for _, directory := range directories {
 		tw := medorg.NewTreeWalker()
 		tw.WalkTree(directory, AF.WkFun, nil)
@@ -79,6 +82,9 @@ func main() {
 		fmt.Println("Error, expected 2 directories!")
 		os.Exit(ExitTwoDirectoriesOnly)
 	}
+
+	///////////////////////////////////
+	// Pass 2, do the backup
 	var lk sync.Mutex
 	bar := pb.New(0)
 
