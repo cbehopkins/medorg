@@ -229,14 +229,14 @@ func (dm DirectoryMap) Deleter(fc func(string, FileStruct) bool) {
 // that only contains files that exist
 // If the file attributes have changed then that counts
 // as not existing
-func reduceXMLFe(dm DirectoryMap) DirectoryMap {
-	// Read in the current file
-	// if it exists
-	//log.Printf("\n\n%s\n*****\n%v\n\n\n\n",directory,dm)
+// func reduceXMLFe(dm DirectoryMap) DirectoryMap {
+// 	// Read in the current file
+// 	// if it exists
+// 	//log.Printf("\n\n%s\n*****\n%v\n\n\n\n",directory,dm)
 
-	// Return the structure we have created as it is useful
-	return dm
-}
+// 	// Return the structure we have created as it is useful
+// 	return dm
+// }
 func (dm DirectoryMap) idleWriter(closeChan chan struct{}, directory string) *sync.WaitGroup {
 	var wg sync.WaitGroup
 	wg.Add(1)

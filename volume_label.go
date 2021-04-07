@@ -53,7 +53,7 @@ func NewVolumeCfg(xc *XMLCfg, fn string) (*VolumeCfg, error) {
 		}
 		err = itm.FromXML(byteValue)
 		if err != nil {
-			return nil, fmt.Errorf("Unable to unmarshal config NewVolumeCfg file:%s::%w", fn, err)
+			return nil, fmt.Errorf("unable to unmarshal config NewVolumeCfg file:%s::%w", fn, err)
 		}
 	}
 	return itm, nil
@@ -67,7 +67,7 @@ func (vc *VolumeCfg) FromXML(input []byte) (err error) {
 	case io.EOF:
 		err = nil
 	default:
-		return fmt.Errorf("Unknown Error UnMarshalling Config:%w", err)
+		return fmt.Errorf("unknown Error UnMarshalling Config:%w", err)
 	}
 	return
 }
@@ -108,7 +108,7 @@ func (vc VolumeCfg) ToXML() (output []byte, err error) {
 func (vc VolumeCfg) Persist() error {
 	fn := vc.fn
 	if fn == "" {
-		return errors.New("Missing Volume Config filename")
+		return errors.New("missing Volume Config filename")
 	}
 	output, err := vc.ToXML()
 	if err != nil {
