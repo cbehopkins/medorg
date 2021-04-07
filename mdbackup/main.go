@@ -53,14 +53,18 @@ func main() {
 	if xmcf := medorg.XmConfig(); xmcf != "" {
 		// FIXME should we be casting to string here or fixing then interfaces?
 		xc = medorg.NewXMLCfg(string(xmcf))
-		AF = medorg.NewAutoFix(xc.Af)
 	} else {
 		fmt.Println("no config file found")
 		fn := filepath.Join(string(medorg.HomeDir()), "/.medorg.xml")
 		xc = medorg.NewXMLCfg(fn)
-		AF = medorg.NewAutoFix([]string{})
 	}
-	AF.SilenceLogging = true
+	defer func() {
+		err := xc.WriteXmlCfg()
+		if err != nil {
+			fmt.Println("Error while saving config file", err)
+		}
+	}()
+
 	flag.Parse()
 	if flag.NArg() > 0 {
 		for _, fl := range flag.Args() {
@@ -72,19 +76,11 @@ func main() {
 		directories = []string{"."}
 	}
 
-	///////////////////////////////////
-	// Pass 1, go through and make sure everything is up to date
-	for _, directory := range directories {
-		tw := medorg.NewTreeWalker()
-		tw.WalkTree(directory, AF.WkFun, nil)
-	}
 	if len(directories) != 2 {
 		fmt.Println("Error, expected 2 directories!")
 		os.Exit(ExitTwoDirectoriesOnly)
 	}
 
-	///////////////////////////////////
-	// Pass 2, do the backup
 	var lk sync.Mutex
 	bar := pb.New(0)
 

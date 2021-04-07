@@ -12,11 +12,13 @@ import (
 type XMLCfg struct {
 	XMLName struct{} `xml:"xc"`
 	Af      []string `xml:"af"`
+	fn      string
 }
 
 // NewXMLCfg reads the config from an xml file
 func NewXMLCfg(fn string) *XMLCfg {
 	itm := new(XMLCfg)
+	itm.fn = fn
 	var f *os.File
 	_, err := os.Stat(fn)
 
@@ -37,6 +39,14 @@ func NewXMLCfg(fn string) *XMLCfg {
 		}
 	}
 	return itm
+}
+func (xc *XMLCfg) WriteXmlCfg() error {
+	data, err := xml.Marshal(xc)
+	if err != nil {
+		return err
+	}
+	err = os.WriteFile(xc.fn, data, 0600)
+	return err
 }
 
 // FromXML populate from an ba

@@ -68,6 +68,8 @@ func recalcTestDirectory(dir string) error {
 	return nil
 }
 
+var missingTestFile = errors.New("Missing file")
+
 // Test whether we can detect duplicates within the
 func TestDuplicateDetect(t *testing.T) {
 	dirs, err := createTestBackupDirectories(20, 10)
@@ -80,22 +82,49 @@ func TestDuplicateDetect(t *testing.T) {
 		}
 	}()
 	t.Log("Created Test Directories:", dirs)
-	tu := NewTreeUpdate(1, 1, 1)
+	_ = recalcTestDirectory(dirs[0])
+	_ = recalcTestDirectory(dirs[1])
 	srcTm := NewBackupDupeMap()
 	dstTm := NewBackupDupeMap()
 
-	mfSrc := func(dir, fn string, fs FileStruct) (FileStruct, bool) {
+	mfSrc := func(de DirectoryEntry, dir, fn string, d fs.DirEntry) error {
+		if strings.HasPrefix(fn, ".") {
+			return nil
+		}
+		fs, ok := de.dm.Get(fn)
+		if !ok {
+			return fmt.Errorf("%w:%s", missingTestFile, fn)
+		}
 		srcTm.Add(fs)
-		return fs, false
+		return nil
 	}
-	mfDst := func(dir, fn string, fs FileStruct) (FileStruct, bool) {
+	mfDst := func(de DirectoryEntry, dir, fn string, d fs.DirEntry) error {
+		if strings.HasPrefix(fn, ".") {
+			return nil
+		}
+		fs, ok := de.dm.Get(fn)
+		if !ok {
+			return fmt.Errorf("%w:%s", missingTestFile, fn)
+		}
 		dstTm.Add(fs)
-		return fs, false
+		return nil
+	}
+	srcDir := dirs[1]
+	destDir := dirs[0]
+	// First we populate the src dir
+	makerFuncDest := func(dir string) DirectoryTrackerInterface {
+		return NewDirectoryEntry(dir, mfDst)
+	}
+	makerFuncSrc := func(dir string) DirectoryTrackerInterface {
+		return NewDirectoryEntry(dir, mfSrc)
+	}
+	for err := range NewDirTracker(srcDir, makerFuncSrc) {
+		t.Error("Error received on closing:", err)
+	}
+	for err := range NewDirTracker(destDir, makerFuncDest) {
+		t.Error("Error received on closing:", err)
 	}
 
-	// First we populate the src dir
-	tu.UpdateDirectory(dirs[1], mfSrc)
-	tu.UpdateDirectory(dirs[0], mfDst)
 	matchChan := srcTm.findDuplicates(&dstTm)
 	expectedDuplicates := 10
 	for val := range matchChan {
@@ -176,13 +205,21 @@ func TestBackupExtract(t *testing.T) {
 	numExtra := 1
 	extraMap := make(map[Fpath]struct{})
 
-	directoryWalker := func(dir, fn string, fs FileStruct) (FileStruct, bool) {
+	directoryWalker := func(de DirectoryEntry, dir, fn string, d fs.DirEntry) error {
+		if fn == Md5FileName {
+			return nil
+		}
+		fs, ok := de.dm.Get(fn)
+		if !ok {
+			return errors.New("Missing file")
+		}
 		if fs.HasTag(backupLabelName) {
 			if numDuplicates > 0 {
 				numDuplicates--
 				fs.AddTag(altBackupLabelName)
 				t.Log("Pretending", fn, "has additionally been backed up to alt location")
-				return fs, true
+				de.dm.Add(fs)
+				return nil
 			}
 		} else {
 			if numExtra > 0 {
@@ -190,14 +227,18 @@ func TestBackupExtract(t *testing.T) {
 				fs.AddTag(altBackupLabelName)
 				extraMap[fs.Path()] = struct{}{}
 				t.Log("Pretending", fn, "has been backed up to alternate location")
-				return fs, true
+				de.dm.Add(fs)
+				return nil
 			}
 		}
-		return fs, false
+		return nil
 	}
-
-	tu := NewTreeUpdate(1, 1, 1)
-	tu.UpdateDirectory(dirs[0], directoryWalker)
+	makerFunc := func(dir string) DirectoryTrackerInterface {
+		return NewDirectoryEntry(dir, directoryWalker)
+	}
+	for err := range NewDirTracker(dirs[0], makerFunc) {
+		t.Error("Error received on closing:", err)
+	}
 
 	copyFilesArray := extractCopyFiles(dirs[0], backupLabelName)
 
