@@ -2,7 +2,6 @@ package medorg
 
 import (
 	"errors"
-	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -108,42 +107,39 @@ var ErrSameFileSize = errors.New("they do not have the same Size")
 var ErrSameFileName = errors.New("they do not have the same Name")
 
 func (fs FileStruct) SameFileFast(fs_i FileStruct) error {
-	if fs.Name != fs_i.Name {
-		return ErrSameFileName
-	}
-
 	if fs.Size != fs_i.Size {
 		return ErrSameFileSize
 	}
-
-	if fs.directory != fs_i.directory {
-		return ErrSameFiledirectory
-	}
-
 	if fs.Mtime != fs_i.Mtime {
 		return ErrSameFileMtime
 	}
-	return nil
-}
-
-func (fs FileStruct) SameFile(fs_i FileStruct) error {
 	if fs.Name != fs_i.Name {
-		return fmt.Errorf("%w: %v, %v", ErrSameFileName, fs.Name, fs_i.Name)
+		return ErrSameFileName
 	}
-
-	if fs.Size != fs_i.Size {
-		return fmt.Errorf("%w: %v, %v", ErrSameFileSize, fs.Size, fs_i.Size)
-	}
-
 	if fs.directory != fs_i.directory {
-		return fmt.Errorf("%w: %v, %v", ErrSameFiledirectory, fs.directory, fs_i.directory)
-	}
-
-	if fs.Mtime != fs_i.Mtime {
-		return fmt.Errorf("%w: %v, %v", ErrSameFileMtime, fs.Mtime, fs_i.Mtime)
+		return ErrSameFiledirectory
 	}
 	return nil
 }
+
+// func (fs FileStruct) SameFile(fs_i FileStruct) error {
+// 	if fs.Name != fs_i.Name {
+// 		return fmt.Errorf("%w: %v, %v", ErrSameFileName, fs.Name, fs_i.Name)
+// 	}
+
+// 	if fs.Size != fs_i.Size {
+// 		return fmt.Errorf("%w: %v, %v", ErrSameFileSize, fs.Size, fs_i.Size)
+// 	}
+
+// 	if fs.directory != fs_i.directory {
+// 		return fmt.Errorf("%w: %v, %v", ErrSameFiledirectory, fs.directory, fs_i.directory)
+// 	}
+
+// 	if fs.Mtime != fs_i.Mtime {
+// 		return fmt.Errorf("%w: %v, %v", ErrSameFileMtime, fs.Mtime, fs_i.Mtime)
+// 	}
+// 	return nil
+// }
 func (fs FileStruct) indexTag(tag string) int {
 	for i, v := range fs.ArchivedAt {
 		if v == tag {
