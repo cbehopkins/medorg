@@ -56,7 +56,7 @@ func (bdm *backupDupeMap) Lookup(key backupKey) (Fpath, bool) {
 	v, ok := bdm.dupeMap[key]
 	return v, ok
 }
-func (bdm0 backupDupeMap) findDuplicates(bdm1 backupDupeMap) <-chan []Fpath {
+func (bdm0 *backupDupeMap) findDuplicates(bdm1 *backupDupeMap) <-chan []Fpath {
 	matchChan := make(chan []Fpath)
 	go func() {
 		bdm0.Lock()
@@ -84,6 +84,7 @@ func scanBackupDirectories(destDir, srcDir, volumeName string) {
 		if strings.HasPrefix(fn, ".") {
 			return nil
 		}
+		de.UpdateChecksum(fn, false)
 		// Add everything we find to the destination map
 		fs, ok := de.dm.Get(fn)
 		if !ok {
@@ -96,6 +97,7 @@ func scanBackupDirectories(destDir, srcDir, volumeName string) {
 		if strings.HasPrefix(fn, ".") {
 			return nil
 		}
+		de.UpdateChecksum(fn, false)
 		fs, ok := de.dm.Get(fn)
 		if !ok {
 			return fmt.Errorf("%w: %s/%s", ErrMissingSrcEntry, dir, fn)

@@ -124,8 +124,7 @@ func (de DirectoryEntry) SetFs(fs FileStruct) {
 	de.dm.Add(fs)
 }
 
-// UpdateChecksum should only be called if you are sure
-// you want to recalculate the checksum
+// UpdateChecksum will recalc the checksum of an entry
 func (de DirectoryEntry) UpdateChecksum(file string, forceUpdate bool) error {
 	fs, ok := de.dm.Get(file)
 	if !ok {

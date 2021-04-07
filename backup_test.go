@@ -2,10 +2,13 @@ package medorg
 
 import (
 	"errors"
+	"fmt"
+	"io/fs"
 	"io/ioutil"
 	"math/rand"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -39,6 +42,31 @@ func createTestBackupDirectories(numberOfFiles, numberOfDuplicates int) ([]strin
 	}
 	return directoriesCreated, nil
 }
+func recalcForTest(de DirectoryEntry, directory, file string, d fs.DirEntry) error {
+	if strings.HasPrefix(file, ".") {
+		// Skip hidden files
+		return nil
+	}
+	err := de.UpdateValues(d)
+	if err != nil {
+		return err
+	}
+	err = de.UpdateChecksum(file, false)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+func recalcTestDirectory(dir string) error {
+	makerFunc := func(dir string) DirectoryTrackerInterface {
+		return NewDirectoryEntry(dir, recalcForTest)
+	}
+	// FIXME we should be able to run this in parallel
+	for err := range NewDirTracker(dir, makerFunc) {
+		return fmt.Errorf("Error received on closing:%w", err)
+	}
+	return nil
+}
 
 // Test whether we can detect duplicates within the
 func TestDuplicateDetect(t *testing.T) {
@@ -68,7 +96,7 @@ func TestDuplicateDetect(t *testing.T) {
 	// First we populate the src dir
 	tu.UpdateDirectory(dirs[1], mfSrc)
 	tu.UpdateDirectory(dirs[0], mfDst)
-	matchChan := srcTm.findDuplicates(dstTm)
+	matchChan := srcTm.findDuplicates(&dstTm)
 	expectedDuplicates := 10
 	for val := range matchChan {
 		expectedDuplicates--
@@ -92,6 +120,8 @@ func TestDuplicateArchivedAtPopulation(t *testing.T) {
 			os.RemoveAll(dirs[i])
 		}
 	}()
+	_ = recalcTestDirectory(dirs[0])
+	_ = recalcTestDirectory(dirs[1])
 
 	backupLabelName := "tstBackup"
 	t.Log("Created Test Directories:", dirs)
@@ -130,7 +160,8 @@ func TestBackupExtract(t *testing.T) {
 			os.RemoveAll(dirs[i])
 		}
 	}()
-
+	_ = recalcTestDirectory(dirs[0])
+	_ = recalcTestDirectory(dirs[1])
 	backupLabelName := "tstBackup0"
 	altBackupLabelName := "tstBackup1"
 	t.Log("Created Test Directories:", dirs)
@@ -218,6 +249,9 @@ func TestBackupMain(t *testing.T) {
 			os.RemoveAll(dirs[i])
 		}
 	}()
+
+	_ = recalcTestDirectory(dirs[0])
+	_ = recalcTestDirectory(dirs[1])
 	callCount := 0
 
 	// FIXME Provide a proper dummy object here for testing

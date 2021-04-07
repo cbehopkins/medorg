@@ -3,12 +3,12 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io/fs"
 	"os"
+	"strings"
 
 	"github.com/cbehopkins/medorg"
 )
-
-var AF *medorg.AutoFix
 
 func isDir(fn string) bool {
 	stat, err := os.Stat(fn)
@@ -24,32 +24,15 @@ func isDir(fn string) bool {
 }
 func main() {
 	var directories []string
-	if xmcf := medorg.XmConfig(); xmcf != "" {
-		// FIXME should we be casting to string here or fixing then interfaces?
-		xc := medorg.NewXMLCfg(string(xmcf))
-		for _, v := range xc.Af {
-			fmt.Printf("Add AutoFix Rule:%q\n", v)
-		}
-		AF = medorg.NewAutoFix(xc.Af)
-	} else if afcf := medorg.AfConfig(); afcf != "" {
-		AF = medorg.NewAutoFixFile(string(afcf))
-	} else {
-		var DomainList = []string{"(.*)_calc"}
-		AF = medorg.NewAutoFix(DomainList)
-	}
-	var walkCnt = flag.Int("walk", 2, "Max Number of directory Walkers")
-	var calcCnt = flag.Int("calc", 2, "Max Number of MD5 calculators")
-	var delflg = flag.Bool("delete", false, "Delete duplicated Files")
-	var rnmflg = flag.Bool("rename", false, "Auto Rename Files")
-	var skpflg = flag.Bool("skipu", false, "Skip update phase - go stright to autofix")
-	var bldflg = flag.Bool("buildo", false, "Build Only - do not run autofix")
-	var autflg = flag.Bool("auto", false, "Autofix filenames: -rename and -delete turn this on")
-	var conflg = flag.Bool("conc", false, "Concentrate files together in same directory")
-	var mvdflg = flag.Bool("mvd", false, "Move Detect - look for same name and size in a different directory")
-	flag.Parse()
-	AF.DeleteFiles = *delflg
-	AF.RenameFiles = *rnmflg
 
+	var calcCnt = flag.Int("calc", 2, "Max Number of MD5 calculators")
+	//var delflg = flag.Bool("delete", false, "Delete duplicated Files")
+	//var rnmflg = flag.Bool("rename", false, "Auto Rename Files")
+	var rclflg = flag.Bool("recalc", false, "Recalculate all checksums")
+
+	//var conflg = flag.Bool("conc", false, "Concentrate files together in same directory")
+	//var mvdflg = flag.Bool("mvd", false, "Move Detect - look for same name and size in a different directory")
+	flag.Parse()
 	if flag.NArg() > 0 {
 		for _, fl := range flag.Args() {
 			if isDir(fl) {
@@ -60,44 +43,40 @@ func main() {
 		directories = []string{"."}
 	}
 
-	if *delflg || *rnmflg {
-		*autflg = !*bldflg
+	tokenBuffer := make(chan struct{}, *calcCnt)
+	defer close(tokenBuffer)
+	for i := 0; i < *calcCnt; i++ {
+		tokenBuffer <- struct{}{}
 	}
-	pendCnt := *calcCnt + *walkCnt
-	if *mvdflg {
-		tw := medorg.NewTreeUpdate(*walkCnt, *calcCnt, pendCnt)
-		tw.MoveDetect(directories)
-	}
-	// Subtle - we want the walk engine to be able to start a calc routing
-	// without that calc routine having a token as yet
-	// i.e. we want the go scheduler to have some things queued up to do
-	// This allows us to set calcCnt to the amount of IO we want
-	// and walkCnt to be set to allow the directory structs to be hammered
-	for _, directory := range directories {
-		if !*skpflg {
-			tu := medorg.NewTreeUpdate(*walkCnt, *calcCnt, pendCnt)
-			tu.UpdateDirectory(directory, nil)
+
+	visitor := func(de medorg.DirectoryEntry, directory, file string, d fs.DirEntry) error {
+		if strings.HasPrefix(file, ".") {
+			// Skip hidden files
+			return nil
 		}
-		if *autflg {
-			tw := medorg.NewTreeWalker()
-			if !*skpflg {
-				tw.SetBuildComplete()
-			}
-			tw.WalkTree(directory, AF.WkFun, nil)
+		err := de.UpdateValues(d)
+		if err != nil {
+			return err
 		}
+		<-tokenBuffer
+		err = de.UpdateChecksum(file, *rclflg)
+		tokenBuffer <- struct{}{}
+		if err != nil {
+			return err
+		}
+		return nil
 	}
-	if *conflg {
-		for _, directory := range directories {
-			df := func(dir string, dm *medorg.DirectoryMap) {
-				var moved bool
-				fc := func(fn string, fs medorg.FileStruct) {
-					mov := AF.Consolidate(dir, fn, directory)
-					moved = moved || mov
-				}
-				dm.Range(fc)
-			}
-			tw := medorg.NewTreeWalker()
-			tw.WalkTree(directory, nil, df)
+
+	makerFunc := func(dir string) medorg.DirectoryTrackerInterface {
+		return medorg.NewDirectoryEntry(dir, visitor)
+	}
+	for _, dir := range directories {
+		errChan := medorg.NewDirTracker(dir, makerFunc)
+
+		for err := range errChan {
+			fmt.Println("Error received on closing:", err)
+			os.Exit(2)
 		}
 	}
+	fmt.Println("Finished walking")
 }
