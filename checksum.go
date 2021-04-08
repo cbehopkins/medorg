@@ -54,12 +54,12 @@ func md5Calcer(inputChan chan FileStruct, outputChan chan FileStruct, closedChan
 	close(closedChan)
 }
 
-// NewXMLManager creates a new file manager
+// newXMLManager creates a new file manager
 // This receives FileStructs and stroes those contents in
 // an appropriate .md5_file.xml
 // Note there is now CalcBuffer which will cache open structs
 // This trades memory for cpu & IO
-func NewXMLManager(inputChan chan FileStruct) *sync.WaitGroup {
+func newXMLManager(inputChan chan FileStruct) *sync.WaitGroup {
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go managerWorker(inputChan, &wg)
@@ -91,13 +91,6 @@ func appendXML(directory string, fsA []FileStruct) {
 		}
 	}
 	dm.WriteDirectory(directory)
-}
-
-func reducer(dm DirectoryMap, directory string) {
-	// Reduce the xml to only the items that exist
-	dm.Deleter(func(fn string, v FileStruct) bool {
-		return v.checkDelete(directory, fn)
-	})
 }
 
 // ReturnChecksumString gets the hash into the format we like it

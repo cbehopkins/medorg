@@ -7,8 +7,9 @@ import (
 	"log"
 	"os"
 	"sync"
-	"time"
 )
+
+var ErrKey = errors.New("KV not match")
 
 // DirectoryMap contains for the directory all the file structs
 type DirectoryMap struct {
@@ -26,8 +27,6 @@ func NewDirectoryMap() *DirectoryMap {
 	itm.lock = new(sync.RWMutex)
 	return itm
 }
-
-var ErrKey = errors.New("KV not match")
 
 //ToXML is a standard marshaller
 func (dm DirectoryMap) ToXML() (output []byte, err error) {
@@ -201,57 +200,4 @@ func (dm DirectoryMap) Range(fc func(string, FileStruct)) {
 		fc(fn, v)
 	}
 	dm.lock.RUnlock()
-}
-
-// Deleter deletes the supplied struct if the function returns true
-func (dm DirectoryMap) Deleter(fc func(string, FileStruct) bool) {
-	delList := make([]string, 0)
-
-	dm.lock.RLock()
-	for fn, v := range dm.mp {
-		toDelete := fc(fn, v)
-		if toDelete {
-			delList = append(delList, fn)
-		}
-	}
-	dm.lock.RUnlock()
-	if len(delList) > 0 {
-		dm.lock.Lock()
-		for _, fn := range delList {
-			dm.rm(fn)
-		}
-		dm.lock.Unlock()
-	}
-}
-
-// reduceXMLFe is the front end of reduceXml
-// it reads in, performs the reduction and returns a file struct
-// that only contains files that exist
-// If the file attributes have changed then that counts
-// as not existing
-// func reduceXMLFe(dm DirectoryMap) DirectoryMap {
-// 	// Read in the current file
-// 	// if it exists
-// 	//log.Printf("\n\n%s\n*****\n%v\n\n\n\n",directory,dm)
-
-// 	// Return the structure we have created as it is useful
-// 	return dm
-// }
-func (dm DirectoryMap) idleWriter(closeChan chan struct{}, directory string) *sync.WaitGroup {
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for {
-			select {
-			case <-closeChan:
-				dm.WriteDirectory(directory)
-				return
-			case <-time.After(idleWriteDuration):
-				dm.WriteDirectory(directory)
-			}
-		}
-
-	}()
-	return &wg
 }

@@ -157,14 +157,27 @@ func TestDuplicateArchivedAtPopulation(t *testing.T) {
 	scanBackupDirectories(dirs[1], dirs[0], backupLabelName)
 
 	expectedDuplicates := 10
-	archiveWalkFunc := func(directory, fn string, fs FileStruct, dm *DirectoryMap) bool {
+	archiveWalkFunc := func(de DirectoryEntry, dir, fn string, d fs.DirEntry) error {
+		if strings.HasPrefix(fn, ".") {
+			return nil
+		}
+		fs, ok := de.dm.Get(fn)
+		if !ok {
+			return fmt.Errorf("%w:%s", missingTestFile, fn)
+		}
 		if fs.HasTag(backupLabelName) {
 			expectedDuplicates--
 		}
-		return false
+		return nil
 	}
 
-	NewTreeWalker().WalkTree(dirs[0], archiveWalkFunc, nil)
+	makerFunc := func(dir string) DirectoryTrackerInterface {
+		return NewDirectoryEntry(dir, archiveWalkFunc)
+	}
+	for err := range NewDirTracker(dirs[0], makerFunc) {
+		t.Error("Error received on closing:", err)
+	}
+
 	if expectedDuplicates != 0 {
 		t.Error("Expected 0 duplicates left, got:", expectedDuplicates)
 	}

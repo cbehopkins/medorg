@@ -75,7 +75,7 @@ func TestMd5(t *testing.T) {
 	// We only have one of these to make file locks easier
 	// This receives a file structure on one channel, opens that file and modifies it accordingly.
 	// In the final application this will be the only thing that can update the xml files
-	wg := NewXMLManager(toUpdateXML)
+	wg := newXMLManager(toUpdateXML)
 
 	toMd5Chan <- FileStruct{Name: tmp_filename, directory: "."}
 	log.Println("Sent the file to check")
@@ -92,7 +92,7 @@ func TestSelfCompat(t *testing.T) {
 
 	dm := *NewDirectoryMap()
 	toMd5Chan, toUpdateXML, closedChan := NewChannels()
-	wg := NewXMLManager(toUpdateXML)
+	wg := newXMLManager(toUpdateXML)
 	toMd5Chan <- FileStruct{Name: fileToUse, directory: "."}
 	close(toMd5Chan)
 	<-closedChan
@@ -137,7 +137,7 @@ func TestPerlCompat(t *testing.T) {
 	_ = os.Remove("./" + Md5FileName)
 	dm = *NewDirectoryMap()
 	toMd5Chan, toUpdateXML, closedChan := NewChannels()
-	wg := NewXMLManager(toUpdateXML)
+	wg := newXMLManager(toUpdateXML)
 	toMd5Chan <- FileStruct{Name: fileToUse, directory: "."}
 	close(toMd5Chan)
 	<-closedChan
