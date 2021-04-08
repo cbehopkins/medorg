@@ -6,11 +6,9 @@ import (
 	"errors"
 	"hash"
 	"io"
-	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 )
@@ -95,144 +93,11 @@ func appendXML(directory string, fsA []FileStruct) {
 	dm.WriteDirectory(directory)
 }
 
-// UpdateDirectory will for a specified directory
-// go through and update the xml file
-func UpdateDirectory(directory string, mf ModifyFunc) {
-	dirCnt := 4
-	pendCnt := 4
-	dirToken := make(chan struct{}, dirCnt)
-	for i := 0; i < dirCnt; i++ {
-		dirToken <- struct{}{}
-	}
-	pendToken := make(chan struct{}, pendCnt)
-	for i := 0; i < pendCnt; i++ {
-		pendToken <- struct{}{}
-	}
-
-	tmpFunc := func(directory, fn string) (string, error) {
-		return CalcMd5File(directory, fn)
-	}
-
-	walkFunc := func(dir string, wkf WalkingFunc) {
-		<-dirToken
-		walkDirectory(dir, tmpFunc, wkf, pendToken, dirToken, mf, reducer)
-		dirToken <- struct{}{}
-	}
-
-	walkFunc(directory, walkFunc)
-}
 func reducer(dm DirectoryMap, directory string) {
 	// Reduce the xml to only the items that exist
 	dm.Deleter(func(fn string, v FileStruct) bool {
 		return v.checkDelete(directory, fn)
 	})
-}
-
-func walkDirectory(
-	directory string, // The directory to update
-	calcFunc CalcingFunc, // Run this function when a checksum doesn't exist
-	walkFunc WalkingFunc, // A function that will walk the tree. Generally calls this func
-	pendTok, dirTok chan struct{},
-	mf ModifyFunc, // If (and when) the checksum exists. Run this to allow modification of the fs
-	dmm DirectoryMapMod, // Modify the directory map, before walking
-) {
-	var dwg sync.WaitGroup
-	var fwg sync.WaitGroup
-	closeChan := make(chan struct{})
-
-	// Now read in all files in the current directory
-	// FIXME remove depriciated ioutil usage
-	stats, err := ioutil.ReadDir(directory)
-
-	if err != nil {
-		log.Fatal(err)
-	}
-	dirTok <- struct{}{}
-	dm := DirectoryMapFromDir(directory)
-	if dmm != nil {
-		dmm(dm, directory)
-	}
-	// Spawn the writer that will update the xml
-	// Needed in case we abort part way through
-	// we don't want to lose the progress we have made
-	writerWg := dm.idleWriter(closeChan, directory)
-	// Put the token back so we will always be able to
-	// recurse at least once
-	for _, file := range stats {
-		fn := file.Name()
-		if strings.HasPrefix(fn, ".") {
-			// Don't build for hidden files
-			continue
-			// If it is a directory, then go into it
-		}
-		if file.IsDir() {
-			nd := filepath.Join(directory, fn)
-			log.Println("Going into Update directory:", nd)
-			dwg.Add(1)
-			<-dirTok
-			go func(ld string) {
-				walkFunc(ld, walkFunc)
-				dwg.Done()
-				if Debug {
-					log.Println("Finished with directory:", ld)
-				}
-				dirTok <- struct{}{}
-			}(nd)
-		} else {
-			var fs FileStruct
-			fs, ok := dm.Get(fn)
-
-			if ok {
-				if mf != nil {
-					fs, update := mf(directory, fn, fs)
-					if update {
-						dm.Add(fs)
-					}
-				}
-			} else if calcFunc != nil {
-				<-pendTok
-				fwg.Add(1)
-
-				go func() {
-					calcOne(directory, fn, pendTok, calcFunc, mf, dm)
-					fwg.Done()
-				}()
-			}
-		}
-	}
-	// we've done with using IO ourselves
-	// so allow someone else to
-	dwg.Wait()
-	fwg.Wait()
-	// Now the md struct is up to date
-	// write it out
-	close(closeChan)
-	writerWg.Wait()
-	// retrieve the token we're expected to have
-	<-dirTok
-}
-func calcOne(directory, fn string, pendTok chan struct{}, calcFunc CalcingFunc, mf ModifyFunc, dm DirectoryMap) {
-	fs_i, err := NewFileStruct(directory, fn)
-	if err != nil {
-		log.Fatal("Error in file creation", err)
-	}
-	cs, err := calcFunc(directory, fn)
-	pendTok <- struct{}{}
-	if err != nil && err != ErrSkipCheck {
-		log.Fatal("Error back from checksum calculation", err)
-	}
-
-	fs_i.Checksum = cs
-
-	if mf != nil {
-		fsLocal, update := mf(directory, fn, *fs_i)
-		if update {
-			*fs_i = fsLocal
-		}
-	}
-	if err == nil {
-		dm.Add(*fs_i)
-	}
 }
 
 // ReturnChecksumString gets the hash into the format we like it

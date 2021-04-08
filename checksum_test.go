@@ -107,21 +107,6 @@ func TestSelfCompat(t *testing.T) {
 		log.Fatal("Missing Checksum from go version")
 	}
 }
-func TestBuildAll(t *testing.T) {
-	directory := "."
-	fileToUse := "checksum_test.go"
-	removeMd5(".")
-
-	UpdateDirectory(directory, nil)
-
-	dm := DirectoryMapFromDir(".")
-	_, ok := dm.Get(fileToUse)
-	if !ok {
-		log.Fatal(fileToUse, " is gone!!!", dm)
-	}
-	removeMd5(".")
-
-}
 func TestPerlCompat(t *testing.T) {
 	perlScript := "/home/cbh/home/script/perl/file_check.pl"
 	if _, err := os.Stat(perlScript); os.IsNotExist(err) {
