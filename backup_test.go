@@ -12,6 +12,8 @@ import (
 	"testing"
 )
 
+var errMissingTestFile = errors.New("missing file")
+
 func createTestBackupDirectories(numberOfFiles, numberOfDuplicates int) ([]string, error) {
 	if numberOfDuplicates > numberOfFiles {
 		return nil, errors.New("You asked for more duplicates than files")
@@ -68,8 +70,6 @@ func recalcTestDirectory(dir string) error {
 	return nil
 }
 
-var missingTestFile = errors.New("Missing file")
-
 // Test whether we can detect duplicates within the
 func TestDuplicateDetect(t *testing.T) {
 	dirs, err := createTestBackupDirectories(20, 10)
@@ -93,7 +93,7 @@ func TestDuplicateDetect(t *testing.T) {
 		}
 		fs, ok := de.dm.Get(fn)
 		if !ok {
-			return fmt.Errorf("%w:%s", missingTestFile, fn)
+			return fmt.Errorf("%w:%s", errMissingTestFile, fn)
 		}
 		srcTm.Add(fs)
 		return nil
@@ -104,7 +104,7 @@ func TestDuplicateDetect(t *testing.T) {
 		}
 		fs, ok := de.dm.Get(fn)
 		if !ok {
-			return fmt.Errorf("%w:%s", missingTestFile, fn)
+			return fmt.Errorf("%w:%s", errMissingTestFile, fn)
 		}
 		dstTm.Add(fs)
 		return nil
@@ -163,7 +163,7 @@ func TestDuplicateArchivedAtPopulation(t *testing.T) {
 		}
 		fs, ok := de.dm.Get(fn)
 		if !ok {
-			return fmt.Errorf("%w:%s", missingTestFile, fn)
+			return fmt.Errorf("%w:%s", errMissingTestFile, fn)
 		}
 		if fs.HasTag(backupLabelName) {
 			expectedDuplicates--

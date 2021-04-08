@@ -325,6 +325,7 @@ func (af AutoFix) Consolidate(srcDir, fn, dstDir string) bool {
 }
 
 // WkFun Walk function across the supplied directories
+// FIXME add testcases for this function
 func (af *AutoFix) WkFun(de DirectoryEntry, directory, file string, d fs.DirEntry) error {
 	fs, ok := de.dm.Get(file)
 	if !ok {
@@ -344,7 +345,7 @@ func (af *AutoFix) WkFun(de DirectoryEntry, directory, file string, d fs.DirEntr
 	oldFs, ok := af.FileHash[cSum]
 	if ok {
 		var mod bool
-		if fs.Size == oldFs.Size {
+		if fs.Equal(oldFs) {
 			fs, mod = af.ResolveTwo(fs, oldFs)
 			modified = modified || mod
 		}

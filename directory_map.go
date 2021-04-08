@@ -10,6 +10,7 @@ import (
 )
 
 var ErrKey = errors.New("KV not match")
+var errStructProblem = errors.New("structure Problem")
 
 // DirectoryMap contains for the directory all the file structs
 type DirectoryMap struct {
@@ -165,10 +166,9 @@ func (dm DirectoryMap) SelfCheck(directory string) {
 	}
 	dm.Range(fc)
 }
-
 func (dm DirectoryMap) selfCheckFile(directory, fn string, fs FileStruct, delete bool) error {
 	if fs.Directory() != directory {
-		return errors.New("Structure Problem")
+		return errStructProblem
 	}
 	if fs.Size == 0 {
 		log.Println("Zero Length File")

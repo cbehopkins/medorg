@@ -22,7 +22,6 @@ type DirectoryMapMod func(DirectoryMap, string)
 
 // Md5FileName is the filename we use to save the data in
 const Md5FileName = ".md5_list.xml"
-const idleWriteDuration = 30 * time.Second
 
 //ErrSkipCheck Reports a checksum that we have skipped producing
 var ErrSkipCheck = errors.New("skipping Checksum")

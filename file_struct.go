@@ -1,8 +1,6 @@
 package medorg
 
 import (
-	"errors"
-	"log"
 	"os"
 	"path/filepath"
 )
@@ -44,8 +42,11 @@ func (fs FileStruct) Path() Fpath {
 	return NewFpath(fs.directory, fs.Name)
 }
 
-// Equal return the path of the file
+// Equal test two file structs to see if we consider them equivalent
 func (fs FileStruct) Equal(ca FileStruct) bool {
+	if fs.Checksum == "" || ca.Checksum == "" {
+		return false
+	}
 	return (fs.Size == ca.Size) && (fs.Checksum == ca.Checksum)
 }
 
@@ -67,79 +68,6 @@ func NewFileStructFromStat(directory string, fn string, fs os.FileInfo) (*FileSt
 	return itm, nil
 }
 
-func (fs FileStruct) checkDelete(directory, fn string) bool {
-	fp := string(fs.Path())
-	if fn == "" {
-		if Debug {
-			log.Println("Blank filename in xml", fp)
-		}
-		return true
-	}
-	// for each file, check if it exists
-	if fstat, err := os.Stat(fp); os.IsNotExist(err) {
-		// if it does not, remove from the map
-		return true
-	} else if os.IsExist(err) || (err == nil) {
-		// If it does, then check if the attributes are accurate
-		ftD := fstat.ModTime().Unix()
-		szD := fstat.Size()
-		ftX := fs.Mtime
-		szX := fs.Size
-
-		if ftD != ftX {
-			log.Println("File times for ", fp, "do not match. File:", ftD, "Xml:", ftX)
-			return true
-		}
-		if szD != szX {
-			log.Println("Sizes for ", fp, "do not match. File:", szD, "Xml:", szX)
-			return true
-		}
-		return false
-	} else {
-		log.Fatal("A file that neither exists, nor doesn't exist", err)
-	}
-	return false
-}
-
-var ErrSameFileMtime = errors.New("they do not have the same Mtime")
-var ErrSameFiledirectory = errors.New("they do not have the same directory")
-var ErrSameFileSize = errors.New("they do not have the same Size")
-var ErrSameFileName = errors.New("they do not have the same Name")
-
-func (fs FileStruct) SameFileFast(fs_i FileStruct) error {
-	if fs.Size != fs_i.Size {
-		return ErrSameFileSize
-	}
-	if fs.Mtime != fs_i.Mtime {
-		return ErrSameFileMtime
-	}
-	if fs.Name != fs_i.Name {
-		return ErrSameFileName
-	}
-	if fs.directory != fs_i.directory {
-		return ErrSameFiledirectory
-	}
-	return nil
-}
-
-// func (fs FileStruct) SameFile(fs_i FileStruct) error {
-// 	if fs.Name != fs_i.Name {
-// 		return fmt.Errorf("%w: %v, %v", ErrSameFileName, fs.Name, fs_i.Name)
-// 	}
-
-// 	if fs.Size != fs_i.Size {
-// 		return fmt.Errorf("%w: %v, %v", ErrSameFileSize, fs.Size, fs_i.Size)
-// 	}
-
-// 	if fs.directory != fs_i.directory {
-// 		return fmt.Errorf("%w: %v, %v", ErrSameFiledirectory, fs.directory, fs_i.directory)
-// 	}
-
-// 	if fs.Mtime != fs_i.Mtime {
-// 		return fmt.Errorf("%w: %v, %v", ErrSameFileMtime, fs.Mtime, fs_i.Mtime)
-// 	}
-// 	return nil
-// }
 func (fs FileStruct) indexTag(tag string) int {
 	for i, v := range fs.ArchivedAt {
 		if v == tag {
@@ -151,7 +79,6 @@ func (fs FileStruct) indexTag(tag string) int {
 
 // HasTag return true is the tag is already in ArchivedAt
 func (fs FileStruct) HasTag(tag string) bool {
-
 	return fs.indexTag(tag) >= 0
 }
 
