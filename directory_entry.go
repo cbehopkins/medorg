@@ -1,16 +1,17 @@
 package medorg
 
 import (
-	"errors"
 	"fmt"
 	"io/fs"
+	"log"
 	"sync"
 )
 
 type WorkItem struct {
-	dir  string
-	file string
-	d    fs.DirEntry
+	dir      string
+	file     string
+	d        fs.DirEntry
+	callback func()
 }
 type DirectoryVisitorFunc func(de DirectoryEntry, directory string, file string, d fs.DirEntry) error
 
@@ -44,8 +45,8 @@ func (de DirectoryEntry) Close(directory string) <-chan error {
 	close(de.closeChan)
 	return de.errorChan
 }
-func (de DirectoryEntry) VisitFile(dir, file string, d fs.DirEntry) {
-	de.workItems <- WorkItem{dir, file, d}
+func (de DirectoryEntry) VisitFile(dir, file string, d fs.DirEntry, callback func()) {
+	de.workItems <- WorkItem{dir, file, d, callback}
 }
 
 func (de DirectoryEntry) worker() {
@@ -65,6 +66,7 @@ func (de DirectoryEntry) worker() {
 					}
 				}
 				activeFiles.Done()
+				wi.callback()
 			}(wi.dir, wi.file, wi.d)
 		case <-de.closeChan:
 			activeFiles.Wait()
@@ -81,17 +83,6 @@ func (de DirectoryEntry) persist() error {
 	// FIXME sort out proper error handling here
 	de.dm.WriteDirectory(de.dir)
 	return nil
-}
-
-func (fs FileStruct) Changed(info fs.FileInfo) bool {
-	// FIXME move this to the right file
-	if fs.Mtime != info.ModTime().Unix() {
-		return true
-	}
-	if fs.Size != info.Size() {
-		return true
-	}
-	return false
 }
 
 // UpdateValues in the DirectoryEntry to those found on the fs
@@ -127,9 +118,25 @@ func (de DirectoryEntry) SetFs(fs FileStruct) {
 
 // UpdateChecksum will recalc the checksum of an entry
 func (de DirectoryEntry) UpdateChecksum(file string, forceUpdate bool) error {
+	if file == "" {
+		log.Fatal("Updating a checksum on a null file")
+	}
+
 	fs, ok := de.dm.Get(file)
 	if !ok {
-		return errors.New("asked to update a file that does not exist")
+
+		fsp, err := NewFileStruct(de.dir, file)
+		if err != nil {
+			return nil
+		}
+		fs = *fsp
+		if fs.Name == "" {
+			log.Fatal("Created a null file")
+		}
+		de.dm.Add(fs)
+	}
+	if fs.Name == "" {
+		log.Fatal("We now have a null file")
 	}
 
 	if !forceUpdate && (fs.Checksum != "") {
@@ -146,6 +153,11 @@ func (de DirectoryEntry) UpdateChecksum(file string, forceUpdate bool) error {
 		fmt.Println("Recalculation of ", file, "found a changed checksum")
 	}
 	fs.Checksum = cks
+
+	if fs.Name == "" {
+		log.Fatal("about to add a null file")
+	}
 	de.dm.Add(fs)
+
 	return nil
 }

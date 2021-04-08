@@ -9,21 +9,30 @@ import (
 
 type DirectoryTrackerInterface interface {
 	Close(directory string) <-chan error
-	VisitFile(dir, file string, d fs.DirEntry)
+	// You must call the callback after you have finished whatever you are doing that might be
+	// resource intensive.
+	VisitFile(dir, file string, d fs.DirEntry, callback func())
 }
 
 type DirTracker struct {
-	dm       map[string]DirectoryTrackerInterface
-	newEntry func(dir string) DirectoryTrackerInterface
-	lastPath string
+	dm        map[string]DirectoryTrackerInterface
+	newEntry  func(dir string) DirectoryTrackerInterface
+	lastPath  string
+	tokenChan chan struct{}
 }
 
 func NewDirTracker(dir string, newEntry func(string) DirectoryTrackerInterface) <-chan error {
 	errChan := make(chan error)
+	numOutsanding := 1 // FIXME expose this
 	go func() {
 		var dt DirTracker
 		dt.dm = make(map[string]DirectoryTrackerInterface)
 		dt.newEntry = newEntry
+		dt.tokenChan = make(chan struct{}, numOutsanding)
+		for i := 0; i < numOutsanding; i++ {
+			dt.tokenChan <- struct{}{}
+		}
+
 		err := filepath.WalkDir(dir, dt.directoryWalker)
 		if err != nil {
 			errChan <- err
@@ -76,7 +85,11 @@ func (dt *DirTracker) directoryWalker(path string, d fs.DirEntry, err error) err
 	if !ok {
 		return errors.New("missing directory when evaluating path")
 	}
-	dt.dm[dir].VisitFile(dir, file, d)
+	<-dt.tokenChan
+	callback := func() {
+		dt.tokenChan <- struct{}{}
+	}
+	dt.dm[dir].VisitFile(dir, file, d, callback)
 	return nil
 }
 

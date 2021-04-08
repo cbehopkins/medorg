@@ -1,6 +1,7 @@
 package medorg
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 )
@@ -101,4 +102,14 @@ func (fs *FileStruct) RemoveTag(tag string) bool {
 	fs.ArchivedAt[len(fs.ArchivedAt)-1], fs.ArchivedAt[index] = fs.ArchivedAt[index], fs.ArchivedAt[len(fs.ArchivedAt)-1]
 	fs.ArchivedAt = fs.ArchivedAt[:len(fs.ArchivedAt)-1]
 	return true
+}
+
+func (fs FileStruct) Changed(info fs.FileInfo) bool {
+	if fs.Mtime != info.ModTime().Unix() {
+		return true
+	}
+	if fs.Size != info.Size() {
+		return true
+	}
+	return false
 }

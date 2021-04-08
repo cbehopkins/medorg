@@ -59,7 +59,10 @@ func (dm *DirectoryMap) FromXML(input []byte) (err error) {
 }
 
 // Add adds a file struct to the dm
-func (dm *DirectoryMap) Add(fs FileStruct) {
+func (dm DirectoryMap) Add(fs FileStruct) {
+	if fs.Name == "" {
+		log.Fatal("asked to add a null file")
+	}
 	dm.lock.Lock()
 	fn := fs.Name
 	dm.mp[fn] = fs
@@ -161,11 +164,13 @@ func (dm DirectoryMap) Stale() bool {
 func (dm DirectoryMap) SelfCheck(directory string) {
 	fc := func(fn string, fs FileStruct) {
 		if fs.Directory() != directory {
-			log.Fatal("Self check problem. FS has directory of ", fs.Directory(), " for ", directory)
+			log.Fatal("Self check problem. FS has directory of ", fs.Directory(), " for ", directory, "file \"", fn, "\"")
 		}
 	}
 	dm.Range(fc)
 }
+
+// FIXME rename this as it doesn't just check
 func (dm DirectoryMap) selfCheckFile(directory, fn string, fs FileStruct, delete bool) error {
 	if fs.Directory() != directory {
 		return errStructProblem

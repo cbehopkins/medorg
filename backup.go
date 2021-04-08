@@ -7,7 +7,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 )
@@ -81,26 +80,38 @@ func scanBackupDirectories(destDir, srcDir, volumeName string) {
 	backupDestination := NewBackupDupeMap()
 	backupSource := NewBackupDupeMap()
 	modifyFuncDestination := func(de DirectoryEntry, dir, fn string, d fs.DirEntry) error {
-		if strings.HasPrefix(fn, ".") {
+		if fn == Md5FileName {
 			return nil
 		}
-		de.UpdateChecksum(fn, false)
+		if fn == "" {
+			log.Fatal("Told to visit a null file")
+		}
+		err := de.UpdateChecksum(fn, false)
+		if err != nil {
+			return err
+		}
 		// Add everything we find to the destination map
 		fs, ok := de.dm.Get(fn)
 		if !ok {
-			return fmt.Errorf("%w: %s/%s", ErrMissingSrcEntry, dir, fn)
+			return fmt.Errorf("dst %w: %s/%s", ErrMissingSrcEntry, dir, fn)
+		}
+		if fs.Name == "" {
+			log.Fatal("Got a null file")
 		}
 		backupDestination.Add(fs)
 		return nil
 	}
 	modifyFuncSource := func(de DirectoryEntry, dir, fn string, d fs.DirEntry) error {
-		if strings.HasPrefix(fn, ".") {
+		if fn == Md5FileName {
 			return nil
 		}
-		de.UpdateChecksum(fn, false)
+		err := de.UpdateChecksum(fn, false)
+		if err != nil {
+			return err
+		}
 		fs, ok := de.dm.Get(fn)
 		if !ok {
-			return fmt.Errorf("%w: %s/%s", ErrMissingSrcEntry, dir, fn)
+			return fmt.Errorf("src %w: %s/%s", ErrMissingSrcEntry, dir, fn)
 		}
 		key := backupKey{fs.Size, fs.Checksum}
 		// If it exists in the destination already
@@ -148,7 +159,7 @@ func scanBackupDirectories(destDir, srcDir, volumeName string) {
 func extractCopyFiles(targetDir, volumeName string) fpathListList {
 	remainingFiles := fpathListList{}
 	modifyFunc := func(de DirectoryEntry, dir, fn string, d fs.DirEntry) error {
-		if strings.HasPrefix(fn, ".") {
+		if fn == Md5FileName {
 			return nil
 		}
 		fs, ok := de.dm.Get(fn)

@@ -6,7 +6,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/cbehopkins/medorg"
 )
@@ -31,7 +30,7 @@ func main() {
 	var rnmflg = flag.Bool("rename", false, "Auto Rename Files")
 	var rclflg = flag.Bool("recalc", false, "Recalculate all checksums")
 
-	//var conflg = flag.Bool("conc", false, "Concentrate files together in same directory")
+	var conflg = flag.Bool("conc", false, "Concentrate files together in same directory")
 	//var mvdflg = flag.Bool("mvd", false, "Move Detect - look for same name and size in a different directory")
 	flag.Parse()
 	if flag.NArg() > 0 {
@@ -52,12 +51,14 @@ func main() {
 			xc = medorg.NewXMLCfg(string(xmcf))
 		} else {
 			fmt.Println("no config file found")
-			fn := filepath.Join(string(medorg.HomeDir()), "/.medorg.xml")
+			fn := filepath.Join(string(medorg.HomeDir()), medorg.Md5FileName)
 			xc = medorg.NewXMLCfg(fn)
 		}
 		AF = medorg.NewAutoFix(xc.Af)
 		AF.DeleteFiles = *delflg
 	}
+
+	var con *medorg.Concentrator
 
 	// Have a buffer of compute tokens
 	// to ensure we're not doing too much at once
@@ -68,8 +69,7 @@ func main() {
 	}
 
 	visitor := func(de medorg.DirectoryEntry, directory, file string, d fs.DirEntry) error {
-		if strings.HasPrefix(file, ".") {
-			// Skip hidden files
+		if file == medorg.Md5FileName {
 			return nil
 		}
 		err := de.UpdateValues(d)
@@ -84,17 +84,31 @@ func main() {
 		if AF != nil {
 			AF.WkFun(de, directory, file, d)
 		}
+		if con != nil {
+			con.Visiter(de, directory, file, d)
+		}
 		return err
 	}
 
 	makerFunc := func(dir string) medorg.DirectoryTrackerInterface {
-		return medorg.NewDirectoryEntry(dir, visitor)
+		de := medorg.NewDirectoryEntry(dir, visitor)
+		if con != nil {
+			err := con.DirectoryVisit(de, dir)
+			if err != nil {
+				fmt.Println("Received error from concentrate", err)
+				os.Exit(3)
+			}
+		}
+		return de
 	}
 	for _, dir := range directories {
+		if *conflg {
+			con = medorg.NewConcentrator(dir)
+		}
 		errChan := medorg.NewDirTracker(dir, makerFunc)
 
 		for err := range errChan {
-			fmt.Println("Error received on closing:", err)
+			fmt.Println("Error received while walking:", dir, err)
 			os.Exit(2)
 		}
 	}

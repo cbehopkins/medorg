@@ -8,7 +8,6 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -44,16 +43,15 @@ func createTestBackupDirectories(numberOfFiles, numberOfDuplicates int) ([]strin
 	}
 	return directoriesCreated, nil
 }
-func recalcForTest(de DirectoryEntry, directory, file string, d fs.DirEntry) error {
-	if strings.HasPrefix(file, ".") {
-		// Skip hidden files
+func recalcForTest(de DirectoryEntry, directory, fn string, d fs.DirEntry) error {
+	if fn == Md5FileName {
 		return nil
 	}
 	err := de.UpdateValues(d)
 	if err != nil {
 		return err
 	}
-	err = de.UpdateChecksum(file, false)
+	err = de.UpdateChecksum(fn, false)
 	if err != nil {
 		return err
 	}
@@ -88,7 +86,7 @@ func TestDuplicateDetect(t *testing.T) {
 	dstTm := NewBackupDupeMap()
 
 	mfSrc := func(de DirectoryEntry, dir, fn string, d fs.DirEntry) error {
-		if strings.HasPrefix(fn, ".") {
+		if fn == Md5FileName {
 			return nil
 		}
 		fs, ok := de.dm.Get(fn)
@@ -99,7 +97,7 @@ func TestDuplicateDetect(t *testing.T) {
 		return nil
 	}
 	mfDst := func(de DirectoryEntry, dir, fn string, d fs.DirEntry) error {
-		if strings.HasPrefix(fn, ".") {
+		if fn == Md5FileName {
 			return nil
 		}
 		fs, ok := de.dm.Get(fn)
@@ -158,7 +156,7 @@ func TestDuplicateArchivedAtPopulation(t *testing.T) {
 
 	expectedDuplicates := 10
 	archiveWalkFunc := func(de DirectoryEntry, dir, fn string, d fs.DirEntry) error {
-		if strings.HasPrefix(fn, ".") {
+		if fn == Md5FileName {
 			return nil
 		}
 		fs, ok := de.dm.Get(fn)
