@@ -113,13 +113,12 @@ func scanBackupDirectories(destDir, srcDir, volumeName string) {
 		if !ok {
 			return fmt.Errorf("src %w: %s/%s", ErrMissingSrcEntry, dir, fn)
 		}
-		key := backupKey{fs.Size, fs.Checksum}
 		// If it exists in the destination already
-		_, ok = backupDestination.Lookup(key)
+		_, ok = backupDestination.Lookup(fs.Key())
 		if ok {
 			// Then mark in the source as already backed up
 			_ = fs.AddTag(volumeName)
-			backupDestination.Remove(key)
+			backupDestination.Remove(fs.Key())
 		}
 		if !ok && fs.HasTag(volumeName) {
 			// FIXME add testcase for this
