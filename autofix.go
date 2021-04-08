@@ -1,7 +1,9 @@
 package medorg
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"log"
 	"os"
 	"regexp"
@@ -20,10 +22,12 @@ var KnownExtensions = []string{
 
 // AutoFix is the structure for autofixing the files
 type AutoFix struct {
-	DeleteFiles    bool
-	RenameFiles    bool
-	ReStaticNum    *regexp.Regexp
-	ReDomainList   []*regexp.Regexp
+	DeleteFiles  bool
+	RenameFiles  bool
+	ReStaticNum  *regexp.Regexp
+	ReDomainList []*regexp.Regexp
+	// For all the file we encounter, keep their hash
+	// FIXME elsewhere we use size && hash as the key to uniqueness
 	FileHash       map[string]FileStruct
 	SilenceLogging bool
 }
@@ -321,30 +325,25 @@ func (af AutoFix) Consolidate(srcDir, fn, dstDir string) bool {
 }
 
 // WkFun Walk function across the supplied directories
-func (af *AutoFix) WkFun(directory, fn string, fs FileStruct, dm *DirectoryMap) bool {
-	var modified bool
-	if fs.Directory() != directory {
-		log.Fatal("Structure Problem for", directory, fn)
+func (af *AutoFix) WkFun(de DirectoryEntry, directory, file string, d fs.DirEntry) error {
+	fs, ok := de.dm.Get(file)
+	if !ok {
+		return errors.New("asked to update a file that does not exist")
 	}
-	if fs.Size == 0 {
-		log.Println("Zero Length File")
-		if af.DeleteFiles {
-			err := dm.RmFile(directory, fn)
-			if err != nil {
-				log.Fatal("Couldn't delete file", directory, fn)
-			}
-		}
-		return true
-	}
-	// now look to see if we should rename the file
-	var mod bool
-	fs, mod = af.CheckRename(fs)
-	modified = modified || mod
 
-	// Check if two of the checksums are equal
+	err := de.dm.selfCheckFile(directory, file, fs, af.DeleteFiles)
+	if err != nil {
+		return err
+	}
+
+	// now look to see if we should rename the file
+	fs, modified := af.CheckRename(fs)
+
+	// Now look to see if we have seen this file's hash before
 	cSum := fs.Checksum
 	oldFs, ok := af.FileHash[cSum]
 	if ok {
+		var mod bool
 		if fs.Size == oldFs.Size {
 			fs, mod = af.ResolveTwo(fs, oldFs)
 			modified = modified || mod
@@ -354,9 +353,8 @@ func (af *AutoFix) WkFun(directory, fn string, fs FileStruct, dm *DirectoryMap) 
 	af.FileHash[cSum] = fs
 	if modified {
 		//fmt.Println("Modified FS:", fs)
-		dm.Rm(fn)
-		dm.Add(fs)
+		de.dm.Add(fs)
 	}
 	// Return true when we modify dm
-	return modified
+	return nil
 }

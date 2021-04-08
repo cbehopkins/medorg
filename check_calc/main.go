@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/cbehopkins/medorg"
@@ -26,8 +27,8 @@ func main() {
 	var directories []string
 
 	var calcCnt = flag.Int("calc", 2, "Max Number of MD5 calculators")
-	//var delflg = flag.Bool("delete", false, "Delete duplicated Files")
-	//var rnmflg = flag.Bool("rename", false, "Auto Rename Files")
+	var delflg = flag.Bool("delete", false, "Delete duplicated Files")
+	var rnmflg = flag.Bool("rename", false, "Auto Rename Files")
 	var rclflg = flag.Bool("recalc", false, "Recalculate all checksums")
 
 	//var conflg = flag.Bool("conc", false, "Concentrate files together in same directory")
@@ -43,6 +44,23 @@ func main() {
 		directories = []string{"."}
 	}
 
+	var AF *medorg.AutoFix
+	if *rnmflg {
+		var xc *medorg.XMLCfg
+		if xmcf := medorg.XmConfig(); xmcf != "" {
+			// FIXME should we be casting to string here or fixing the interfaces?
+			xc = medorg.NewXMLCfg(string(xmcf))
+		} else {
+			fmt.Println("no config file found")
+			fn := filepath.Join(string(medorg.HomeDir()), "/.medorg.xml")
+			xc = medorg.NewXMLCfg(fn)
+		}
+		AF = medorg.NewAutoFix(xc.Af)
+		AF.DeleteFiles = *delflg
+	}
+
+	// Have a buffer of compute tokens
+	// to ensure we're not doing too much at once
 	tokenBuffer := make(chan struct{}, *calcCnt)
 	defer close(tokenBuffer)
 	for i := 0; i < *calcCnt; i++ {
@@ -58,13 +76,15 @@ func main() {
 		if err != nil {
 			return err
 		}
+		// Grab a compute token
 		<-tokenBuffer
 		err = de.UpdateChecksum(file, *rclflg)
 		tokenBuffer <- struct{}{}
-		if err != nil {
-			return err
+
+		if AF != nil {
+			AF.WkFun(de, directory, file, d)
 		}
-		return nil
+		return err
 	}
 
 	makerFunc := func(dir string) medorg.DirectoryTrackerInterface {

@@ -166,6 +166,23 @@ func (dm DirectoryMap) SelfCheck(directory string) {
 	dm.Range(fc)
 }
 
+func (dm DirectoryMap) selfCheckFile(directory, fn string, fs FileStruct, delete bool) error {
+	if fs.Directory() != directory {
+		return errors.New("Structure Problem")
+	}
+	if fs.Size == 0 {
+		log.Println("Zero Length File")
+		if delete {
+			err := dm.RmFile(directory, fn)
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return nil
+}
+
 // WriteDirectory writes the dm out to the directory specified
 func (dm DirectoryMap) WriteDirectory(directory string) {
 	dm.SelfCheck(directory)

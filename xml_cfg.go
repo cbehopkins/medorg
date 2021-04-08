@@ -2,6 +2,7 @@ package medorg
 
 import (
 	"encoding/xml"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
@@ -11,8 +12,12 @@ import (
 // XMLCfg structure used to specify the detailed config
 type XMLCfg struct {
 	XMLName struct{} `xml:"xc"`
-	Af      []string `xml:"af"`
-	fn      string
+	// Autoformatting rules
+	Af []string `xml:"af"`
+	// Volume Labels we have encountered
+	VolumeLabels []string `xml:"vl"`
+
+	fn string
 }
 
 // NewXMLCfg reads the config from an xml file
@@ -41,7 +46,7 @@ func NewXMLCfg(fn string) *XMLCfg {
 	return itm
 }
 func (xc *XMLCfg) WriteXmlCfg() error {
-	data, err := xml.Marshal(xc)
+	data, err := xml.MarshalIndent(xc, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -62,10 +67,22 @@ func (xc *XMLCfg) FromXML(input []byte) (err error) {
 	}
 	return
 }
+func (xc *XMLCfg) HasLabel(label string) bool {
+	for _, v := range xc.VolumeLabels {
+		if label == v {
+			return true
+		}
+	}
+	return false
+}
 
 // Add a volume label
 // returns false if the label already exists
 func (xc *XMLCfg) AddLabel(label string) bool {
-	//FIXME The chances of needing this are slim, but non 0
+	if xc.HasLabel(label) {
+		return false
+	}
+	fmt.Println("Adding Label", label)
+	xc.VolumeLabels = append(xc.VolumeLabels, label)
 	return true
 }

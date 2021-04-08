@@ -56,6 +56,8 @@ func NewVolumeCfg(xc *XMLCfg, fn string) (*VolumeCfg, error) {
 			return nil, fmt.Errorf("unable to unmarshal config NewVolumeCfg file:%s::%w", fn, err)
 		}
 	}
+	// We don't care if the label is there already or not
+	_ = xc.AddLabel(itm.Label)
 	return itm, nil
 }
 
@@ -72,6 +74,7 @@ func (vc *VolumeCfg) FromXML(input []byte) (err error) {
 	return
 }
 
+// Chunk of code nicked from stackoverflow
 const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 const (
 	letterIdxBits = 6                    // 6 bits to represent a letter index

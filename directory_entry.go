@@ -94,6 +94,7 @@ func (fs FileStruct) Changed(info fs.FileInfo) bool {
 	return false
 }
 
+// UpdateValues in the DirectoryEntry to those found on the fs
 func (de DirectoryEntry) UpdateValues(d fs.DirEntry) error {
 	info, err := d.Info()
 	if err != nil {

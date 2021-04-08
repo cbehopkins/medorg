@@ -51,7 +51,7 @@ func main() {
 	var directories []string
 	var xc *medorg.XMLCfg
 	if xmcf := medorg.XmConfig(); xmcf != "" {
-		// FIXME should we be casting to string here or fixing then interfaces?
+		// FIXME should we be casting to string here or fixing the interfaces?
 		xc = medorg.NewXMLCfg(string(xmcf))
 	} else {
 		fmt.Println("no config file found")
@@ -59,6 +59,7 @@ func main() {
 		xc = medorg.NewXMLCfg(fn)
 	}
 	defer func() {
+		fmt.Println("Saving out config")
 		err := xc.WriteXmlCfg()
 		if err != nil {
 			fmt.Println("Error while saving config file", err)
