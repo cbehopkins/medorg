@@ -32,15 +32,11 @@ func (mvd *MoveDetect) runMoveDetectFindDeleted(directory string) error {
 		return nil
 	}
 	fc := func(fn string, fileStruct FileStruct) {
-
-		stat, err := os.Stat(string(fileStruct.Path()))
-		if os.IsExist(err) {
+		_, err := os.Stat(string(fileStruct.Path()))
+		if !os.IsNotExist(err) {
 			return
 		}
-		if fileStruct.Changed(stat) {
-			// Delete from src
-			return
-		}
+		// FIXME Delete from src
 		mvd.add(fileStruct)
 	}
 	makerFunc := func(dir string) DirectoryTrackerInterface {
@@ -71,6 +67,7 @@ func (mvd *MoveDetect) runMoveDetectFindNew(directory string) error {
 		if err != nil {
 			return err
 		}
+		v.directory = de.dir
 		de.dm.Add(v)
 		mvd.delete(v)
 		return de.UpdateValues(d)

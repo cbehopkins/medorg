@@ -64,7 +64,6 @@ func (de DirectoryEntry) worker() {
 				if de.fileWorker != nil {
 					err := de.fileWorker(de, dir, file, d)
 					if err != nil {
-						fmt.Println("Got an error:", err)
 						de.errorChan <- err
 					}
 				}

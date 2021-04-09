@@ -2,6 +2,7 @@ package medorg
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"io/ioutil"
 	"math/rand"
@@ -83,7 +84,7 @@ func checkChecksums(de DirectoryEntry, directory, fn string, d fs.DirEntry) erro
 	}
 	_, ok := de.dm.Get(fn)
 	if !ok {
-		return errMissingChecksum
+		return fmt.Errorf("%w::%s", errMissingChecksum, fn)
 	}
 	return nil
 }
@@ -134,7 +135,7 @@ func moveNfiles(cnt int, files, directories []string) error {
 }
 
 func TestMoveDetect(t *testing.T) {
-	root, err := createTestMoveDetectDirectories(1, 2, 1)
+	root, err := createTestMoveDetectDirectories(3, 3, 4)
 	if err != nil {
 		t.Error("Error creating test directories", err)
 	}
@@ -148,7 +149,7 @@ func TestMoveDetect(t *testing.T) {
 	if err != nil {
 		t.Error("Error checking checksums for directories", err)
 	}
-	t.Log("Created Test setup:", files, directories)
+	// t.Log("Created Test setup:", files, directories)
 	_ = recalcTestDirectory(root)
 	rand.Shuffle(len(files), func(i, j int) {
 		files[i], files[j] = files[j], files[i]
@@ -159,12 +160,20 @@ func TestMoveDetect(t *testing.T) {
 	t.Log("Now shuffled")
 
 	// Move some files around
-	err = moveNfiles(2, files, directories)
+	err = moveNfiles(3, files, directories)
 	if err != nil {
 		t.Error("Error moving files", err)
 	}
 	err = checkTestDirectoryChecksums(root)
-	if err != errMissingChecksum {
+	if !errors.Is(err, errMissingChecksum) {
 		t.Error("Error checking checksums for directories", err)
+	}
+	err = NewMoveDetect().RunMoveDetect([]string{root})
+	if err != nil {
+		t.Error("move detect problem", err)
+	}
+	err = checkTestDirectoryChecksums(root)
+	if err != nil {
+		t.Error("Error checking checksums for moved directories", err)
 	}
 }

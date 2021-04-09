@@ -2,7 +2,6 @@ package medorg
 
 import (
 	"errors"
-	"fmt"
 	"io/fs"
 	"path/filepath"
 	"sync"
@@ -66,7 +65,7 @@ func (dt *DirTracker) directoryWalker(path string, d fs.DirEntry, err error) err
 			return errors.New("descending into a dirctory, that we already have an entry for")
 		}
 
-		fmt.Println("Into directory:", path)
+		//fmt.Println("Into directory:", path)
 		dt.pathCloser(path)
 		dt.dm[path] = dt.newEntry(path)
 		dt.wg.Add(1)
@@ -101,21 +100,6 @@ func (dt *DirTracker) directoryWalker(path string, d fs.DirEntry, err error) err
 	}
 	dt.dm[dir].VisitFile(dir, file, d, callback)
 	return nil
-}
-func (dt DirTracker) errorMergerWorker(errorChan chan<- error) *sync.WaitGroup {
-	wg := new(sync.WaitGroup)
-	for _, v := range dt.dm {
-		wg.Add(1)
-		go func(v DirectoryTrackerInterface) {
-			for err := range v.ErrChan() {
-				if err != nil {
-					errorChan <- err
-				}
-			}
-			wg.Done()
-		}(v)
-	}
-	return wg
 }
 
 func (dt DirTracker) close() {
