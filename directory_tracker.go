@@ -55,7 +55,6 @@ func (dt *DirTracker) pathCloser(path string) {
 	dt.lastPath = path
 }
 func (dt *DirTracker) directoryWalker(path string, d fs.DirEntry, err error) error {
-	//fmt.Println("Path:", path, d.Name(), d.IsDir())
 	if err != nil {
 		return err
 	}
@@ -65,12 +64,12 @@ func (dt *DirTracker) directoryWalker(path string, d fs.DirEntry, err error) err
 			return errors.New("descending into a dirctory, that we already have an entry for")
 		}
 
-		//fmt.Println("Into directory:", path)
 		dt.pathCloser(path)
-		dt.dm[path] = dt.newEntry(path)
+		de := dt.newEntry(path)
+		dt.dm[path] = de
 		dt.wg.Add(1)
 		go func() {
-			for err := range dt.dm[path].ErrChan() {
+			for err := range de.ErrChan() {
 				if err != nil {
 					dt.errChan <- err
 				}

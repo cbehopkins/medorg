@@ -46,6 +46,8 @@ func TestB2B(t *testing.T) {
 	log.Println("All Done")
 }
 func makeFile(directory string) string {
+	// FIXME it would be quicker to calculate the checksum here
+	// while it's an in memory object
 	buff := make([]byte, 75000)
 	rand.Read(buff)
 	tmpfile, err := ioutil.TempFile(directory, "example")
@@ -146,7 +148,6 @@ func TestPerlCompat(t *testing.T) {
 	v, ok = dm.Get(fileToUse)
 	if !ok {
 		log.Fatal(fileToUse, "Bob is gone for a second time!")
-
 	}
 	newChecksum := v.Checksum
 	if newChecksum == "" {

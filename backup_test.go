@@ -61,7 +61,6 @@ func recalcTestDirectory(dir string) error {
 	makerFunc := func(dir string) DirectoryTrackerInterface {
 		return NewDirectoryEntry(dir, recalcForTest)
 	}
-	// FIXME we should be able to run this in parallel
 	for err := range NewDirTracker(dir, makerFunc) {
 		return fmt.Errorf("Error received on closing:%w", err)
 	}

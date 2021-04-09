@@ -135,45 +135,63 @@ func moveNfiles(cnt int, files, directories []string) error {
 }
 
 func TestMoveDetect(t *testing.T) {
-	root, err := createTestMoveDetectDirectories(3, 3, 4)
-	if err != nil {
-		t.Error("Error creating test directories", err)
+	type testSet struct {
+		cfg   []int
+		moveN int
 	}
-	defer os.RemoveAll(root)
-	files, directories := gatherFilesAndDirectories(root)
-	err = recalcTestDirectory(root)
-	if err != nil {
-		t.Error("Error calculating initial checksums for directories", err)
+	testSet0 := []testSet{
+		{cfg: []int{3, 3, 4}, moveN: 2},
+		{cfg: []int{3, 3, 4}, moveN: 4},
+		{cfg: []int{4, 2, 8}, moveN: 16},
+		//{cfg: []int{6, 4, 2}, moveN: 36},
 	}
-	err = checkTestDirectoryChecksums(root)
-	if err != nil {
-		t.Error("Error checking checksums for directories", err)
-	}
-	// t.Log("Created Test setup:", files, directories)
-	_ = recalcTestDirectory(root)
-	rand.Shuffle(len(files), func(i, j int) {
-		files[i], files[j] = files[j], files[i]
-	})
-	rand.Shuffle(len(directories), func(i, j int) {
-		directories[i], directories[j] = directories[j], directories[i]
-	})
-	t.Log("Now shuffled")
 
-	// Move some files around
-	err = moveNfiles(3, files, directories)
-	if err != nil {
-		t.Error("Error moving files", err)
-	}
-	err = checkTestDirectoryChecksums(root)
-	if !errors.Is(err, errMissingChecksum) {
-		t.Error("Error checking checksums for directories", err)
-	}
-	err = NewMoveDetect().RunMoveDetect([]string{root})
-	if err != nil {
-		t.Error("move detect problem", err)
-	}
-	err = checkTestDirectoryChecksums(root)
-	if err != nil {
-		t.Error("Error checking checksums for moved directories", err)
+	for _, tst := range testSet0 {
+		ts, moveN := tst.cfg, tst.moveN
+		testName := fmt.Sprintln("Move Detect", moveN, "cfg", ts)
+		t.Run(testName, func(t *testing.T) {
+			//t.Parallel()
+			root, err := createTestMoveDetectDirectories(ts[0], ts[1], ts[2])
+			if err != nil {
+				t.Error("Error creating test directories", err)
+			}
+			defer os.RemoveAll(root)
+			files, directories := gatherFilesAndDirectories(root)
+			err = recalcTestDirectory(root)
+			if err != nil {
+				t.Error("Error calculating initial checksums for directories", err)
+			}
+			err = checkTestDirectoryChecksums(root)
+			if err != nil {
+				t.Error("Error checking checksums for directories", err)
+			}
+			// t.Log("Created Test setup:", files, directories)
+			_ = recalcTestDirectory(root)
+			rand.Shuffle(len(files), func(i, j int) {
+				files[i], files[j] = files[j], files[i]
+			})
+			rand.Shuffle(len(directories), func(i, j int) {
+				directories[i], directories[j] = directories[j], directories[i]
+			})
+			t.Log("Now shuffled")
+
+			// Move some files around
+			err = moveNfiles(moveN, files, directories)
+			if err != nil {
+				t.Error("Error moving files", err)
+			}
+			err = checkTestDirectoryChecksums(root)
+			if !errors.Is(err, errMissingChecksum) {
+				t.Error("Error checking checksums for directories", err)
+			}
+			err = NewMoveDetect().RunMoveDetect([]string{root})
+			if err != nil {
+				t.Error("move detect problem", err)
+			}
+			err = checkTestDirectoryChecksums(root)
+			if err != nil {
+				t.Error("Error checking checksums for moved directories", err)
+			}
+		})
 	}
 }

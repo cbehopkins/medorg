@@ -245,10 +245,8 @@ func BackupRunner(xc *XMLCfg, fc FileCopier, srcDir, destDir string) error {
 	for _, copyFiles := range copyFilesArray {
 		for _, file := range copyFiles {
 			err := doACopy(srcDir, destDir, backupLabelName, file, fc)
-			// TBD catch destination full error
 			if err != nil {
-				log.Println("Received Error", err)
-				return err
+				return fmt.Errorf("copy failed, %w::%s, %s, %s, %s", err, srcDir, destDir, backupLabelName, file)
 			}
 		}
 	}
