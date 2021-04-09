@@ -40,10 +40,12 @@ func NewDirectoryEntry(path string, fw DirectoryVisitorFunc) DirectoryEntry {
 	go itm.worker()
 	return *itm
 }
-func (de DirectoryEntry) Close(directory string) <-chan error {
-	fmt.Println("Closing entry:", de.dir)
-	close(de.closeChan)
+func (de DirectoryEntry) ErrChan() <-chan error {
 	return de.errorChan
+}
+func (de DirectoryEntry) Close(directory string) {
+	// FIXME remove directory input
+	close(de.closeChan)
 }
 func (de DirectoryEntry) VisitFile(dir, file string, d fs.DirEntry, callback func()) {
 	de.workItems <- WorkItem{dir, file, d, callback}
@@ -62,6 +64,7 @@ func (de DirectoryEntry) worker() {
 				if de.fileWorker != nil {
 					err := de.fileWorker(de, dir, file, d)
 					if err != nil {
+						fmt.Println("Got an error:", err)
 						de.errorChan <- err
 					}
 				}

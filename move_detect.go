@@ -61,6 +61,9 @@ func (mvd *MoveDetect) runMoveDetectFindDeleted(directory string) error {
 // then populate the entry withou a calculation
 func (mvd *MoveDetect) runMoveDetectFindNew(directory string) error {
 	visitFunc := func(de DirectoryEntry, dir, fn string, d fs.DirEntry) error {
+		if fn == Md5FileName {
+			return nil
+		}
 		v, err := mvd.query(d)
 		if err == errMvdQueryFailed {
 			return nil
@@ -75,7 +78,10 @@ func (mvd *MoveDetect) runMoveDetectFindNew(directory string) error {
 	makerFunc := func(dir string) DirectoryTrackerInterface {
 		return NewDirectoryEntry(dir, visitFunc)
 	}
-	for err := range NewDirTracker(directory, makerFunc) {
+	errChan := NewDirTracker(directory, makerFunc)
+	for err := range errChan {
+		for range errChan {
+		}
 		if err != nil {
 			return err
 		}

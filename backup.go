@@ -138,6 +138,7 @@ func scanBackupDirectories(destDir, srcDir, volumeName string) {
 		return NewDirectoryEntry(dir, modifyFuncSource)
 	}
 	// FIXME we should be able to run this in parallel
+	// FIXME we whould report these erroes
 	for err := range NewDirTracker(destDir, makerFuncDest) {
 		fmt.Println("Error received on closing:", err)
 	}
@@ -183,6 +184,7 @@ func extractCopyFiles(targetDir, volumeName string) fpathListList {
 	}
 	// FIXME we should be able to run this in parallel
 	for err := range NewDirTracker(targetDir, makerFunc) {
+		// send this error up on some sort of error channel
 		fmt.Println("Error received on closing:", err)
 	}
 	return remainingFiles

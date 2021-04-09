@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"io/fs"
 	"path/filepath"
+	"sync"
 )
 
 type DirectoryTrackerInterface interface {
-	Close(directory string) <-chan error
+	ErrChan() <-chan error
+	Close(directory string)
 	// You must call the callback after you have finished whatever you are doing that might be
 	// resource intensive.
 	VisitFile(dir, file string, d fs.DirEntry, callback func())
@@ -19,32 +21,31 @@ type DirTracker struct {
 	newEntry  func(dir string) DirectoryTrackerInterface
 	lastPath  string
 	tokenChan chan struct{}
+	wg        *sync.WaitGroup
+	errChan   chan error
 }
 
 func NewDirTracker(dir string, newEntry func(string) DirectoryTrackerInterface) <-chan error {
-	errChan := make(chan error)
 	numOutsanding := 1 // FIXME expose this
+	var dt DirTracker
+	dt.dm = make(map[string]DirectoryTrackerInterface)
+	dt.newEntry = newEntry
+	dt.tokenChan = make(chan struct{}, numOutsanding)
+	dt.wg = new(sync.WaitGroup)
+	dt.errChan = make(chan error)
 	go func() {
-		var dt DirTracker
-		dt.dm = make(map[string]DirectoryTrackerInterface)
-		dt.newEntry = newEntry
-		dt.tokenChan = make(chan struct{}, numOutsanding)
 		for i := 0; i < numOutsanding; i++ {
 			dt.tokenChan <- struct{}{}
 		}
-
 		err := filepath.WalkDir(dir, dt.directoryWalker)
 		if err != nil {
-			errChan <- err
+			dt.errChan <- err
 		}
-		for err := range dt.close() {
-			if err != nil {
-				errChan <- err
-			}
-		}
-		close(errChan)
+		dt.close()
+		dt.wg.Wait()
+		close(dt.errChan)
 	}()
-	return errChan
+	return dt.errChan
 }
 
 func (dt *DirTracker) pathCloser(path string) {
@@ -68,6 +69,15 @@ func (dt *DirTracker) directoryWalker(path string, d fs.DirEntry, err error) err
 		fmt.Println("Into directory:", path)
 		dt.pathCloser(path)
 		dt.dm[path] = dt.newEntry(path)
+		dt.wg.Add(1)
+		go func() {
+			for err := range dt.dm[path].ErrChan() {
+				if err != nil {
+					dt.errChan <- err
+				}
+			}
+			dt.wg.Done()
+		}()
 		return nil
 	}
 	dir, file := filepath.Split(path)
@@ -92,16 +102,24 @@ func (dt *DirTracker) directoryWalker(path string, d fs.DirEntry, err error) err
 	dt.dm[dir].VisitFile(dir, file, d, callback)
 	return nil
 }
-
-func (dt DirTracker) close() <-chan error {
-	errorChan := make(chan error)
-	go func() {
-		for path := range dt.dm {
-			for err := range dt.dm[path].Close(path) {
-				errorChan <- err
+func (dt DirTracker) errorMergerWorker(errorChan chan<- error) *sync.WaitGroup {
+	wg := new(sync.WaitGroup)
+	for _, v := range dt.dm {
+		wg.Add(1)
+		go func(v DirectoryTrackerInterface) {
+			for err := range v.ErrChan() {
+				if err != nil {
+					errorChan <- err
+				}
 			}
-		}
-		close(errorChan)
-	}()
-	return errorChan
+			wg.Done()
+		}(v)
+	}
+	return wg
+}
+
+func (dt DirTracker) close() {
+	for path := range dt.dm {
+		dt.dm[path].Close(path)
+	}
 }
