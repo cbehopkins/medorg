@@ -49,13 +49,19 @@ func MvFile(srcDir, srcFn, dstDir, dstFn string) error {
 	}
 
 	srcDm.Rm(srcFn)
-	srcDm.WriteDirectory(srcDir)
+	err = srcDm.WriteDirectory(srcDir)
+	if err != nil {
+		return err
+	}
 	dstFs, err := NewFileStruct(dstDir, dstFn)
 	if err != nil {
 		return err
 	}
 	dstDm.Add(*dstFs)
-	dstDm.WriteDirectory(dstDir)
+	err = dstDm.WriteDirectory(dstDir)
+	if err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -104,13 +110,6 @@ func rmFilename(fn Fpath) error {
 	return nil
 }
 
-// RemoveFile simply deletes the file from disk
-func RemoveFile(fn Fpath) error {
-	// FIXME remove this function
-	rmFilename(fn)
-	return nil
-}
-
 // MoveFile Implements a move function that works across file systems
 // The inbuilt functions can struggle if hard links won't work
 // i.e. you want to move between mount points
@@ -127,7 +126,7 @@ func MoveFile(src, dst Fpath) (err error) {
 	if err != nil {
 		log.Fatalf("Copy problem\nType:%T\nVal:%v\n", err, err)
 	}
-	return RemoveFile(src)
+	return rmFilename(src)
 }
 
 // copyFileContents copies the contents of the file named src to the file named

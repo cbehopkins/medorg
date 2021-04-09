@@ -122,6 +122,8 @@ func scanBackupDirectories(destDir, srcDir, volumeName string) error {
 		}
 		if !ok && fs.HasTag(volumeName) {
 			// FIXME add testcase for this
+			// The case where the file is not present at the dest
+			// but the tag says that it is
 			fs.RemoveTag(volumeName)
 		}
 

@@ -2,10 +2,12 @@ package medorg
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
 	"os"
+	"path/filepath"
 	"sync"
 )
 
@@ -83,8 +85,11 @@ func (dm DirectoryMap) rm(fn string) {
 // RmFile is similar to rm, but updates the directory
 func (dm DirectoryMap) RmFile(dir, fn string) error {
 	dm.Rm(fn)
-	dm.WriteDirectory(dir)
-	return RemoveFile(NewFpath(dir, fn))
+	err := dm.WriteDirectory(dir)
+	if err != nil {
+		return err
+	}
+	return rmFilename(NewFpath(dir, fn))
 
 }
 
@@ -170,8 +175,7 @@ func (dm DirectoryMap) SelfCheck(directory string) {
 	dm.Range(fc)
 }
 
-// FIXME rename this as it doesn't just check
-func (dm DirectoryMap) selfCheckFile(directory, fn string, fs FileStruct, delete bool) error {
+func (dm DirectoryMap) pruneEmptyFile(directory, fn string, fs FileStruct, delete bool) error {
 	if fs.Directory() != directory {
 		return errStructProblem
 	}
@@ -189,15 +193,15 @@ func (dm DirectoryMap) selfCheckFile(directory, fn string, fs FileStruct, delete
 }
 
 // WriteDirectory writes the dm out to the directory specified
-func (dm DirectoryMap) WriteDirectory(directory string) {
+func (dm DirectoryMap) WriteDirectory(directory string) error {
 	dm.SelfCheck(directory)
 	if !dm.Stale() {
-		return
+		return nil
 	}
 	*dm.stale = false
 	if dm.Len() == 0 {
 		removeMd5(directory)
-		return
+		return nil
 	}
 	// Write out a new Xml from the structure
 	ba, err := dm.ToXML()
@@ -205,14 +209,11 @@ func (dm DirectoryMap) WriteDirectory(directory string) {
 	case nil:
 	case io.EOF:
 	default:
-		log.Fatal("Unknown Error Marshalling Xml:", err)
+		return fmt.Errorf("unknown Error Marshalling Xml:%w", err)
 	}
-	fn := directory + "/" + Md5FileName
+	fn := filepath.Join(directory, Md5FileName)
 	removeMd5(directory)
-	err = ioutil.WriteFile(fn, ba, 0600)
-	if err != nil {
-		log.Fatal(err)
-	}
+	return ioutil.WriteFile(fn, ba, 0600)
 }
 
 // Range over all the items in the map

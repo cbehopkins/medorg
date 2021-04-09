@@ -82,9 +82,7 @@ func (de DirectoryEntry) worker() {
 
 }
 func (de DirectoryEntry) persist() error {
-	// FIXME sort out proper error handling here
-	de.dm.WriteDirectory(de.dir)
-	return nil
+	return de.dm.WriteDirectory(de.dir)
 }
 
 // UpdateValues in the DirectoryEntry to those found on the fs

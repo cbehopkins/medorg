@@ -148,7 +148,7 @@ func (af AutoFix) ResolveTwo(fsOne, fsTwo FileStruct) (FileStruct, bool) {
 		// By definuition that's the second one
 		fn := fsTwo.Path()
 		log.Println("Deleting:", fn)
-		_ = RemoveFile(fn)
+		_ = rmFilename(fn)
 	} else if !af.SilenceLogging {
 		log.Println("Delete:", fsTwo.Path(), " as ", fsOne.Path())
 	}
@@ -332,7 +332,7 @@ func (af *AutoFix) WkFun(de DirectoryEntry, directory, file string, d fs.DirEntr
 		return errors.New("asked to update a file that does not exist")
 	}
 
-	err := de.dm.selfCheckFile(directory, file, fs, af.DeleteFiles)
+	err := de.dm.pruneEmptyFile(directory, file, fs, af.DeleteFiles)
 	if err != nil {
 		return err
 	}

@@ -59,6 +59,8 @@ func md5Calcer(inputChan chan FileStruct, outputChan chan FileStruct, closedChan
 // Note there is now CalcBuffer which will cache open structs
 // This trades memory for cpu & IO
 func newXMLManager(inputChan chan FileStruct) *sync.WaitGroup {
+	// FIXME The error management in this is laughable
+	// Not a trivial job to fix though
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go managerWorker(inputChan, &wg)
@@ -89,7 +91,8 @@ func appendXML(directory string, fsA []FileStruct) {
 			log.Fatal("directories are incorrect", fs.directory, directory)
 		}
 	}
-	dm.WriteDirectory(directory)
+	// FIXME
+	_ = dm.WriteDirectory(directory)
 }
 
 // ReturnChecksumString gets the hash into the format we like it
@@ -126,7 +129,8 @@ func md5CalcInternal(h hash.Hash, wgl *sync.WaitGroup, fpl string, trigger chan 
 	directory, fn := filepath.Split(fpl)
 	dm := DirectoryMapFromDir(directory)
 	completeCalc(trigger, directory, fn, h, dm)
-	dm.WriteDirectory(directory)
+	// FIXME
+	_ = dm.WriteDirectory(directory)
 	wgl.Done()
 }
 func completeCalc(trigger chan struct{}, directory string, fn string, h hash.Hash, dm DirectoryMap) {
@@ -165,7 +169,8 @@ func (cb *CalcBuffer) Close() {
 	cb.wg.Done()
 	cb.wg.Wait()
 	for dir, dm := range cb.buff {
-		dm.WriteDirectory(dir)
+		// FIXME
+		_ = dm.WriteDirectory(dir)
 	}
 }
 func md5Calc(trigger chan struct{}, wg *sync.WaitGroup, fp string) (iw io.Writer) {
