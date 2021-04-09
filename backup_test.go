@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"io/ioutil"
+	"log"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -36,6 +37,7 @@ func createTestBackupDirectories(numberOfFiles, numberOfDuplicates int) ([]strin
 		selectedFilename := filenames[randomSrc[i]]
 		stem := filepath.Base(selectedFilename)
 		dstFile := NewFpath(directoriesCreated[1], stem)
+		log.Println("Pretending to backup", dstFile)
 		err := CopyFile(Fpath(selectedFilename), dstFile)
 		if err != nil {
 			return nil, err
@@ -151,7 +153,10 @@ func TestDuplicateArchivedAtPopulation(t *testing.T) {
 
 	backupLabelName := "tstBackup"
 	t.Log("Created Test Directories:", dirs)
-	scanBackupDirectories(dirs[1], dirs[0], backupLabelName)
+	err = scanBackupDirectories(dirs[1], dirs[0], backupLabelName)
+	if err != nil {
+		t.Error(err)
+	}
 
 	expectedDuplicates := 10
 	archiveWalkFunc := func(de DirectoryEntry, dir, fn string, d fs.DirEntry) error {
@@ -250,8 +255,10 @@ func TestBackupExtract(t *testing.T) {
 		t.Error("Error received on closing:", err)
 	}
 
-	copyFilesArray := extractCopyFiles(dirs[0], backupLabelName)
-
+	copyFilesArray, err := extractCopyFiles(dirs[0], backupLabelName)
+	if err != nil {
+		t.Error(err)
+	}
 	cnt := 0
 	expectedFilesToBackup := srcFiles - numberBackedUp
 	primaryFileCount := expectedFilesToBackup - len(extraMap)
@@ -313,7 +320,10 @@ func TestBackupMain(t *testing.T) {
 		callCount++
 		return nil
 	}
-	BackupRunner(&xc, fc, dirs[0], dirs[1])
+	err = BackupRunner(&xc, fc, dirs[0], dirs[1])
+	if err != nil {
+		t.Error(err)
+	}
 	if callCount != (srcFiles - numberBackedUp) {
 		t.Error("Incorrect call count:", callCount, srcFiles-numberBackedUp)
 	}

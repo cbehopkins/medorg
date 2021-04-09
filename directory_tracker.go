@@ -106,3 +106,50 @@ func (dt DirTracker) close() {
 		dt.dm[path].Close(path)
 	}
 }
+
+type dirTrackerJob struct {
+	dir string
+	mf  func(string) DirectoryTrackerInterface
+}
+
+func runParallelDirTrackerJob(jobs []dirTrackerJob) <-chan error {
+	errChan := make(chan error)
+	var wg sync.WaitGroup
+	wg.Add(len(jobs))
+	for _, job := range jobs {
+		go func(job dirTrackerJob) {
+			for err := range NewDirTracker(job.dir, job.mf) {
+				if err != nil {
+					errChan <- err
+				}
+			}
+			wg.Done()
+		}(job)
+	}
+	go func() {
+		wg.Wait()
+		close(errChan)
+	}()
+	return errChan
+}
+
+func runSerialDirTrackerJob(jobs []dirTrackerJob) <-chan error {
+	errChan := make(chan error)
+	var wg sync.WaitGroup
+	wg.Add(len(jobs))
+	go func() {
+		for _, job := range jobs {
+			for err := range NewDirTracker(job.dir, job.mf) {
+				if err != nil {
+					errChan <- err
+				}
+			}
+			wg.Done()
+		}
+	}()
+	go func() {
+		wg.Wait()
+		close(errChan)
+	}()
+	return errChan
+}

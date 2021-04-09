@@ -76,7 +76,7 @@ func (bdm0 *backupDupeMap) findDuplicates(bdm1 *backupDupeMap) <-chan []Fpath {
 
 // scanBackupDirectories will mark srcDir's ArchiveAt
 // tag, with any files that are already found in the destination
-func scanBackupDirectories(destDir, srcDir, volumeName string) {
+func scanBackupDirectories(destDir, srcDir, volumeName string) error {
 	backupDestination := NewBackupDupeMap()
 	backupSource := NewBackupDupeMap()
 	modifyFuncDestination := func(de DirectoryEntry, dir, fn string, d fs.DirEntry) error {
@@ -137,14 +137,20 @@ func scanBackupDirectories(destDir, srcDir, volumeName string) {
 	makerFuncSrc := func(dir string) DirectoryTrackerInterface {
 		return NewDirectoryEntry(dir, modifyFuncSource)
 	}
-	// FIXME we should be able to run this in parallel
-	// FIXME we whould report these erroes
-	for err := range NewDirTracker(destDir, makerFuncDest) {
-		fmt.Println("Error received on closing:", err)
+
+	errChan := runSerialDirTrackerJob([]dirTrackerJob{
+		{destDir, makerFuncDest},
+		{srcDir, makerFuncSrc},
+	})
+
+	for err := range errChan {
+		if err != nil {
+			for range errChan {
+			}
+			return err
+		}
 	}
-	for err := range NewDirTracker(srcDir, makerFuncSrc) {
-		fmt.Println("Error received on closing:", err)
-	}
+
 	if backupDestination.Len() > 0 {
 		// There's stuff on the backup that's not in the Source
 		// We'll need to do somethign about this soon!
@@ -153,12 +159,15 @@ func scanBackupDirectories(destDir, srcDir, volumeName string) {
 			log.Println(v)
 		}
 	}
+	return nil
 }
 
 // extractCopyFiles will look for files that are not backed up
-func extractCopyFiles(targetDir, volumeName string) fpathListList {
+// i.e. walk through src file system looking for files
+// That don't have the volume name as an archived at
+func extractCopyFiles(targetDir, volumeName string) (fpathListList, error) {
 	remainingFiles := fpathListList{}
-	modifyFunc := func(de DirectoryEntry, dir, fn string, d fs.DirEntry) error {
+	visitFunc := func(de DirectoryEntry, dir, fn string, d fs.DirEntry) error {
 		if fn == Md5FileName {
 			return nil
 		}
@@ -180,14 +189,16 @@ func extractCopyFiles(targetDir, volumeName string) fpathListList {
 	}
 
 	makerFunc := func(dir string) DirectoryTrackerInterface {
-		return NewDirectoryEntry(dir, modifyFunc)
+		return NewDirectoryEntry(dir, visitFunc)
 	}
-	// FIXME we should be able to run this in parallel
-	for err := range NewDirTracker(targetDir, makerFunc) {
-		// send this error up on some sort of error channel
-		fmt.Println("Error received on closing:", err)
+	errChan := NewDirTracker(targetDir, makerFunc)
+	for err := range errChan {
+		for range errChan {
+		}
+		errWrapped := fmt.Errorf("extractCopyFiles::%w", err)
+		return remainingFiles, errWrapped
 	}
-	return remainingFiles
+	return remainingFiles, nil
 }
 
 type FileCopier func(src, dst Fpath) error
@@ -237,8 +248,14 @@ func BackupRunner(xc *XMLCfg, fc FileCopier, srcDir, destDir string) error {
 	}
 	log.Println("Determined label as:", backupLabelName)
 	// First of all get the srcDir updated with files that are already in destDir
-	scanBackupDirectories(destDir, srcDir, backupLabelName)
-	copyFilesArray := extractCopyFiles(srcDir, backupLabelName)
+	err = scanBackupDirectories(destDir, srcDir, backupLabelName)
+	if err != nil {
+		return err
+	}
+	copyFilesArray, err := extractCopyFiles(srcDir, backupLabelName)
+	if err != nil {
+		return err
+	}
 	// Now run this through Prioritize
 	log.Println("Now starting Copy")
 	// Now do the copy, updating srcDir's labels as we go

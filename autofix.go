@@ -353,9 +353,7 @@ func (af *AutoFix) WkFun(de DirectoryEntry, directory, file string, d fs.DirEntr
 
 	af.FileHash[cSum] = fs
 	if modified {
-		//fmt.Println("Modified FS:", fs)
 		de.dm.Add(fs)
 	}
-	// Return true when we modify dm
 	return nil
 }
