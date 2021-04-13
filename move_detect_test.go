@@ -94,11 +94,11 @@ func checkTestDirectoryChecksums(dir string) error {
 	}
 	errChan := NewDirTracker(dir, makerFunc)
 	for err := range errChan {
-		go func() {
-			for range errChan {
-			}
-		}()
-		return err
+		for range errChan {
+		}
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -140,17 +140,31 @@ func TestMoveDetect(t *testing.T) {
 		moveN int
 	}
 	testSet0 := []testSet{
-		{cfg: []int{3, 3, 4}, moveN: 2},
-		{cfg: []int{3, 3, 4}, moveN: 4},
-		{cfg: []int{4, 2, 8}, moveN: 16},
-		//{cfg: []int{6, 4, 2}, moveN: 36},
+		// {cfg: []int{1, 0, 1}, moveN: 1},
+		// {cfg: []int{1, 1, 1}, moveN: 1},
+		{cfg: []int{2, 0, 1}, moveN: 1},
+		// {cfg: []int{10, 1, 1}, moveN: 2},
+		// {cfg: []int{3, 3, 4}, moveN: 2},
+		// {cfg: []int{3, 3, 4}, moveN: 4},
+		// {cfg: []int{4, 2, 8}, moveN: 16},
+		// {cfg: []int{6, 4, 2}, moveN: 36},
+		// {cfg: []int{10, 2, 1}, moveN: 2},
+		// {cfg: []int{100, 0, 1}, moveN: 2},
+		// {cfg: []int{100, 1, 1}, moveN: 2},
+		// {cfg: []int{1000, 0, 1}, moveN: 2},
+		// {cfg: []int{10000, 0, 1}, moveN: 2},
 	}
 
 	for _, tst := range testSet0 {
 		ts, moveN := tst.cfg, tst.moveN
 		testName := fmt.Sprintln("Move Detect", moveN, "cfg", ts)
+
 		t.Run(testName, func(t *testing.T) {
-			//t.Parallel()
+			movableCnt := (ts[0] * (ts[1] + 1) * ts[2])
+			if moveN > movableCnt {
+				t.Error("Invalid test", moveN, ">", movableCnt, ts)
+			}
+			movable := (ts[0] * (ts[1] + 1)) > 1
 			root, err := createTestMoveDetectDirectories(ts[0], ts[1], ts[2])
 			if err != nil {
 				t.Error("Error creating test directories", err)
@@ -173,7 +187,7 @@ func TestMoveDetect(t *testing.T) {
 			rand.Shuffle(len(directories), func(i, j int) {
 				directories[i], directories[j] = directories[j], directories[i]
 			})
-			t.Log("Now shuffled")
+			t.Log("Now shuffled", root)
 
 			// Move some files around
 			err = moveNfiles(moveN, files, directories)
@@ -182,7 +196,9 @@ func TestMoveDetect(t *testing.T) {
 			}
 			err = checkTestDirectoryChecksums(root)
 			if !errors.Is(err, errMissingChecksum) {
-				t.Error("Error checking checksums for directories", err)
+				if movable {
+					t.Error("Error checking checksums for directories", err)
+				}
 			}
 			err = NewMoveDetect().RunMoveDetect([]string{root})
 			if err != nil {

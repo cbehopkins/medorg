@@ -3,7 +3,9 @@ package medorg
 import (
 	"errors"
 	"io/fs"
+	"log"
 	"path/filepath"
+	"strings"
 	"sync"
 )
 
@@ -46,13 +48,51 @@ func NewDirTracker(dir string, newEntry func(string) DirectoryTrackerInterface) 
 	}()
 	return dt.errChan
 }
+func isChildPath(ref, candidate string) (bool, error) {
 
-func (dt *DirTracker) pathCloser(path string) {
+	rp, err := filepath.Abs(ref)
+	if err != nil {
+		return false, err
+	}
+	can, err := filepath.Abs(candidate)
+	if err != nil {
+		return false, err
+	}
+
+	return strings.Contains(rp, can), nil
+}
+func (dt *DirTracker) pathCloser(path string, closerFunc func(string)) {
 	// The job of this is to work out if we have gone out of scope
 	// i.e. close /fred/bob if we have received /fred/steve
 	// but do not close /fred or /fred/bob when we receive /fred/bob/steve
 	// But also, not doing anything is fine!
-	dt.lastPath = path
+	defer func() { dt.lastPath = path }()
+	if dt.lastPath == "" {
+		return
+	}
+	if closerFunc == nil {
+		closerFunc = func(pt string) {
+			de, ok := dt.dm[pt]
+			if ok {
+				de.Close()
+			}
+		}
+	}
+	// FIXME make it possbile to select this/another/default to this
+	shouldClose := func(pt string) bool {
+		isChild, err := isChildPath(pt, dt.lastPath)
+		if err != nil {
+			// FIXME
+			return false
+		}
+
+		return !isChild
+	}
+	if shouldClose(path) {
+		log.Println("Closing and deleting", dt.lastPath)
+		closerFunc(dt.lastPath)
+		delete(dt.dm, dt.lastPath)
+	}
 }
 func (dt DirTracker) getDirectoryEntry(path string) DirectoryTrackerInterface {
 	de, ok := dt.dm[path]
@@ -61,6 +101,9 @@ func (dt DirTracker) getDirectoryEntry(path string) DirectoryTrackerInterface {
 	}
 	// Call out to the external function to return a new entry
 	de = dt.newEntry(path)
+	if de == nil {
+		return nil
+	}
 	dt.dm[path] = de
 	dt.wg.Add(1)
 	go func() {
@@ -79,8 +122,16 @@ func (dt *DirTracker) directoryWalker(path string, d fs.DirEntry, err error) err
 		return err
 	}
 	if d.IsDir() {
-		dt.pathCloser(path)
-		_ = dt.getDirectoryEntry(path)
+		dt.pathCloser(path, nil)
+		// FIXME test the path exists
+		de := dt.getDirectoryEntry(path)
+		if de == nil {
+			return errors.New("missing de when evaluating directory")
+		}
+		de, ok := dt.dm[path]
+		if !ok {
+			log.Fatal("bang!", de)
+		}
 		return nil
 	}
 	dir, file := filepath.Split(path)
@@ -93,26 +144,27 @@ func (dt *DirTracker) directoryWalker(path string, d fs.DirEntry, err error) err
 		dir = dir[:len(dir)-1]
 	}
 
-	// Bob, add accessor here
-	_, ok := dt.dm[dir]
-
-	if !ok {
-		return errors.New("missing directory when evaluating path")
-	}
 	<-dt.tokenChan
 	callback := func() {
 		dt.tokenChan <- struct{}{}
 	}
-	// Bob, add accessor here
-	dt.dm[dir].VisitFile(dir, file, d, callback)
+
+	de := dt.getDirectoryEntry(dir)
+	if de == nil {
+		return errors.New("missing directory when evaluating path")
+	}
+	de.VisitFile(dir, file, d, callback)
 	return nil
 }
 
 func (dt DirTracker) close() {
+	log.Println("Closing at end of time")
 	for key, val := range dt.dm {
-		val.Close()
+		log.Println("Closing and deleting at end", key)
 		delete(dt.dm, key)
+		val.Close()
 	}
+	log.Println("All closed")
 }
 
 type dirTrackerJob struct {

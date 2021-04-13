@@ -20,12 +20,13 @@ type DirectoryVisitorFunc func(de DirectoryEntry, directory string, file string,
 // xml file, and when requested, close it again
 // We are also able to send it files to work
 type DirectoryEntry struct {
-	workItems  chan WorkItem
-	closeChan  chan struct{}
-	fileWorker DirectoryVisitorFunc
-	dir        string
-	errorChan  chan error
-	dm         DirectoryMap
+	workItems   chan WorkItem
+	closeChan   chan struct{}
+	fileWorker  DirectoryVisitorFunc
+	dir         string
+	errorChan   chan error
+	dm          DirectoryMap
+	activeFiles *sync.WaitGroup
 }
 
 func NewDirectoryEntry(path string, fw DirectoryVisitorFunc) DirectoryEntry {
@@ -37,6 +38,8 @@ func NewDirectoryEntry(path string, fw DirectoryVisitorFunc) DirectoryEntry {
 	itm.fileWorker = fw
 	// TBD, can we go this somehow? Do we even need to if we read it in quick enough?
 	itm.dm = DirectoryMapFromDir(path)
+	itm.activeFiles = new(sync.WaitGroup)
+	itm.activeFiles.Add(1) // need to dummy add 1 to get it going
 	go itm.worker()
 	return *itm
 }
@@ -47,18 +50,17 @@ func (de DirectoryEntry) Close() {
 	close(de.closeChan)
 }
 func (de DirectoryEntry) VisitFile(dir, file string, d fs.DirEntry, callback func()) {
+	de.activeFiles.Add(1)
 	de.workItems <- WorkItem{dir, file, d, callback}
 }
 
 func (de DirectoryEntry) worker() {
-	var activeFiles sync.WaitGroup
 	defer close(de.errorChan)
 
 	// allow file paths to be sent to us for processing
 	for {
 		select {
 		case wi := <-de.workItems:
-			activeFiles.Add(1)
 			go func(dir, file string, d fs.DirEntry) {
 				if de.fileWorker != nil {
 					err := de.fileWorker(de, dir, file, d)
@@ -66,11 +68,13 @@ func (de DirectoryEntry) worker() {
 						de.errorChan <- err
 					}
 				}
-				activeFiles.Done()
+				de.activeFiles.Done()
 				wi.callback()
 			}(wi.dir, wi.file, wi.d)
 		case <-de.closeChan:
-			activeFiles.Wait()
+			de.activeFiles.Done() // From the NewDirectoryEntry
+			close(de.workItems)
+			de.activeFiles.Wait()
 			err := de.persist()
 			if err != nil {
 				de.errorChan <- err
