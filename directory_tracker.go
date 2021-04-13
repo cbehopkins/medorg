@@ -9,7 +9,7 @@ import (
 
 type DirectoryTrackerInterface interface {
 	ErrChan() <-chan error
-	Close(directory string)
+	Close()
 	// You must call the callback after you have finished whatever you are doing that might be
 	// resource intensive.
 	VisitFile(dir, file string, d fs.DirEntry, callback func())
@@ -54,28 +54,33 @@ func (dt *DirTracker) pathCloser(path string) {
 	// But also, not doing anything is fine!
 	dt.lastPath = path
 }
+func (dt DirTracker) getDirectoryEntry(path string) DirectoryTrackerInterface {
+	de, ok := dt.dm[path]
+	if ok {
+		return de
+	}
+	// Call out to the external function to return a new entry
+	de = dt.newEntry(path)
+	dt.dm[path] = de
+	dt.wg.Add(1)
+	go func() {
+		for err := range de.ErrChan() {
+			if err != nil {
+				dt.errChan <- err
+			}
+		}
+		dt.wg.Done()
+	}()
+	return de
+}
+
 func (dt *DirTracker) directoryWalker(path string, d fs.DirEntry, err error) error {
 	if err != nil {
 		return err
 	}
 	if d.IsDir() {
-		_, ok := dt.dm[path]
-		if ok {
-			return errors.New("descending into a dirctory, that we already have an entry for")
-		}
-
 		dt.pathCloser(path)
-		de := dt.newEntry(path)
-		dt.dm[path] = de
-		dt.wg.Add(1)
-		go func() {
-			for err := range de.ErrChan() {
-				if err != nil {
-					dt.errChan <- err
-				}
-			}
-			dt.wg.Done()
-		}()
+		_ = dt.getDirectoryEntry(path)
 		return nil
 	}
 	dir, file := filepath.Split(path)
@@ -88,6 +93,7 @@ func (dt *DirTracker) directoryWalker(path string, d fs.DirEntry, err error) err
 		dir = dir[:len(dir)-1]
 	}
 
+	// Bob, add accessor here
 	_, ok := dt.dm[dir]
 
 	if !ok {
@@ -97,13 +103,15 @@ func (dt *DirTracker) directoryWalker(path string, d fs.DirEntry, err error) err
 	callback := func() {
 		dt.tokenChan <- struct{}{}
 	}
+	// Bob, add accessor here
 	dt.dm[dir].VisitFile(dir, file, d, callback)
 	return nil
 }
 
 func (dt DirTracker) close() {
-	for path := range dt.dm {
-		dt.dm[path].Close(path)
+	for key, val := range dt.dm {
+		val.Close()
+		delete(dt.dm, key)
 	}
 }
 

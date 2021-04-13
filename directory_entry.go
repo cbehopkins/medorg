@@ -43,8 +43,7 @@ func NewDirectoryEntry(path string, fw DirectoryVisitorFunc) DirectoryEntry {
 func (de DirectoryEntry) ErrChan() <-chan error {
 	return de.errorChan
 }
-func (de DirectoryEntry) Close(directory string) {
-	// FIXME remove directory input
+func (de DirectoryEntry) Close() {
 	close(de.closeChan)
 }
 func (de DirectoryEntry) VisitFile(dir, file string, d fs.DirEntry, callback func()) {
