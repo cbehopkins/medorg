@@ -103,13 +103,13 @@ func (mvd *MoveDetect) RunMoveDetect(dirs []string) error {
 }
 func (mvd *MoveDetect) add(fileStruct FileStruct) {
 	mvd.Lock()
-	defer mvd.Unlock()
 	mvd.dupeMap[moveKey{fileStruct.Size, fileStruct.Name}] = fileStruct
+	mvd.Unlock()
 }
 func (mvd *MoveDetect) delete(fileStruct FileStruct) {
 	mvd.Lock()
-	defer mvd.Unlock()
 	delete(mvd.dupeMap, moveKey{fileStruct.Size, fileStruct.Name})
+	mvd.Unlock()
 }
 
 // query if the file struct (equivalent) is in the move detect array

@@ -65,6 +65,7 @@ func main() {
 			fmt.Println("Error while saving config file", err)
 		}
 	}()
+	var scanflg = flag.Bool("scan", false, "Only scan files, don't run the backup")
 
 	flag.Parse()
 	if flag.NArg() > 0 {
@@ -120,6 +121,9 @@ func main() {
 		err := medorg.CopyFile(src, dst)
 		close(closeChan)
 		return err
+	}
+	if *scanflg {
+		copyer = nil
 	}
 	fmt.Println("Starting Backup Run")
 	err := medorg.BackupRunner(xc, copyer, directories[0], directories[1])

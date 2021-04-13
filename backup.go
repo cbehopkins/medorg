@@ -254,11 +254,15 @@ func BackupRunner(xc *XMLCfg, fc FileCopier, srcDir, destDir string) error {
 	if err != nil {
 		return err
 	}
+	if fc == nil {
+		// If we've not supplied a copier, when we clearly don't want to run the copy
+		return nil
+	}
 	copyFilesArray, err := extractCopyFiles(srcDir, backupLabelName)
 	if err != nil {
 		return err
 	}
-	// Now run this through Prioritize
+	// FIXME Now run this through Prioritize
 	log.Println("Now starting Copy")
 	// Now do the copy, updating srcDir's labels as we go
 	for _, copyFiles := range copyFilesArray {

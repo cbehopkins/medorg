@@ -305,6 +305,7 @@ func ResolveFnClash(directory, fn string, extension, orig string) string {
 
 // Consolidate files into a dest directory
 // Returns true if the file was actually moved
+// FIXME - is this needed now we have concentrate.go?
 func (af AutoFix) Consolidate(srcDir, fn, dstDir string) bool {
 	strippedFn, ext := StripExtension(fn)
 	if ext == "" {
