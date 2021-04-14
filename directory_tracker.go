@@ -42,7 +42,7 @@ func NewDirTracker(dir string, newEntry func(string) DirectoryTrackerInterface) 
 		if err != nil {
 			dt.errChan <- err
 		}
-		dt.close()
+		dt.close(dir)
 		dt.wg.Wait()
 		close(dt.errChan)
 	}()
@@ -89,7 +89,6 @@ func (dt *DirTracker) pathCloser(path string, closerFunc func(string)) {
 		return !isChild
 	}
 	if shouldClose(path) {
-		log.Println("Closing and deleting", dt.lastPath)
 		closerFunc(dt.lastPath)
 		delete(dt.dm, dt.lastPath)
 	}
@@ -157,14 +156,12 @@ func (dt *DirTracker) directoryWalker(path string, d fs.DirEntry, err error) err
 	return nil
 }
 
-func (dt DirTracker) close() {
-	log.Println("Closing at end of time")
+func (dt DirTracker) close(dir string) {
 	for key, val := range dt.dm {
-		log.Println("Closing and deleting at end", key)
 		delete(dt.dm, key)
 		val.Close()
 	}
-	log.Println("All closed")
+	log.Println("All closed in ", dir)
 }
 
 type dirTrackerJob struct {
@@ -172,26 +169,26 @@ type dirTrackerJob struct {
 	mf  func(string) DirectoryTrackerInterface
 }
 
-func runParallelDirTrackerJob(jobs []dirTrackerJob) <-chan error {
-	errChan := make(chan error)
-	var wg sync.WaitGroup
-	wg.Add(len(jobs))
-	for _, job := range jobs {
-		go func(job dirTrackerJob) {
-			for err := range NewDirTracker(job.dir, job.mf) {
-				if err != nil {
-					errChan <- err
-				}
-			}
-			wg.Done()
-		}(job)
-	}
-	go func() {
-		wg.Wait()
-		close(errChan)
-	}()
-	return errChan
-}
+// func runParallelDirTrackerJob(jobs []dirTrackerJob) <-chan error {
+// 	errChan := make(chan error)
+// 	var wg sync.WaitGroup
+// 	wg.Add(len(jobs))
+// 	for _, job := range jobs {
+// 		go func(job dirTrackerJob) {
+// 			for err := range NewDirTracker(job.dir, job.mf) {
+// 				if err != nil {
+// 					errChan <- err
+// 				}
+// 			}
+// 			wg.Done()
+// 		}(job)
+// 	}
+// 	go func() {
+// 		wg.Wait()
+// 		close(errChan)
+// 	}()
+// 	return errChan
+// }
 
 func runSerialDirTrackerJob(jobs []dirTrackerJob) <-chan error {
 	errChan := make(chan error)

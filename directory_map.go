@@ -144,6 +144,7 @@ func DirectoryMapFromDir(directory string) (dm DirectoryMap) {
 
 	err = dm.FromXML(byteValue)
 	if err != nil {
+		log.Fatalln("FromXML error on", directory, err)
 		return
 	}
 

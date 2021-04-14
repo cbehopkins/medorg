@@ -198,7 +198,9 @@ func extractCopyFiles(targetDir, volumeName string) (fpathListList, error) {
 		for range errChan {
 		}
 		errWrapped := fmt.Errorf("extractCopyFiles::%w", err)
-		return remainingFiles, errWrapped
+		if errWrapped != nil {
+			return remainingFiles, errWrapped
+		}
 	}
 	return remainingFiles, nil
 }

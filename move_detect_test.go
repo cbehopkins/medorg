@@ -140,15 +140,15 @@ func TestMoveDetect(t *testing.T) {
 		moveN int
 	}
 	testSet0 := []testSet{
-		// {cfg: []int{1, 0, 1}, moveN: 1},
-		// {cfg: []int{1, 1, 1}, moveN: 1},
+		{cfg: []int{1, 0, 1}, moveN: 1},
+		{cfg: []int{1, 1, 1}, moveN: 1},
 		{cfg: []int{2, 0, 1}, moveN: 1},
-		// {cfg: []int{10, 1, 1}, moveN: 2},
-		// {cfg: []int{3, 3, 4}, moveN: 2},
-		// {cfg: []int{3, 3, 4}, moveN: 4},
-		// {cfg: []int{4, 2, 8}, moveN: 16},
-		// {cfg: []int{6, 4, 2}, moveN: 36},
-		// {cfg: []int{10, 2, 1}, moveN: 2},
+		{cfg: []int{10, 1, 1}, moveN: 2},
+		{cfg: []int{3, 3, 4}, moveN: 2},
+		{cfg: []int{3, 3, 4}, moveN: 4},
+		{cfg: []int{4, 2, 8}, moveN: 16},
+		{cfg: []int{6, 4, 2}, moveN: 36},
+		{cfg: []int{10, 2, 1}, moveN: 2},
 		// {cfg: []int{100, 0, 1}, moveN: 2},
 		// {cfg: []int{100, 1, 1}, moveN: 2},
 		// {cfg: []int{1000, 0, 1}, moveN: 2},

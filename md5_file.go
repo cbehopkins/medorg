@@ -2,6 +2,8 @@ package medorg
 
 import (
 	"encoding/xml"
+	"errors"
+	"fmt"
 	"io"
 	"log"
 )
@@ -52,12 +54,16 @@ func (md Md5File) String() string {
 func (md *Md5File) FromXML(input []byte) (err error) {
 	err = xml.Unmarshal(input, md)
 	//fmt.Printf("Unmarshalling completed on:\n%v\nOutput:\n%v\n\n",input, md)
-	switch err {
-	case nil:
-	case io.EOF:
+	xse := &xml.SyntaxError{}
+	switch true {
+	case err == nil:
+	case errors.Is(err, io.EOF):
+		err = nil
+	case errors.As(err, &xse):
+		log.Println("Unmarshalling error:", err)
 		err = nil
 	default:
-		log.Fatal("Unknown Error UnMarshalling Md5File:", err)
+		return fmt.Errorf("unknown Error UnMarshalling Md5File:%w", err)
 	}
-	return
+	return nil
 }
