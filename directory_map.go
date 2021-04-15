@@ -193,15 +193,29 @@ func (dm DirectoryMap) pruneEmptyFile(directory, fn string, fs FileStruct, delet
 	return nil
 }
 
+// FIXME - this is rubbish
+// We will want to pack everything into a single zip file
+// We should be able to use that to pace limit this
+var wdTokenChan = makeTokenChan(4)
+
 // WriteDirectory writes the dm out to the directory specified
 func (dm DirectoryMap) WriteDirectory(directory string) error {
-	dm.SelfCheck(directory)
-	if !dm.Stale() {
-		return nil
+	prepare := func() bool {
+		dm.SelfCheck(directory)
+		dm.lock.Lock()
+		defer dm.lock.Unlock()
+		if !*dm.stale {
+			return true
+		}
+		*dm.stale = false
+		if len(dm.mp) == 0 {
+			removeMd5(directory)
+			return true
+		}
+		return false
 	}
-	*dm.stale = false
-	if dm.Len() == 0 {
-		removeMd5(directory)
+
+	if prepare() { // sneaky trick to sabe messing with defer locks
 		return nil
 	}
 	// Write out a new Xml from the structure
@@ -213,6 +227,8 @@ func (dm DirectoryMap) WriteDirectory(directory string) error {
 		return fmt.Errorf("unknown Error Marshalling Xml:%w", err)
 	}
 	fn := filepath.Join(directory, Md5FileName)
+	<-wdTokenChan
+	defer func() { wdTokenChan <- struct{}{} }()
 	removeMd5(directory)
 	return ioutil.WriteFile(fn, ba, 0600)
 }

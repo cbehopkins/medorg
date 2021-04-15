@@ -26,18 +26,28 @@ type DirTracker struct {
 	errChan   chan error
 }
 
+func makeTokenChan(numOutsanding int) chan struct{} {
+	tokenChan := make(chan struct{}, numOutsanding)
+	go func() {
+		for i := 0; i < numOutsanding; i++ {
+			tokenChan <- struct{}{}
+		}
+	}()
+	return tokenChan
+}
+
+const NumTrackerOutstanding = 1
+
 func NewDirTracker(dir string, newEntry func(string) DirectoryTrackerInterface) <-chan error {
-	numOutsanding := 1 // FIXME expose this
+	numOutsanding := NumTrackerOutstanding // FIXME expose this
 	var dt DirTracker
 	dt.dm = make(map[string]DirectoryTrackerInterface)
 	dt.newEntry = newEntry
-	dt.tokenChan = make(chan struct{}, numOutsanding)
+	dt.tokenChan = makeTokenChan(numOutsanding)
 	dt.wg = new(sync.WaitGroup)
 	dt.errChan = make(chan error)
 	go func() {
-		for i := 0; i < numOutsanding; i++ {
-			dt.tokenChan <- struct{}{}
-		}
+
 		err := filepath.WalkDir(dir, dt.directoryWalker)
 		if err != nil {
 			dt.errChan <- err
@@ -157,9 +167,15 @@ func (dt *DirTracker) directoryWalker(path string, d fs.DirEntry, err error) err
 }
 
 func (dt DirTracker) close(dir string) {
+	tc := makeTokenChan(16)
 	for key, val := range dt.dm {
 		delete(dt.dm, key)
-		val.Close()
+		// FIXME close may take some time - consider go-ing this
+		<-tc
+		go func(val DirectoryTrackerInterface) {
+			val.Close()
+			tc <- struct{}{}
+		}(val)
 	}
 	log.Println("All closed in ", dir)
 }

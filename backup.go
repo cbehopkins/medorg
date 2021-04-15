@@ -77,6 +77,12 @@ func (bdm0 *backupDupeMap) findDuplicates(bdm1 *backupDupeMap) <-chan []Fpath {
 // scanBackupDirectories will mark srcDir's ArchiveAt
 // tag, with any files that are already found in the destination
 func scanBackupDirectories(destDir, srcDir, volumeName string) error {
+	calcCnt := 2
+	tokenBuffer := make(chan struct{}, calcCnt)
+	defer close(tokenBuffer)
+	for i := 0; i < calcCnt; i++ {
+		tokenBuffer <- struct{}{}
+	}
 	backupDestination := NewBackupDupeMap()
 	backupSource := NewBackupDupeMap()
 	modifyFuncDestination := func(de DirectoryEntry, dir, fn string, d fs.DirEntry) error {
@@ -105,10 +111,14 @@ func scanBackupDirectories(destDir, srcDir, volumeName string) error {
 		if fn == Md5FileName {
 			return nil
 		}
+		<-tokenBuffer
 		err := de.UpdateChecksum(fn, false)
+		tokenBuffer <- struct{}{}
+
 		if err != nil {
 			return err
 		}
+
 		fs, ok := de.dm.Get(fn)
 		if !ok {
 			return fmt.Errorf("src %w: %s/%s", ErrMissingSrcEntry, dir, fn)
@@ -153,14 +163,14 @@ func scanBackupDirectories(destDir, srcDir, volumeName string) error {
 		}
 	}
 
-	if backupDestination.Len() > 0 {
-		// There's stuff on the backup that's not in the Source
-		// We'll need to do somethign about this soon!
-		log.Println("Unexpected items left in backup destination")
-		for _, v := range backupDestination.dupeMap {
-			log.Println(v)
-		}
-	}
+	//if backupDestination.Len() > 0 {
+	// There's stuff on the backup that's not in the Source
+	// We'll need to do somethign about this soon!
+	// log.Println("Unexpected items left in backup destination")
+	// for _, v := range backupDestination.dupeMap {
+	// 	log.Println(v)
+	// }
+	//}
 	return nil
 }
 
@@ -257,6 +267,7 @@ func BackupRunner(xc *XMLCfg, fc FileCopier, srcDir, destDir string) error {
 		return err
 	}
 	if fc == nil {
+		log.Println("Scan only. Going no further")
 		// If we've not supplied a copier, when we clearly don't want to run the copy
 		return nil
 	}

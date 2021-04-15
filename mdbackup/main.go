@@ -18,6 +18,7 @@ const (
 	ExitTwoDirectoriesOnly
 	ExitProgressBar
 	ExitIncompleteBackup
+	ExitSuppliedDirNotFound
 )
 
 var AF *medorg.AutoFix
@@ -66,10 +67,16 @@ func main() {
 		}
 	}()
 	var scanflg = flag.Bool("scan", false, "Only scan files, don't run the backup")
+	var dummyflg = flag.Bool("dummy", false, "Don't copy, just tell me what you'd do")
 
 	flag.Parse()
 	if flag.NArg() > 0 {
 		for _, fl := range flag.Args() {
+			_, err := os.Stat(fl)
+			if os.IsNotExist(err) {
+				fmt.Println(fl, "does not exist!")
+				os.Exit(ExitSuppliedDirNotFound)
+			}
 			if isDir(fl) {
 				directories = append(directories, fl)
 			}
@@ -79,7 +86,7 @@ func main() {
 	}
 
 	if len(directories) != 2 {
-		fmt.Println("Error, expected 2 directories!")
+		fmt.Println("Error, expected 2 directories!", directories)
 		os.Exit(ExitTwoDirectoriesOnly)
 	}
 
@@ -118,6 +125,10 @@ func main() {
 				}
 			}
 		}()
+		if *dummyflg {
+			fmt.Println("Copy from:", src, " to ", dst)
+			return nil
+		}
 		err := medorg.CopyFile(src, dst)
 		close(closeChan)
 		return err

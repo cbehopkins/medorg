@@ -48,6 +48,7 @@ func (de DirectoryEntry) ErrChan() <-chan error {
 }
 func (de DirectoryEntry) Close() {
 	close(de.closeChan)
+	de.activeFiles.Wait()
 }
 func (de DirectoryEntry) VisitFile(dir, file string, d fs.DirEntry, callback func()) {
 	de.activeFiles.Add(1)
