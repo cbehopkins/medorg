@@ -4,6 +4,8 @@ import (
 	"errors"
 	"io/fs"
 	"log"
+	"os"
+	"path/filepath"
 	"sync"
 )
 
@@ -165,4 +167,23 @@ func (de DirectoryEntry) UpdateChecksum(file string, forceUpdate bool) error {
 	de.dm.Add(fs)
 
 	return nil
+}
+
+// DeleteMissingFiles Delete any file entries that are in the dm,
+// but not on the disk
+// FIXME, this should be a method on dm
+// FIXME write a test for this
+func (de DirectoryEntry) DeleteMissingFiles() error {
+	// FIXME this would be more efficient to mark the fs
+	// as part of our visit.
+	// The we can just delete them then
+	fc := func(fileName string, fs FileStruct) (FileStruct, error) {
+		fp := filepath.Join(de.dir, fileName)
+		_, err := os.Stat(fp)
+		if errors.Is(err, os.ErrNotExist) {
+			return fs, errDeleteThisEntry
+		}
+		return fs, errIgnoreThisMutate
+	}
+	return de.dm.rangeMutate(fc)
 }

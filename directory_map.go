@@ -112,7 +112,7 @@ func DirectoryMapFromDir(directory string) (dm DirectoryMap, err error) {
 	// Read in the xml structure to a map/array
 	dm = *NewDirectoryMap()
 	if dm.mp == nil {
-		return dm, errors.New("initialize malfunction!")
+		return dm, errors.New("initialize malfunction")
 	}
 	fn := directory + "/" + Md5FileName
 	var f *os.File
