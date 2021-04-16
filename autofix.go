@@ -50,6 +50,8 @@ func NewAutoFix(dl []string) *AutoFix {
 // NewAutoFixFile reads in autofix expressions from a file
 func NewAutoFixFile(fn string) *AutoFix {
 	var dl []string
+	// FIXME 10/10 for good intentions minus several million for implementation
+	// We load a line at a time, just to put it all into an array!
 	for s := range LoadFile(fn) {
 		dl = append(dl, s)
 	}
@@ -306,24 +308,24 @@ func ResolveFnClash(directory, fn string, extension, orig string) string {
 // Consolidate files into a dest directory
 // Returns true if the file was actually moved
 // FIXME - is this needed now we have concentrate.go?
-func (af AutoFix) Consolidate(srcDir, fn, dstDir string) bool {
-	strippedFn, ext := StripExtension(fn)
-	if ext == "" {
-		// unknown extension
-		return false
-	}
-	strippedFn, _ = af.stripNumber(strippedFn)
-	newFn := ResolveFnClash(dstDir, strippedFn, ext, fn)
-	err := MvFile(srcDir, fn, dstDir, newFn)
-	if err != nil {
-		log.Println("Failed to move", srcDir, fn, dstDir, newFn)
-		return false
-	}
-	removeMd5(srcDir)
+// func (af AutoFix) Consolidate(srcDir, fn, dstDir string) bool {
+// 	strippedFn, ext := StripExtension(fn)
+// 	if ext == "" {
+// 		// unknown extension
+// 		return false
+// 	}
+// 	strippedFn, _ = af.stripNumber(strippedFn)
+// 	newFn := ResolveFnClash(dstDir, strippedFn, ext, fn)
+// 	err := MvFile(srcDir, fn, dstDir, newFn)
+// 	if err != nil {
+// 		log.Println("Failed to move", srcDir, fn, dstDir, newFn)
+// 		return false
+// 	}
+// 	_ = md5FileWrite(srcDir, nil)
 
-	return true
+// 	return true
 
-}
+// }
 
 // WkFun Walk function across the supplied directories
 // FIXME add testcases for this function

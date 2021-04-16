@@ -90,7 +90,7 @@ func main() {
 		return err
 	}
 
-	makerFunc := func(dir string) medorg.DirectoryTrackerInterface {
+	makerFunc := func(dir string) (medorg.DirectoryTrackerInterface, error) {
 		de := medorg.NewDirectoryEntry(dir, visitor)
 		if con != nil {
 			err := con.DirectoryVisit(de, dir)
@@ -99,7 +99,7 @@ func main() {
 				os.Exit(3)
 			}
 		}
-		return de
+		return de, nil
 	}
 	for _, dir := range directories {
 		if *conflg {

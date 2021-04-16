@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"os"
 	"os/user"
@@ -11,20 +12,33 @@ import (
 	"strings"
 )
 
-// removeMd5 removes the md5 file
-func removeMd5(directory string) {
+// FIXME - this is rubbish
+// We will want to pack everything into a single zip file
+// We should be able to use that to pace limit this
+var md5WriteTokenChan = makeTokenChan(4)
+
+// md5FileWrite write to the directopry's file
+// deletes the file, if the ba to write is empty
+func md5FileWrite(directory string, ba []byte) error {
+	<-md5WriteTokenChan
+	defer func() { md5WriteTokenChan <- struct{}{} }()
+
 	fn := filepath.Join(directory, Md5FileName)
 	if _, err := os.Stat(fn); !os.IsNotExist(err) {
 		_ = os.Remove(fn)
 	}
+	if ba == nil || (len(ba) == 0) {
+		return nil
+	}
+	return ioutil.WriteFile(fn, ba, 0600)
 }
 
 // RmFile removes a file in a convenent fashion
 // updating the xml as it goes
-func RmFile(dir, fn string) error {
-	dm := DirectoryMapFromDir(dir)
-	return dm.RmFile(dir, fn)
-}
+// func RmFile(dir, fn string) error {
+// 	dm := DirectoryMapFromDir(dir)
+// 	return dm.RmFile(dir, fn)
+// }
 
 // FileExist tests if a file exists in a convenient fashion
 func FileExist(directory, fn string) bool {
@@ -36,14 +50,21 @@ func FileExist(directory, fn string) bool {
 // MvFile moves a file updating the md5 files as it goes
 func MvFile(srcDir, srcFn, dstDir, dstFn string) error {
 	var srcDm, dstDm DirectoryMap
-	srcDm = DirectoryMapFromDir(srcDir)
+	var err error
+	srcDm, err = DirectoryMapFromDir(srcDir)
+	if err != nil {
+		return err
+	}
 	if srcDir == dstDir {
 		dstDm = srcDm
 	} else {
-		dstDm = DirectoryMapFromDir(dstDir)
+		dstDm, err = DirectoryMapFromDir(dstDir)
+		if err != nil {
+			return err
+		}
 	}
 
-	err := MoveFile(NewFpath(srcDir, srcFn), NewFpath(dstDir, dstFn))
+	err = MoveFile(NewFpath(srcDir, srcFn), NewFpath(dstDir, dstFn))
 	if err != nil {
 		return err
 	}
@@ -104,8 +125,7 @@ func CopyFile(src, dst Fpath) (err error) {
 func rmFilename(fn Fpath) error {
 	fns := string(fn)
 	if _, err := os.Stat(fns); err == nil {
-		// FIXME return an error here
-		_ = os.Remove(fns)
+		return os.Remove(fns)
 	}
 	return nil
 }
@@ -159,6 +179,7 @@ func copyFileContents(src, dst Fpath) (err error) {
 }
 
 // LoadFile load in a filename and return the data a line at a time in the channel
+// FIXME only needed by broken autofix init design
 func LoadFile(filename string) (theChan chan string) {
 	theChan = make(chan string)
 	go func() {
@@ -197,6 +218,7 @@ func LoadFile(filename string) (theChan chan string) {
 }
 
 // Readln reads a whole line of input
+// Only needed by LoadFile, which we should improve on...
 func Readln(r *bufio.Reader) (string, error) {
 	var (
 		isPrefix = true

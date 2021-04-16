@@ -106,8 +106,8 @@ func TestDirectoryTrackerAgainstMock(t *testing.T) {
 			}
 			defer os.RemoveAll(root)
 
-			makerFunc := func(dir string) DirectoryTrackerInterface {
-				return newMockDtType()
+			makerFunc := func(dir string) (DirectoryTrackerInterface, error) {
+				return newMockDtType(), nil
 			}
 			errChan := NewDirTracker(root, makerFunc)
 			for err := range errChan {
@@ -116,6 +116,12 @@ func TestDirectoryTrackerAgainstMock(t *testing.T) {
 		})
 	}
 }
+
+// FIXME we need a further variant on this test that
+// e.g. on close directory does a file write to mimic
+// the real system
+// As if we're not careful we can get a resource spam here
+// as everything closes at once
 func TestDirectoryTrackerSpawning(t *testing.T) {
 
 	type testSet struct {
@@ -169,10 +175,10 @@ func TestDirectoryTrackerSpawning(t *testing.T) {
 			}
 			defer os.RemoveAll(root)
 
-			makerFunc := func(dir string) DirectoryTrackerInterface {
+			makerFunc := func(dir string) (DirectoryTrackerInterface, error) {
 				mdt := newMockDtType()
 				mdt.visiter = visiter
-				return mdt
+				return mdt, nil
 			}
 			errChan := NewDirTracker(root, makerFunc)
 			for err := range errChan {

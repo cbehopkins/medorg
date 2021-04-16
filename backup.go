@@ -78,19 +78,14 @@ func (bdm0 *backupDupeMap) findDuplicates(bdm1 *backupDupeMap) <-chan []Fpath {
 // tag, with any files that are already found in the destination
 func scanBackupDirectories(destDir, srcDir, volumeName string) error {
 	calcCnt := 2
-	tokenBuffer := make(chan struct{}, calcCnt)
+	tokenBuffer := makeTokenChan(calcCnt)
 	defer close(tokenBuffer)
-	for i := 0; i < calcCnt; i++ {
-		tokenBuffer <- struct{}{}
-	}
+
 	backupDestination := NewBackupDupeMap()
 	backupSource := NewBackupDupeMap()
 	modifyFuncDestination := func(de DirectoryEntry, dir, fn string, d fs.DirEntry) error {
 		if fn == Md5FileName {
 			return nil
-		}
-		if fn == "" {
-			log.Fatal("Told to visit a null file")
 		}
 		err := de.UpdateChecksum(fn, false)
 		if err != nil {
@@ -100,9 +95,6 @@ func scanBackupDirectories(destDir, srcDir, volumeName string) error {
 		fs, ok := de.dm.Get(fn)
 		if !ok {
 			return fmt.Errorf("dst %w: %s/%s", ErrMissingSrcEntry, dir, fn)
-		}
-		if fs.Name == "" {
-			log.Fatal("Got a null file")
 		}
 		backupDestination.Add(fs)
 		return nil
@@ -143,11 +135,11 @@ func scanBackupDirectories(destDir, srcDir, volumeName string) error {
 		return nil
 	}
 
-	makerFuncDest := func(dir string) DirectoryTrackerInterface {
-		return NewDirectoryEntry(dir, modifyFuncDestination)
+	makerFuncDest := func(dir string) (DirectoryTrackerInterface, error) {
+		return NewDirectoryEntry(dir, modifyFuncDestination), nil
 	}
-	makerFuncSrc := func(dir string) DirectoryTrackerInterface {
-		return NewDirectoryEntry(dir, modifyFuncSource)
+	makerFuncSrc := func(dir string) (DirectoryTrackerInterface, error) {
+		return NewDirectoryEntry(dir, modifyFuncSource), nil
 	}
 
 	errChan := runSerialDirTrackerJob([]dirTrackerJob{
@@ -200,8 +192,8 @@ func extractCopyFiles(targetDir, volumeName string) (fpathListList, error) {
 		return nil
 	}
 
-	makerFunc := func(dir string) DirectoryTrackerInterface {
-		return NewDirectoryEntry(dir, visitFunc)
+	makerFunc := func(dir string) (DirectoryTrackerInterface, error) {
+		return NewDirectoryEntry(dir, visitFunc), nil
 	}
 	errChan := NewDirTracker(targetDir, makerFunc)
 	for err := range errChan {
@@ -231,7 +223,10 @@ func doACopy(srcDir, destDir, backupLabelName string, file Fpath, fc FileCopier)
 	// Actually copy the file
 	fc(file, NewFpath(destDir, rel))
 	// Update the srcDir .md5 file with the fact we've backed this up now
-	dmSrc := DirectoryMapFromDir(srcDir)
+	dmSrc, err := DirectoryMapFromDir(srcDir)
+	if err != nil {
+		return err
+	}
 	src, ok := dmSrc.Get(rel)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrMissingEntry, file)
@@ -241,7 +236,10 @@ func doACopy(srcDir, destDir, backupLabelName string, file Fpath, fc FileCopier)
 	dmSrc.WriteDirectory(srcDir)
 	_ = src.RemoveTag(backupLabelName)
 	// Update the destDir with the checksum from the srcDir
-	dmDst := DirectoryMapFromDir(destDir)
+	dmDst, err := DirectoryMapFromDir(destDir)
+	if err != nil {
+		return err
+	}
 	fs, err := os.Stat(filepath.Join(destDir, rel))
 	if err != nil {
 		return err

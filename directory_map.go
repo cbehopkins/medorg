@@ -7,7 +7,6 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
-	"path/filepath"
 	"sync"
 )
 
@@ -62,9 +61,6 @@ func (dm *DirectoryMap) FromXML(input []byte) (err error) {
 
 // Add adds a file struct to the dm
 func (dm DirectoryMap) Add(fs FileStruct) {
-	if fs.Name == "" {
-		log.Fatal("asked to add a null file")
-	}
 	dm.lock.Lock()
 	fn := fs.Name
 	dm.mp[fn] = fs
@@ -75,11 +71,9 @@ func (dm DirectoryMap) Add(fs FileStruct) {
 // Rm Removes a filename from the dm
 func (dm DirectoryMap) Rm(fn string) {
 	dm.lock.Lock()
-	dm.rm(fn)
-	dm.lock.Unlock()
-}
-func (dm DirectoryMap) rm(fn string) {
 	delete(dm.mp, fn)
+	*dm.stale = true
+	dm.lock.Unlock()
 }
 
 // RmFile is similar to rm, but updates the directory
@@ -102,7 +96,7 @@ func (dm DirectoryMap) Get(fn string) (FileStruct, bool) {
 }
 
 // PopulateDirectory the directory strings of the structs
-// useful after reading on the xml
+// useful after reading in the xml
 func (dm DirectoryMap) PopulateDirectory(directory string) {
 	dm.lock.Lock()
 	for fn, fs := range dm.mp {
@@ -114,15 +108,15 @@ func (dm DirectoryMap) PopulateDirectory(directory string) {
 
 // DirectoryMapFromDir reads in the dirmap from the supplied dir
 // It does not check anything or compute anythiing
-func DirectoryMapFromDir(directory string) (dm DirectoryMap) {
+func DirectoryMapFromDir(directory string) (dm DirectoryMap, err error) {
 	// Read in the xml structure to a map/array
 	dm = *NewDirectoryMap()
 	if dm.mp == nil {
-		log.Fatal("Initialize malfunction!")
+		return dm, errors.New("initialize malfunction!")
 	}
 	fn := directory + "/" + Md5FileName
 	var f *os.File
-	_, err := os.Stat(fn)
+	_, err = os.Stat(fn)
 
 	if os.IsNotExist(err) {
 		return
@@ -130,27 +124,23 @@ func DirectoryMapFromDir(directory string) (dm DirectoryMap) {
 	f, err = os.Open(fn)
 
 	if err != nil {
-		log.Printf("error opening directory map file: %T,%v\n", err, err)
-		log.Println("Which is odd as:", os.IsNotExist(err), err)
-		_, err := os.Stat(fn)
-		log.Println("and:", os.IsNotExist(err), err)
-		return
+		return dm, fmt.Errorf("%w error opening directory map file, %s/%s", err, directory, fn)
 	}
 	byteValue, err := ioutil.ReadAll(f)
-	_ = f.Close()
 	if err != nil {
-		log.Fatalf("error loading file: %T,%v\n", err, err)
+		return
 	}
-
+	err = f.Close()
+	if err != nil {
+		return
+	}
 	err = dm.FromXML(byteValue)
 	if err != nil {
-		log.Fatalln("FromXML error on", directory, err)
-		return
+		return dm, fmt.Errorf("FromXML error \"%w\" on %s", err, directory)
 	}
 
 	dm.PopulateDirectory(directory)
-	dm.SelfCheck(directory)
-	return
+	return dm, dm.SelfCheck(directory)
 }
 
 // Len is how many items in the dm
@@ -167,13 +157,17 @@ func (dm DirectoryMap) Stale() bool {
 	return *dm.stale
 }
 
-func (dm DirectoryMap) SelfCheck(directory string) {
-	fc := func(fn string, fs FileStruct) {
+var errSelfCheckProblem = errors.New("self check problem")
+
+// SelfCheck the directory map for obvious errors
+func (dm DirectoryMap) SelfCheck(directory string) error {
+	fc := func(fn string, fs FileStruct) error {
 		if fs.Directory() != directory {
-			log.Fatal("Self check problem. FS has directory of ", fs.Directory(), " for ", directory, "file \"", fn, "\"")
+			return fmt.Errorf("%w FS has directory of %s for %s/%s", errSelfCheckProblem, fs.Directory(), directory, fn)
 		}
+		return nil
 	}
-	dm.Range(fc)
+	return dm.rangeMap(fc)
 }
 
 func (dm DirectoryMap) pruneEmptyFile(directory, fn string, fs FileStruct, delete bool) error {
@@ -193,30 +187,28 @@ func (dm DirectoryMap) pruneEmptyFile(directory, fn string, fs FileStruct, delet
 	return nil
 }
 
-// FIXME - this is rubbish
-// We will want to pack everything into a single zip file
-// We should be able to use that to pace limit this
-var wdTokenChan = makeTokenChan(4)
-
 // WriteDirectory writes the dm out to the directory specified
+// FIXME this should not be exported
 func (dm DirectoryMap) WriteDirectory(directory string) error {
-	prepare := func() bool {
-		dm.SelfCheck(directory)
+	err := dm.SelfCheck(directory)
+	if err != nil {
+		return err
+	}
+	prepare := func() (bool, error) {
 		dm.lock.Lock()
 		defer dm.lock.Unlock()
 		if !*dm.stale {
-			return true
+			return true, nil
 		}
 		*dm.stale = false
 		if len(dm.mp) == 0 {
-			removeMd5(directory)
-			return true
+			return true, md5FileWrite(directory, nil)
 		}
-		return false
+		return false, nil
 	}
 
-	if prepare() { // sneaky trick to sabe messing with defer locks
-		return nil
+	if ret, err := prepare(); ret { // sneaky trick to save messing with defer locks
+		return err
 	}
 	// Write out a new Xml from the structure
 	ba, err := dm.ToXML()
@@ -226,18 +218,52 @@ func (dm DirectoryMap) WriteDirectory(directory string) error {
 	default:
 		return fmt.Errorf("unknown Error Marshalling Xml:%w", err)
 	}
-	fn := filepath.Join(directory, Md5FileName)
-	<-wdTokenChan
-	defer func() { wdTokenChan <- struct{}{} }()
-	removeMd5(directory)
-	return ioutil.WriteFile(fn, ba, 0600)
+	return md5FileWrite(directory, ba)
 }
 
-// Range over all the items in the map
-func (dm DirectoryMap) Range(fc func(string, FileStruct)) {
+// rangeMap do a map over the map
+// Note, you may not edit the dm itself
+func (dm DirectoryMap) rangeMap(fc func(string, FileStruct) error) error {
 	dm.lock.RLock()
+	defer dm.lock.RUnlock()
 	for fn, v := range dm.mp {
-		fc(fn, v)
+		err := fc(fn, v)
+		if err != nil {
+			return err
+		}
 	}
-	dm.lock.RUnlock()
+	return nil
+}
+
+var errDeleteThisEntry = errors.New("please delete this entry - thank you kindly")
+var errIgnoreThisMutate = errors.New("do not mutate this entry")
+
+// rangeMutate range over the map, mutating as needed
+// note one may return specific errors to delete or squash the mutation
+func (dm DirectoryMap) rangeMutate(fc func(string, FileStruct) (FileStruct, error)) error {
+	dm.lock.Lock()
+	defer dm.lock.Unlock()
+	deleteList := []string{}
+
+	for fn, v := range dm.mp {
+		fs, err := fc(fn, v)
+		switch err {
+		case nil:
+			dm.mp[fn] = fs
+			*dm.stale = true
+		case errIgnoreThisMutate:
+		case errDeleteThisEntry:
+			// Have I been writing too much python if I think this is a good idea?
+			deleteList = append(deleteList, fn)
+		default:
+			return err
+		}
+	}
+	if len(deleteList) > 0 {
+		*dm.stale = true
+		for _, v := range deleteList {
+			delete(dm.mp, v)
+		}
+	}
+	return nil
 }

@@ -1,8 +1,8 @@
 package medorg
 
 import (
+	"errors"
 	"io/fs"
-	"log"
 	"os"
 	"path/filepath"
 )
@@ -108,15 +108,15 @@ func (fs *FileStruct) RemoveTag(tag string) bool {
 	return true
 }
 
-func (fs FileStruct) Changed(info fs.FileInfo) bool {
+func (fs FileStruct) Changed(info fs.FileInfo) (bool, error) {
 	if info == nil {
-		log.Fatal("You are supposed to check for this! FIXME add err report")
+		return false, errors.New("changed called on nil fileinfo")
 	}
 	if fs.Mtime != info.ModTime().Unix() {
-		return true
+		return true, nil
 	}
 	if fs.Size != info.Size() {
-		return true
+		return true, nil
 	}
-	return false
+	return false, nil
 }

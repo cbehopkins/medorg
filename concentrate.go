@@ -53,10 +53,8 @@ func (con Concentrator) Visiter(de DirectoryEntry, directory, file string, d fs.
 	}
 	fileStruct, ok := de.dm.Get(file)
 	if !ok {
-		// FIXME tidy
 		return errors.New("missing file in concentrator mover")
 	}
-	// FIXME messy
 	fileStruct.directory = con.baseDir
 	con.de.dm.Add(fileStruct)
 	return nil

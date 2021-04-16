@@ -31,18 +31,21 @@ func (mvd *MoveDetect) runMoveDetectFindDeleted(directory string) error {
 	visitFunc := func(de DirectoryEntry, dir, fn string, d fs.DirEntry) error {
 		return nil
 	}
-	fc := func(fn string, fileStruct FileStruct) {
+	fc := func(fn string, fileStruct FileStruct) (FileStruct, error) {
 		_, err := os.Stat(string(fileStruct.Path()))
-		if !os.IsNotExist(err) {
-			return
+		if !errors.Is(err, os.ErrNotExist) {
+			return fileStruct, errIgnoreThisMutate
 		}
-		// FIXME Delete from src
+		// The file does not exist on the disk, so
+		// add it to our list of files
 		mvd.add(fileStruct)
+		return fileStruct, errDeleteThisEntry
 	}
-	makerFunc := func(dir string) DirectoryTrackerInterface {
+	makerFunc := func(dir string) (DirectoryTrackerInterface, error) {
 		md := NewDirectoryEntry(dir, visitFunc)
-		md.dm.Range(fc)
-		return md
+		// This need some rework in our interface so that
+		// makerFunc can retuen an error to the NewDirTracker that is creating it
+		return md, md.dm.rangeMutate(fc)
 	}
 	for err := range NewDirTracker(directory, makerFunc) {
 		if err != nil {
@@ -72,8 +75,8 @@ func (mvd *MoveDetect) runMoveDetectFindNew(directory string) error {
 		mvd.delete(v)
 		return de.UpdateValues(d)
 	}
-	makerFunc := func(dir string) DirectoryTrackerInterface {
-		return NewDirectoryEntry(dir, visitFunc)
+	makerFunc := func(dir string) (DirectoryTrackerInterface, error) {
+		return NewDirectoryEntry(dir, visitFunc), nil
 	}
 	errChan := NewDirTracker(directory, makerFunc)
 	for err := range errChan {

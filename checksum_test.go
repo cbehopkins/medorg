@@ -34,16 +34,16 @@ func TestB2B(t *testing.T) {
 		bob.AddFile(file.Name())
 	}
 
-	log.Println(bob)
+	//log.Println(bob)
 	marshelled := bob.String()
 	fred := NewMd5File()
 	err = fred.FromXML([]byte(marshelled))
 	if err != nil {
 		log.Fatal("um error", err)
 	}
-	log.Println(fred)
+	//log.Println(fred)
 
-	log.Println("All Done")
+	//log.Println("All Done")
 }
 func makeFile(directory string) string {
 	// FIXME it would be quicker to calculate the checksum here
@@ -90,7 +90,7 @@ func TestMd5(t *testing.T) {
 }
 func TestSelfCompat(t *testing.T) {
 	fileToUse := "checksum_test.go"
-	removeMd5(".")
+	_ = md5FileWrite(".", nil)
 
 	dm := *NewDirectoryMap()
 	toMd5Chan, toUpdateXML, closedChan := NewChannels()
@@ -99,7 +99,10 @@ func TestSelfCompat(t *testing.T) {
 	close(toMd5Chan)
 	<-closedChan
 	wg.Wait()
-	dm = DirectoryMapFromDir(".")
+	dm, err := DirectoryMapFromDir(".")
+	if err != nil {
+		t.Error(err)
+	}
 	v, ok := dm.Get(fileToUse)
 	if !ok {
 		log.Fatal(fileToUse, " is gone!!!", dm)
@@ -123,11 +126,14 @@ func TestPerlCompat(t *testing.T) {
 	cmd := exec.Command(perlScript, ".")
 	err := cmd.Run()
 	if err != nil {
-		log.Fatal("Erred!", err)
+		t.Error(err)
 	}
 	log.Println("Command Run")
 
-	dm := DirectoryMapFromDir(".")
+	dm, err := DirectoryMapFromDir(".")
+	if err != nil {
+		t.Error(err)
+	}
 	v, ok := dm.Get(fileToUse)
 	if !ok {
 		log.Fatal(fileToUse, " is gone!", dm)
@@ -144,7 +150,10 @@ func TestPerlCompat(t *testing.T) {
 	close(toMd5Chan)
 	<-closedChan
 	wg.Wait()
-	dm = DirectoryMapFromDir(".")
+	dm, err = DirectoryMapFromDir(".")
+	if err != nil {
+		t.Error(err)
+	}
 	v, ok = dm.Get(fileToUse)
 	if !ok {
 		log.Fatal(fileToUse, "Bob is gone for a second time!")

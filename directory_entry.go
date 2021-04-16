@@ -1,7 +1,7 @@
 package medorg
 
 import (
-	"fmt"
+	"errors"
 	"io/fs"
 	"log"
 	"sync"
@@ -30,25 +30,25 @@ type DirectoryEntry struct {
 }
 
 func NewDirectoryEntry(path string, fw DirectoryVisitorFunc) DirectoryEntry {
-	itm := new(DirectoryEntry)
+	var itm DirectoryEntry
 	itm.dir = path
 	itm.workItems = make(chan WorkItem)
 	itm.closeChan = make(chan struct{})
 	itm.errorChan = make(chan error)
 	itm.fileWorker = fw
 	// TBD, can we go this somehow? Do we even need to if we read it in quick enough?
-	itm.dm = DirectoryMapFromDir(path)
+	// FIXME error prop
+	itm.dm, _ = DirectoryMapFromDir(path)
 	itm.activeFiles = new(sync.WaitGroup)
 	itm.activeFiles.Add(1) // need to dummy add 1 to get it going
 	go itm.worker()
-	return *itm
+	return itm
 }
 func (de DirectoryEntry) ErrChan() <-chan error {
 	return de.errorChan
 }
 func (de DirectoryEntry) Close() {
 	close(de.closeChan)
-	de.activeFiles.Wait()
 }
 func (de DirectoryEntry) VisitFile(dir, file string, d fs.DirEntry, callback func()) {
 	de.activeFiles.Add(1)
@@ -90,6 +90,7 @@ func (de DirectoryEntry) persist() error {
 }
 
 // UpdateValues in the DirectoryEntry to those found on the fs
+// FIXME this should be on the Directory Map
 func (de DirectoryEntry) UpdateValues(d fs.DirEntry) error {
 	info, err := d.Info()
 	if err != nil {
@@ -107,8 +108,8 @@ func (de DirectoryEntry) UpdateValues(d fs.DirEntry) error {
 		de.dm.Add(fs)
 		return nil
 	}
-	if !fs.Changed(info) {
-		return nil
+	if changed, err := fs.Changed(info); !changed {
+		return err
 	}
 	fs.Mtime = info.ModTime().Unix()
 	fs.Size = info.Size()
@@ -116,31 +117,33 @@ func (de DirectoryEntry) UpdateValues(d fs.DirEntry) error {
 	de.dm.Add(fs)
 	return nil
 }
+
+// SetFs exports the ability to add a filestruct to this directory
 func (de DirectoryEntry) SetFs(fs FileStruct) {
 	de.dm.Add(fs)
 }
 
 // UpdateChecksum will recalc the checksum of an entry
+// FIXME this should be on Directory Map
 func (de DirectoryEntry) UpdateChecksum(file string, forceUpdate bool) error {
-	if file == "" {
-		log.Fatal("Updating a checksum on a null file")
+	if Debug && file == "" {
+		return errors.New("asked to update a checksum on a null filename")
 	}
 
 	fs, ok := de.dm.Get(file)
 	if !ok {
-
 		fsp, err := NewFileStruct(de.dir, file)
 		if err != nil {
 			return nil
 		}
 		fs = *fsp
-		if fs.Name == "" {
-			log.Fatal("Created a null file")
+		if Debug && fs.Name == "" {
+			return errors.New("created a null file")
 		}
 		de.dm.Add(fs)
 	}
-	if fs.Name == "" {
-		log.Fatal("We now have a null file")
+	if Debug && fs.Name == "" {
+		return errors.New("created a null file")
 	}
 
 	if !forceUpdate && (fs.Checksum != "") {
@@ -153,13 +156,11 @@ func (de DirectoryEntry) UpdateChecksum(file string, forceUpdate bool) error {
 	if fs.Checksum == cks {
 		return nil
 	}
-	if fs.Checksum != "" {
-		fmt.Println("Recalculation of ", file, "found a changed checksum")
-	}
+	log.Println("Recalculation of ", file, "found a changed checksum")
 	fs.Checksum = cks
-
-	if fs.Name == "" {
-		log.Fatal("about to add a null file")
+	fs.ArchivedAt = []string{}
+	if Debug && fs.Name == "" {
+		return errors.New("about to add a null file")
 	}
 	de.dm.Add(fs)
 

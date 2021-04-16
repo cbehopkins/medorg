@@ -81,7 +81,9 @@ func managerWorker(inputChan chan FileStruct, wg *sync.WaitGroup) {
 
 // appendXML - append items to the existing Xml File
 func appendXML(directory string, fsA []FileStruct) {
-	dm := DirectoryMapFromDir(directory)
+	// FIXME error prop
+	dm, _ := DirectoryMapFromDir(directory)
+
 	// Add in the items in the input
 	for _, fs := range fsA {
 		// Check each item to make sure it matches the current directory
@@ -127,7 +129,8 @@ func Calculator(fp string) (iw io.Writer, trigger chan struct{}, wg *sync.WaitGr
 }
 func md5CalcInternal(h hash.Hash, wgl *sync.WaitGroup, fpl string, trigger chan struct{}) {
 	directory, fn := filepath.Split(fpl)
-	dm := DirectoryMapFromDir(directory)
+	//FIXME error prop
+	dm, _ := DirectoryMapFromDir(directory)
 	completeCalc(trigger, directory, fn, h, dm)
 	// FIXME
 	_ = dm.WriteDirectory(directory)
@@ -174,6 +177,7 @@ func (cb *CalcBuffer) Close() {
 	}
 }
 func md5Calc(trigger chan struct{}, wg *sync.WaitGroup, fp string) (iw io.Writer) {
+	// FIXME checksum needs to cause the archiveAt field to be cleared
 	h := md5.New()
 	iw = io.Writer(h)
 	wg.Add(1)
@@ -216,7 +220,8 @@ func (cb *CalcBuffer) getDir(dir string) (dm *DirectoryMap) {
 		return
 	}
 
-	dmL := DirectoryMapFromDir(dir)
+	// FIXME error prop
+	dmL, _ := DirectoryMapFromDir(dir)
 	dm = &dmL
 	cb.Lock()
 	cb.buff[dir] = dm

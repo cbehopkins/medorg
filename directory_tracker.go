@@ -19,7 +19,7 @@ type DirectoryTrackerInterface interface {
 
 type DirTracker struct {
 	dm        map[string]DirectoryTrackerInterface
-	newEntry  func(dir string) DirectoryTrackerInterface
+	newEntry  func(dir string) (DirectoryTrackerInterface, error)
 	lastPath  string
 	tokenChan chan struct{}
 	wg        *sync.WaitGroup
@@ -28,17 +28,15 @@ type DirTracker struct {
 
 func makeTokenChan(numOutsanding int) chan struct{} {
 	tokenChan := make(chan struct{}, numOutsanding)
-	go func() {
-		for i := 0; i < numOutsanding; i++ {
-			tokenChan <- struct{}{}
-		}
-	}()
+	for i := 0; i < numOutsanding; i++ {
+		tokenChan <- struct{}{}
+	}
 	return tokenChan
 }
 
 const NumTrackerOutstanding = 1
 
-func NewDirTracker(dir string, newEntry func(string) DirectoryTrackerInterface) <-chan error {
+func NewDirTracker(dir string, newEntry func(string) (DirectoryTrackerInterface, error)) <-chan error {
 	numOutsanding := NumTrackerOutstanding // FIXME expose this
 	var dt DirTracker
 	dt.dm = make(map[string]DirectoryTrackerInterface)
@@ -47,7 +45,6 @@ func NewDirTracker(dir string, newEntry func(string) DirectoryTrackerInterface) 
 	dt.wg = new(sync.WaitGroup)
 	dt.errChan = make(chan error)
 	go func() {
-
 		err := filepath.WalkDir(dir, dt.directoryWalker)
 		if err != nil {
 			dt.errChan <- err
@@ -55,6 +52,7 @@ func NewDirTracker(dir string, newEntry func(string) DirectoryTrackerInterface) 
 		dt.close(dir)
 		dt.wg.Wait()
 		close(dt.errChan)
+		close(dt.tokenChan)
 	}()
 	return dt.errChan
 }
@@ -109,8 +107,9 @@ func (dt DirTracker) getDirectoryEntry(path string) DirectoryTrackerInterface {
 		return de
 	}
 	// Call out to the external function to return a new entry
-	de = dt.newEntry(path)
-	if de == nil {
+	de, err := dt.newEntry(path)
+	// FIXME error handling
+	if de == nil || err != nil {
 		return nil
 	}
 	dt.dm[path] = de
@@ -167,22 +166,16 @@ func (dt *DirTracker) directoryWalker(path string, d fs.DirEntry, err error) err
 }
 
 func (dt DirTracker) close(dir string) {
-	tc := makeTokenChan(16)
 	for key, val := range dt.dm {
 		delete(dt.dm, key)
-		// FIXME close may take some time - consider go-ing this
-		<-tc
-		go func(val DirectoryTrackerInterface) {
-			val.Close()
-			tc <- struct{}{}
-		}(val)
+		val.Close()
 	}
 	log.Println("All closed in ", dir)
 }
 
 type dirTrackerJob struct {
 	dir string
-	mf  func(string) DirectoryTrackerInterface
+	mf  func(string) (DirectoryTrackerInterface, error)
 }
 
 // func runParallelDirTrackerJob(jobs []dirTrackerJob) <-chan error {

@@ -89,8 +89,8 @@ func checkChecksums(de DirectoryEntry, directory, fn string, d fs.DirEntry) erro
 	return nil
 }
 func checkTestDirectoryChecksums(dir string) error {
-	makerFunc := func(dir string) DirectoryTrackerInterface {
-		return NewDirectoryEntry(dir, checkChecksums)
+	makerFunc := func(dir string) (DirectoryTrackerInterface, error) {
+		return NewDirectoryEntry(dir, checkChecksums), nil
 	}
 	errChan := NewDirTracker(dir, makerFunc)
 	for err := range errChan {
