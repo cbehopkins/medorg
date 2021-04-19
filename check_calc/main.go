@@ -78,7 +78,7 @@ func main() {
 		}
 		// Grab a compute token
 		<-tokenBuffer
-		err = de.UpdateChecksum(file, *rclflg)
+		err = de.UpdateChecksum(directory, file, *rclflg)
 		tokenBuffer <- struct{}{}
 
 		if AF != nil {
@@ -92,7 +92,7 @@ func main() {
 
 	makerFunc := func(dir string) (medorg.DirectoryTrackerInterface, error) {
 		de := medorg.NewDirectoryEntry(dir, visitor)
-		de.DeleteMissingFiles()
+		de.dm.DeleteMissingFiles()
 		if con != nil {
 			err := con.DirectoryVisit(de, dir)
 			if err != nil {

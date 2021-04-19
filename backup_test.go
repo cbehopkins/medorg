@@ -53,7 +53,7 @@ func recalcForTest(de DirectoryEntry, directory, fn string, d fs.DirEntry) error
 	if err != nil {
 		return err
 	}
-	err = de.UpdateChecksum(fn, false)
+	err = de.UpdateChecksum(directory, fn, false)
 	if err != nil {
 		return err
 	}
