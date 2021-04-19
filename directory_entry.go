@@ -74,10 +74,7 @@ func (de DirectoryEntry) worker() {
 			de.activeFiles.Done() // From the NewDirectoryEntry
 			close(de.workItems)
 			de.activeFiles.Wait()
-			err := de.persist()
-			if err != nil {
-				de.errorChan <- err
-			}
+			de.errorChan <- de.persist()
 			return
 		}
 	}
@@ -88,7 +85,6 @@ func (de DirectoryEntry) persist() error {
 }
 
 // UpdateValues in the DirectoryEntry to those found on the fs
-// FIXME this should be on the Directory Map
 func (dm DirectoryMap) UpdateValues(directory string, d fs.DirEntry) error {
 	info, err := d.Info()
 	if err != nil {
@@ -102,8 +98,7 @@ func (dm DirectoryMap) UpdateValues(directory string, d fs.DirEntry) error {
 		if err != nil {
 			return err
 		}
-		fs = *fsp
-		dm.Add(fs)
+		dm.Add(*fsp)
 		return nil
 	}
 	if changed, err := fs.Changed(info); !changed {
@@ -111,7 +106,7 @@ func (dm DirectoryMap) UpdateValues(directory string, d fs.DirEntry) error {
 	}
 	fs.Mtime = info.ModTime().Unix()
 	fs.Size = info.Size()
-	fs.Checksum = ""
+	fs.Checksum = "" // FIXME should we calculate this
 	dm.Add(fs)
 	return nil
 }
