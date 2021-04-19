@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"path/filepath"
 	"sync"
 )
 
@@ -266,4 +267,66 @@ func (dm DirectoryMap) rangeMutate(fc func(string, FileStruct) (FileStruct, erro
 		}
 	}
 	return nil
+}
+
+// UpdateChecksum will recalc the checksum of an entry
+func (dm DirectoryMap) UpdateChecksum(directory, file string, forceUpdate bool) error {
+	if Debug && file == "" {
+		return errors.New("asked to update a checksum on a null filename")
+	}
+
+	fs, ok := dm.Get(file)
+	if !ok {
+		fsp, err := NewFileStruct(directory, file)
+		if err != nil {
+			return nil
+		}
+		fs = *fsp
+		if Debug && fs.Name == "" {
+			return errors.New("created a null file")
+		}
+		dm.Add(fs)
+	}
+	if Debug && fs.Name == "" {
+		return errors.New("created a null file")
+	}
+
+	if !forceUpdate && (fs.Checksum != "") {
+		return nil
+	}
+	cks, err := CalcMd5File(directory, file)
+	if err != nil {
+		return err
+	}
+	if fs.Checksum == cks {
+		return nil
+	}
+	// log.Println("Recalculation of ", file, "found a changed checksum")
+	fs.Checksum = cks
+	fs.ArchivedAt = []string{}
+	if Debug && fs.Name == "" {
+		return errors.New("about to add a null file")
+	}
+	dm.Add(fs)
+
+	return nil
+}
+
+// DeleteMissingFiles Delete any file entries that are in the dm,
+// but not on the disk
+// FIXME, this should be a method on dm
+// FIXME write a test for this
+func (dm DirectoryMap) DeleteMissingFiles() error {
+	// FIXME this would be more efficient to mark the fs
+	// as part of our visit.
+	// The we can just delete them then
+	fc := func(fileName string, fs FileStruct) (FileStruct, error) {
+		fp := filepath.Join(fs.directory, fileName)
+		_, err := os.Stat(fp)
+		if errors.Is(err, os.ErrNotExist) {
+			return fs, errDeleteThisEntry
+		}
+		return fs, errIgnoreThisMutate
+	}
+	return dm.rangeMutate(fc)
 }

@@ -73,7 +73,7 @@ func (mvd *MoveDetect) runMoveDetectFindNew(directory string) error {
 		v.directory = de.dir
 		de.dm.Add(v)
 		mvd.delete(v)
-		return de.UpdateValues(d)
+		return de.dm.UpdateValues(de.dir, d)
 	}
 	makerFunc := func(dir string) (DirectoryTrackerInterface, error) {
 		return NewDirectoryEntry(dir, visitFunc), nil

@@ -49,11 +49,11 @@ func recalcForTest(de DirectoryEntry, directory, fn string, d fs.DirEntry) error
 	if fn == Md5FileName {
 		return nil
 	}
-	err := de.UpdateValues(d)
+	err := de.dm.UpdateValues(directory, d)
 	if err != nil {
 		return err
 	}
-	err = de.UpdateChecksum(directory, fn, false)
+	err = de.dm.UpdateChecksum(directory, fn, false)
 	if err != nil {
 		return err
 	}

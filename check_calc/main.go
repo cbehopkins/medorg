@@ -72,7 +72,7 @@ func main() {
 		if file == medorg.Md5FileName {
 			return nil
 		}
-		err := de.UpdateValues(d)
+		err := de.UpdateValues(directory, d)
 		if err != nil {
 			return err
 		}

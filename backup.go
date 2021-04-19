@@ -87,7 +87,7 @@ func scanBackupDirectories(destDir, srcDir, volumeName string) error {
 		if fn == Md5FileName {
 			return nil
 		}
-		err := de.UpdateChecksum(dir, fn, false)
+		err := de.dm.UpdateChecksum(dir, fn, false)
 		if err != nil {
 			return err
 		}
@@ -104,7 +104,7 @@ func scanBackupDirectories(destDir, srcDir, volumeName string) error {
 			return nil
 		}
 		<-tokenBuffer
-		err := de.UpdateChecksum(dir, fn, false)
+		err := de.dm.UpdateChecksum(dir, fn, false)
 		tokenBuffer <- struct{}{}
 
 		if err != nil {
