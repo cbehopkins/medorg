@@ -14,6 +14,7 @@ import (
 
 var ErrKey = errors.New("KV not match")
 var errStructProblem = errors.New("structure Problem")
+var ErrUnimplementedVisitor = errors.New("unimplemented visitor")
 
 // DirectoryMap contains for the directory all the file structs
 type DirectoryMap struct {
@@ -31,7 +32,7 @@ func NewDirectoryMap() *DirectoryMap {
 	itm.stale = new(bool)
 	itm.lock = new(sync.RWMutex)
 	itm.visitor = func(directory, file string, d fs.DirEntry) error {
-		return errors.New("unimplemented visitor")
+		return ErrUnimplementedVisitor
 	}
 	return itm
 }

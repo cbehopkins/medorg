@@ -13,9 +13,10 @@ type WorkItem struct {
 }
 type DirectoryVisitorFunc func(de DirectoryEntry, directory string, file string, d fs.DirEntry) error
 type DirectoryEntryInterface interface {
-	Persist() func(string) error
-	Visitor() func(directory, file string, d fs.DirEntry) error
+	Persist(string) error
+	Visitor(directory, file string, d fs.DirEntry) error
 }
+type EntryMaker func(string) (DirectoryEntryInterface, error)
 
 // DirectoryEntry represents a single directory
 // Upon creation it will open the appropriate direxctory's (md5)
@@ -31,7 +32,7 @@ type DirectoryEntry struct {
 	activeFiles *sync.WaitGroup
 }
 
-func NewDirectoryEntry(path string, fw DirectoryVisitorFunc) DirectoryEntry {
+func NewDirectoryEntry(path string, fw DirectoryVisitorFunc, mkF EntryMaker) DirectoryEntry {
 	var itm DirectoryEntry
 	itm.dir = path
 	itm.workItems = make(chan WorkItem)
@@ -68,9 +69,15 @@ func (de DirectoryEntry) worker() {
 		select {
 		case wi := <-de.workItems:
 			go func(dir, file string, d fs.DirEntry) {
-				if de.fileWorker != nil {
-					de.errorChan <- de.fileWorker(de, dir, file, d)
+				err := de.dm.Visitor(dir, file, d)
+				if err == ErrUnimplementedVisitor {
+					if de.fileWorker != nil {
+						de.errorChan <- de.fileWorker(de, dir, file, d)
+					}
+				} else if err != nil {
+					de.errorChan <- err
 				}
+
 				de.activeFiles.Done()
 				wi.callback()
 			}(wi.dir, wi.file, wi.d)

@@ -83,21 +83,25 @@ func scanBackupDirectories(destDir, srcDir, volumeName string) error {
 
 	backupDestination := NewBackupDupeMap()
 	backupSource := NewBackupDupeMap()
-	modifyFuncDestination := func(de DirectoryEntry, dir, fn string, d fs.DirEntry) error {
+	modifyFuncDestinationDm := func(dm DirectoryMap, dir, fn string, d fs.DirEntry) error {
+
 		if fn == Md5FileName {
 			return nil
 		}
-		err := de.dm.UpdateChecksum(dir, fn, false)
+		err := dm.UpdateChecksum(dir, fn, false)
 		if err != nil {
 			return err
 		}
 		// Add everything we find to the destination map
-		fs, ok := de.dm.Get(fn)
+		fs, ok := dm.Get(fn)
 		if !ok {
 			return fmt.Errorf("dst %w: %s/%s", ErrMissingSrcEntry, dir, fn)
 		}
 		backupDestination.Add(fs)
 		return nil
+	}
+	modifyFuncDestinationDe := func(de DirectoryEntry, dir, fn string, d fs.DirEntry) error {
+		return modifyFuncDestinationDm(de.dm, dir, fn, d)
 	}
 	modifyFuncSource := func(de DirectoryEntry, dir, fn string, d fs.DirEntry) error {
 		if fn == Md5FileName {
@@ -136,10 +140,21 @@ func scanBackupDirectories(destDir, srcDir, volumeName string) error {
 	}
 
 	makerFuncDest := func(dir string) (DirectoryTrackerInterface, error) {
-		return NewDirectoryEntry(dir, modifyFuncDestination), nil
+		mkFk := func(dir string) (DirectoryEntryInterface, error) {
+			dm, err := DirectoryMapFromDir(dir)
+			// fk := func(dir, fn string, d fs.DirEntry) error {
+			// 	return modifyFuncDestinationDm(dm, dir, fn, d)
+			// }
+			return dm, err
+		}
+		return NewDirectoryEntry(dir, modifyFuncDestinationDe, mkFk), nil
 	}
 	makerFuncSrc := func(dir string) (DirectoryTrackerInterface, error) {
-		return NewDirectoryEntry(dir, modifyFuncSource), nil
+		mkFk := func(dir string) (DirectoryEntryInterface, error) {
+			dm, err := DirectoryMapFromDir(dir)
+			return dm, err
+		}
+		return NewDirectoryEntry(dir, modifyFuncSource, mkFk), nil
 	}
 
 	errChan := runSerialDirTrackerJob([]dirTrackerJob{
@@ -193,7 +208,11 @@ func extractCopyFiles(targetDir, volumeName string) (fpathListList, error) {
 	}
 
 	makerFunc := func(dir string) (DirectoryTrackerInterface, error) {
-		return NewDirectoryEntry(dir, visitFunc), nil
+		mkFk := func(dir string) (DirectoryEntryInterface, error) {
+			dm, err := DirectoryMapFromDir(dir)
+			return dm, err
+		}
+		return NewDirectoryEntry(dir, visitFunc, mkFk), nil
 	}
 	errChan := NewDirTracker(targetDir, makerFunc)
 	for err := range errChan {

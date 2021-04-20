@@ -91,7 +91,11 @@ func main() {
 	}
 
 	makerFunc := func(dir string) (medorg.DirectoryTrackerInterface, error) {
-		de := medorg.NewDirectoryEntry(dir, visitor)
+		mkFk := func(dir string) (medorg.DirectoryEntryInterface, error) {
+			dm, err := medorg.DirectoryMapFromDir(dir)
+			return dm, err
+		}
+		de := medorg.NewDirectoryEntry(dir, visitor, mkFk)
 		de.dm.DeleteMissingFiles()
 		if con != nil {
 			err := con.DirectoryVisit(de, dir)
