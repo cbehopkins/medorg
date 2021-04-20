@@ -25,6 +25,7 @@ type DirectoryEntry struct {
 	errorChan   chan error
 	dm          DirectoryMap
 	activeFiles *sync.WaitGroup
+	perFunc     func() error
 }
 
 func NewDirectoryEntry(path string, fw DirectoryVisitorFunc) DirectoryEntry {
@@ -39,8 +40,9 @@ func NewDirectoryEntry(path string, fw DirectoryVisitorFunc) DirectoryEntry {
 	itm.dm, _ = DirectoryMapFromDir(path)
 	itm.activeFiles = new(sync.WaitGroup)
 	itm.activeFiles.Add(1) // need to dummy add 1 to get it going
+	itm.perFunc = func() error { return itm.dm.WriteDirectory(path) }
 	go itm.worker()
-	return itm
+	return itm // I think here we should return the worker function for the receiver to go. So that they can mutate the itm themselves before starting it
 }
 func (de DirectoryEntry) ErrChan() <-chan error {
 	return de.errorChan
@@ -49,6 +51,7 @@ func (de DirectoryEntry) Close() {
 	close(de.closeChan)
 }
 func (de DirectoryEntry) VisitFile(dir, file string, d fs.DirEntry, callback func()) {
+	// Random thought: Could this test if the worker has been started, ad start if needed?
 	de.activeFiles.Add(1)
 	de.workItems <- WorkItem{dir, file, d, callback}
 }
@@ -62,10 +65,7 @@ func (de DirectoryEntry) worker() {
 		case wi := <-de.workItems:
 			go func(dir, file string, d fs.DirEntry) {
 				if de.fileWorker != nil {
-					err := de.fileWorker(de, dir, file, d)
-					if err != nil {
-						de.errorChan <- err
-					}
+					de.errorChan <- de.fileWorker(de, dir, file, d)
 				}
 				de.activeFiles.Done()
 				wi.callback()
@@ -74,15 +74,15 @@ func (de DirectoryEntry) worker() {
 			de.activeFiles.Done() // From the NewDirectoryEntry
 			close(de.workItems)
 			de.activeFiles.Wait()
-			de.errorChan <- de.persist()
+			de.errorChan <- de.perFunc()
 			return
 		}
 	}
+}
 
-}
-func (de DirectoryEntry) persist() error {
-	return de.dm.WriteDirectory(de.dir)
-}
+// func (de DirectoryEntry) persist() error {
+// 	return de.dm.WriteDirectory(de.dir)
+// }
 
 // UpdateValues in the DirectoryEntry to those found on the fs
 func (dm DirectoryMap) UpdateValues(directory string, d fs.DirEntry) error {
