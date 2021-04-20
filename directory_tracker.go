@@ -11,6 +11,7 @@ import (
 
 type DirectoryTrackerInterface interface {
 	ErrChan() <-chan error
+	Start() error
 	Close()
 	// You must call the callback after you have finished whatever you are doing that might be
 	// resource intensive.
@@ -110,6 +111,11 @@ func (dt DirTracker) getDirectoryEntry(path string) DirectoryTrackerInterface {
 	de, err := dt.newEntry(path)
 	// FIXME error handling
 	if de == nil || err != nil {
+		return nil
+	}
+	err = de.Start()
+	if err != nil {
+		// FIXME
 		return nil
 	}
 	dt.dm[path] = de

@@ -12,6 +12,10 @@ type WorkItem struct {
 	callback func()
 }
 type DirectoryVisitorFunc func(de DirectoryEntry, directory string, file string, d fs.DirEntry) error
+type DirectoryEntryInterface interface {
+	Persist() func(string) error
+	Visitor() func(directory, file string, d fs.DirEntry) error
+}
 
 // DirectoryEntry represents a single directory
 // Upon creation it will open the appropriate direxctory's (md5)
@@ -25,7 +29,6 @@ type DirectoryEntry struct {
 	errorChan   chan error
 	dm          DirectoryMap
 	activeFiles *sync.WaitGroup
-	perFunc     func() error
 }
 
 func NewDirectoryEntry(path string, fw DirectoryVisitorFunc) DirectoryEntry {
@@ -40,9 +43,7 @@ func NewDirectoryEntry(path string, fw DirectoryVisitorFunc) DirectoryEntry {
 	itm.dm, _ = DirectoryMapFromDir(path)
 	itm.activeFiles = new(sync.WaitGroup)
 	itm.activeFiles.Add(1) // need to dummy add 1 to get it going
-	itm.perFunc = func() error { return itm.dm.WriteDirectory(path) }
-	go itm.worker()
-	return itm // I think here we should return the worker function for the receiver to go. So that they can mutate the itm themselves before starting it
+	return itm             // I think here we should return the worker function for the receiver to go. So that they can mutate the itm themselves before starting it
 }
 func (de DirectoryEntry) ErrChan() <-chan error {
 	return de.errorChan
@@ -55,7 +56,10 @@ func (de DirectoryEntry) VisitFile(dir, file string, d fs.DirEntry, callback fun
 	de.activeFiles.Add(1)
 	de.workItems <- WorkItem{dir, file, d, callback}
 }
-
+func (de DirectoryEntry) Start() error {
+	go de.worker()
+	return nil
+}
 func (de DirectoryEntry) worker() {
 	defer close(de.errorChan)
 
@@ -74,41 +78,10 @@ func (de DirectoryEntry) worker() {
 			de.activeFiles.Done() // From the NewDirectoryEntry
 			close(de.workItems)
 			de.activeFiles.Wait()
-			de.errorChan <- de.perFunc()
+			de.errorChan <- de.dm.Persist(de.dir)
 			return
 		}
 	}
-}
-
-// func (de DirectoryEntry) persist() error {
-// 	return de.dm.WriteDirectory(de.dir)
-// }
-
-// UpdateValues in the DirectoryEntry to those found on the fs
-func (dm DirectoryMap) UpdateValues(directory string, d fs.DirEntry) error {
-	info, err := d.Info()
-	if err != nil {
-		return err
-	}
-	file := d.Name()
-	fs, ok := dm.Get(file)
-
-	if !ok {
-		fsp, err := NewFileStructFromStat(directory, file, info)
-		if err != nil {
-			return err
-		}
-		dm.Add(*fsp)
-		return nil
-	}
-	if changed, err := fs.Changed(info); !changed {
-		return err
-	}
-	fs.Mtime = info.ModTime().Unix()
-	fs.Size = info.Size()
-	fs.Checksum = "" // FIXME should we calculate this
-	dm.Add(fs)
-	return nil
 }
 
 // Used bu one of the mains

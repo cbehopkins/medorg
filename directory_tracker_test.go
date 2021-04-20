@@ -52,6 +52,9 @@ func newMockDtType() (mdt mockDtType) {
 func (mdt mockDtType) ErrChan() <-chan error {
 	return mdt.errChan
 }
+func (mdt mockDtType) Start() error {
+	return nil
+}
 func (mdt mockDtType) Close() {
 	mdt.lock.Lock()
 	mdt.closed = true

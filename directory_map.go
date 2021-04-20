@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"io/ioutil"
 	"log"
 	"os"
@@ -19,7 +20,8 @@ type DirectoryMap struct {
 	mp    map[string]FileStruct
 	stale *bool
 	// We want to copy the DirectoryMap elsewhere
-	lock *sync.RWMutex
+	lock    *sync.RWMutex
+	visitor func(string, string, fs.DirEntry) error
 }
 
 // NewDirectoryMap creates a new dm
@@ -28,6 +30,9 @@ func NewDirectoryMap() *DirectoryMap {
 	itm.mp = make(map[string]FileStruct)
 	itm.stale = new(bool)
 	itm.lock = new(sync.RWMutex)
+	itm.visitor = func(directory, file string, d fs.DirEntry) error {
+		return errors.New("unimplemented visitor")
+	}
 	return itm
 }
 
@@ -329,4 +334,37 @@ func (dm DirectoryMap) DeleteMissingFiles() error {
 		return fs, errIgnoreThisMutate
 	}
 	return dm.rangeMutate(fc)
+}
+func (dm DirectoryMap) Persist(directory string) error {
+	return dm.WriteDirectory(directory)
+}
+func (dm DirectoryMap) Visitor(directory, file string, d fs.DirEntry) error {
+	return dm.visitor(directory, file, d)
+}
+
+// UpdateValues in the DirectoryEntry to those found on the fs
+func (dm DirectoryMap) UpdateValues(directory string, d fs.DirEntry) error {
+	info, err := d.Info()
+	if err != nil {
+		return err
+	}
+	file := d.Name()
+	fs, ok := dm.Get(file)
+
+	if !ok {
+		fsp, err := NewFileStructFromStat(directory, file, info)
+		if err != nil {
+			return err
+		}
+		dm.Add(*fsp)
+		return nil
+	}
+	if changed, err := fs.Changed(info); !changed {
+		return err
+	}
+	fs.Mtime = info.ModTime().Unix()
+	fs.Size = info.Size()
+	fs.Checksum = "" // FIXME should we calculate this
+	dm.Add(fs)
+	return nil
 }
