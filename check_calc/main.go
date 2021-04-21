@@ -82,10 +82,10 @@ func main() {
 		tokenBuffer <- struct{}{}
 
 		if AF != nil {
-			AF.WkFun(de, directory, file, d)
+			AF.WkFun(de.dm, directory, file, d)
 		}
 		if con != nil {
-			con.Visiter(de, directory, file, d)
+			con.Visiter(de.dm, directory, file, d)
 		}
 		return err
 	}

@@ -43,7 +43,7 @@ func (con *Concentrator) DirectoryVisit(de DirectoryEntry, directory string) err
 }
 
 // Visiter is what we need to call for each file
-func (con Concentrator) Visiter(de DirectoryEntry, directory, file string, d fs.DirEntry) error {
+func (con Concentrator) Visiter(dm DirectoryMap, directory, file string, d fs.DirEntry) error {
 	if con.de == nil {
 		return ErrFirstDirNotSeen
 	}
@@ -51,7 +51,7 @@ func (con Concentrator) Visiter(de DirectoryEntry, directory, file string, d fs.
 	if err != nil {
 		return err
 	}
-	fileStruct, ok := de.dm.Get(file)
+	fileStruct, ok := dm.Get(file)
 	if !ok {
 		return errors.New("missing file in concentrator mover")
 	}

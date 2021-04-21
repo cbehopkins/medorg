@@ -103,19 +103,19 @@ func scanBackupDirectories(destDir, srcDir, volumeName string) error {
 	modifyFuncDestinationDe := func(de DirectoryEntry, dir, fn string, d fs.DirEntry) error {
 		return modifyFuncDestinationDm(de.dm, dir, fn, d)
 	}
-	modifyFuncSource := func(de DirectoryEntry, dir, fn string, d fs.DirEntry) error {
+	modifyFuncSourceDm := func(dm DirectoryMap, dir, fn string, d fs.DirEntry) error {
 		if fn == Md5FileName {
 			return nil
 		}
 		<-tokenBuffer
-		err := de.dm.UpdateChecksum(dir, fn, false)
+		err := dm.UpdateChecksum(dir, fn, false)
 		tokenBuffer <- struct{}{}
 
 		if err != nil {
 			return err
 		}
 
-		fs, ok := de.dm.Get(fn)
+		fs, ok := dm.Get(fn)
 		if !ok {
 			return fmt.Errorf("src %w: %s/%s", ErrMissingSrcEntry, dir, fn)
 		}
@@ -135,10 +135,12 @@ func scanBackupDirectories(destDir, srcDir, volumeName string) error {
 
 		backupSource.Add(fs)
 		fs.Analysed = time.Now().Unix()
-		de.dm.Add(fs)
+		dm.Add(fs)
 		return nil
 	}
-
+	modifyFuncSource := func(de DirectoryEntry, dir, fn string, d fs.DirEntry) error {
+		return modifyFuncSourceDm(de.dm, dir, fn, d)
+	}
 	makerFuncDest := func(dir string) (DirectoryTrackerInterface, error) {
 		mkFk := func(dir string) (DirectoryEntryInterface, error) {
 			dm, err := DirectoryMapFromDir(dir)

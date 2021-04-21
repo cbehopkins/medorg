@@ -329,13 +329,13 @@ func ResolveFnClash(directory, fn string, extension, orig string) string {
 
 // WkFun Walk function across the supplied directories
 // FIXME add testcases for this function
-func (af *AutoFix) WkFun(de DirectoryEntry, directory, file string, d fs.DirEntry) error {
-	fs, ok := de.dm.Get(file)
+func (af *AutoFix) WkFun(dm DirectoryMap, directory, file string, d fs.DirEntry) error {
+	fs, ok := dm.Get(file)
 	if !ok {
 		return errors.New("asked to update a file that does not exist")
 	}
 
-	err := de.dm.pruneEmptyFile(directory, file, fs, af.DeleteFiles)
+	err := dm.pruneEmptyFile(directory, file, fs, af.DeleteFiles)
 	if err != nil {
 		return err
 	}
@@ -356,7 +356,7 @@ func (af *AutoFix) WkFun(de DirectoryEntry, directory, file string, d fs.DirEntr
 
 	af.FileHash[cSum] = fs
 	if modified {
-		de.dm.Add(fs)
+		dm.Add(fs)
 	}
 	return nil
 }
