@@ -31,7 +31,7 @@ type DirectoryEntry struct {
 	activeFiles *sync.WaitGroup
 }
 
-func NewDirectoryEntry(path string, mkF EntryMaker) DirectoryEntry {
+func NewDirectoryEntry(path string, mkF EntryMaker) (DirectoryEntry, error) {
 	var itm DirectoryEntry
 	itm.dir = path
 	itm.dm, _ = mkF(path)
@@ -42,7 +42,7 @@ func NewDirectoryEntry(path string, mkF EntryMaker) DirectoryEntry {
 	// FIXME error prop
 	itm.activeFiles = new(sync.WaitGroup)
 	itm.activeFiles.Add(1) // need to dummy add 1 to get it going
-	return itm             // I think here we should return the worker function for the receiver to go. So that they can mutate the itm themselves before starting it
+	return itm, nil        // I think here we should return the worker function for the receiver to go. So that they can mutate the itm themselves before starting it
 }
 func (de DirectoryEntry) ErrChan() <-chan error {
 	return de.errorChan

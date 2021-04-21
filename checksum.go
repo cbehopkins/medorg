@@ -38,12 +38,11 @@ func NewChannels() (inputChan chan FileStruct, outputChan chan FileStruct, close
 func md5Calcer(inputChan chan FileStruct, outputChan chan FileStruct, closedChan chan struct{}) {
 	for itm := range inputChan {
 		// Calculate the MD5 here and send it
-		fn := itm.Name
-		cks, err := CalcMd5File(".", fn)
+		cks, err := CalcMd5File(".", itm.Name)
 		if err != nil {
 			log.Fatal("Calculation error", err)
 		} else {
-			log.Println("Calculation for", fn, " complete")
+			log.Println("Calculation for", itm.Name, " complete")
 		}
 		itm.Checksum = cks
 		outputChan <- itm
@@ -94,7 +93,7 @@ func appendXML(directory string, fsA []FileStruct) {
 		}
 	}
 	// FIXME
-	_ = dm.WriteDirectory(directory)
+	_ = dm.Persist(directory)
 }
 
 // ReturnChecksumString gets the hash into the format we like it
@@ -133,7 +132,7 @@ func md5CalcInternal(h hash.Hash, wgl *sync.WaitGroup, fpl string, trigger chan 
 	dm, _ := DirectoryMapFromDir(directory)
 	completeCalc(trigger, directory, fn, h, dm)
 	// FIXME
-	_ = dm.WriteDirectory(directory)
+	_ = dm.Persist(directory)
 	wgl.Done()
 }
 func completeCalc(trigger chan struct{}, directory string, fn string, h hash.Hash, dm DirectoryMap) {
@@ -145,7 +144,7 @@ func completeCalc(trigger chan struct{}, directory string, fn string, h hash.Has
 		log.Fatal("Error in filename to calc", err)
 	}
 	fs.Checksum = ReturnChecksumString(h)
-	dm.Add(*fs)
+	dm.Add(fs)
 }
 
 // CalcBuffer holds onto writing the directory until later
@@ -173,7 +172,7 @@ func (cb *CalcBuffer) Close() {
 	cb.wg.Wait()
 	for dir, dm := range cb.buff {
 		// FIXME
-		_ = dm.WriteDirectory(dir)
+		_ = dm.Persist(dir)
 	}
 }
 func md5Calc(trigger chan struct{}, wg *sync.WaitGroup, fp string) (iw io.Writer) {

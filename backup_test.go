@@ -66,7 +66,7 @@ func recalcTestDirectory(dir string) error {
 			dm.VisitFunc = recalcForTest
 			return dm, err
 		}
-		return NewDirectoryEntry(dir, mkFk), nil
+		return NewDirectoryEntry(dir, mkFk)
 	}
 	for err := range NewDirTracker(dir, makerFunc) {
 		return fmt.Errorf("Error received on closing:%w", err)
@@ -122,7 +122,7 @@ func TestDuplicateDetect(t *testing.T) {
 			dm.VisitFunc = mfDst
 			return dm, err
 		}
-		return NewDirectoryEntry(dir, mkFk), nil
+		return NewDirectoryEntry(dir, mkFk)
 	}
 	makerFuncSrc := func(dir string) (DirectoryTrackerInterface, error) {
 		mkFk := func(dir string) (DirectoryEntryInterface, error) {
@@ -130,7 +130,7 @@ func TestDuplicateDetect(t *testing.T) {
 			dm.VisitFunc = mfSrc
 			return dm, err
 		}
-		return NewDirectoryEntry(dir, mkFk), nil
+		return NewDirectoryEntry(dir, mkFk)
 	}
 	for err := range NewDirTracker(srcDir, makerFuncSrc) {
 		t.Error("Error received on closing:", err)
@@ -194,7 +194,7 @@ func TestDuplicateArchivedAtPopulation(t *testing.T) {
 			dm.VisitFunc = archiveWalkFunc
 			return dm, err
 		}
-		return NewDirectoryEntry(dir, mkFk), nil
+		return NewDirectoryEntry(dir, mkFk)
 	}
 	for err := range NewDirTracker(dirs[0], makerFunc) {
 		t.Error("Error received on closing:", err)
@@ -274,7 +274,7 @@ func TestBackupExtract(t *testing.T) {
 			dm.VisitFunc = directoryWalker
 			return dm, err
 		}
-		return NewDirectoryEntry(dir, mkFk), nil
+		return NewDirectoryEntry(dir, mkFk)
 	}
 	for err := range NewDirTracker(dirs[0], makerFunc) {
 		t.Error("Error received on closing:", err)

@@ -86,7 +86,7 @@ func (dm DirectoryMap) Rm(fn string) {
 // RmFile is similar to rm, but updates the directory
 func (dm DirectoryMap) RmFile(dir, fn string) error {
 	dm.Rm(fn)
-	err := dm.WriteDirectory(dir)
+	err := dm.Persist(dir)
 	if err != nil {
 		return err
 	}
@@ -102,17 +102,6 @@ func (dm DirectoryMap) Get(fn string) (FileStruct, bool) {
 	return fs, ok
 }
 
-// PopulateDirectory the directory strings of the structs
-// useful after reading in the xml
-func (dm DirectoryMap) PopulateDirectory(directory string) {
-	dm.lock.Lock()
-	for fn, fs := range dm.mp {
-		fs.directory = directory
-		dm.mp[fn] = fs
-	}
-	dm.lock.Unlock()
-}
-
 // DirectoryMapFromDir reads in the dirmap from the supplied dir
 // It does not check anything or compute anythiing
 func DirectoryMapFromDir(directory string) (dm DirectoryMap, err error) {
@@ -121,7 +110,7 @@ func DirectoryMapFromDir(directory string) (dm DirectoryMap, err error) {
 	if dm.mp == nil {
 		return dm, errors.New("initialize malfunction")
 	}
-	fn := directory + "/" + Md5FileName
+	fn := filepath.Join(directory, Md5FileName)
 	var f *os.File
 	_, err = os.Stat(fn)
 
@@ -146,8 +135,12 @@ func DirectoryMapFromDir(directory string) (dm DirectoryMap, err error) {
 		return dm, fmt.Errorf("FromXML error \"%w\" on %s", err, directory)
 	}
 
-	dm.PopulateDirectory(directory)
-	return dm, dm.SelfCheck(directory)
+	fc := func(fn string, fs FileStruct) (FileStruct, error) {
+		fs.directory = directory
+		return fs, nil
+	}
+
+	return dm, dm.rangeMutate(fc)
 }
 
 // Len is how many items in the dm
@@ -192,40 +185,6 @@ func (dm DirectoryMap) pruneEmptyFile(directory, fn string, fs FileStruct, delet
 		return nil
 	}
 	return nil
-}
-
-// WriteDirectory writes the dm out to the directory specified
-// FIXME this should not be exported
-func (dm DirectoryMap) WriteDirectory(directory string) error {
-	err := dm.SelfCheck(directory)
-	if err != nil {
-		return err
-	}
-	prepare := func() (bool, error) {
-		dm.lock.Lock()
-		defer dm.lock.Unlock()
-		if !*dm.stale {
-			return true, nil
-		}
-		*dm.stale = false
-		if len(dm.mp) == 0 {
-			return true, md5FileWrite(directory, nil)
-		}
-		return false, nil
-	}
-
-	if ret, err := prepare(); ret { // sneaky trick to save messing with defer locks
-		return err
-	}
-	// Write out a new Xml from the structure
-	ba, err := dm.ToXML()
-	switch err {
-	case nil:
-	case io.EOF:
-	default:
-		return fmt.Errorf("unknown Error Marshalling Xml:%w", err)
-	}
-	return md5FileWrite(directory, ba)
 }
 
 // rangeMap do a map over the map
@@ -283,35 +242,19 @@ func (dm DirectoryMap) UpdateChecksum(directory, file string, forceUpdate bool) 
 
 	fs, ok := dm.Get(file)
 	if !ok {
-		fsp, err := NewFileStruct(directory, file)
+		var err error
+		fs, err = NewFileStruct(directory, file)
 		if err != nil {
 			return nil
 		}
-		fs = *fsp
 		if Debug && fs.Name == "" {
 			return errors.New("created a null file")
 		}
 		dm.Add(fs)
 	}
-	if Debug && fs.Name == "" {
-		return errors.New("created a null file")
-	}
-
-	if !forceUpdate && (fs.Checksum != "") {
-		return nil
-	}
-	cks, err := CalcMd5File(directory, file)
+	err := fs.UpdateChecksum(forceUpdate)
 	if err != nil {
 		return err
-	}
-	if fs.Checksum == cks {
-		return nil
-	}
-	// log.Println("Recalculation of ", file, "found a changed checksum")
-	fs.Checksum = cks
-	fs.ArchivedAt = []string{}
-	if Debug && fs.Name == "" {
-		return errors.New("about to add a null file")
 	}
 	dm.Add(fs)
 
@@ -322,9 +265,6 @@ func (dm DirectoryMap) UpdateChecksum(directory, file string, forceUpdate bool) 
 // but not on the disk
 // FIXME write a test for this
 func (dm DirectoryMap) DeleteMissingFiles() error {
-	// FIXME this would be more efficient to mark the fs
-	// as part of our visit.
-	// The we can just delete them then
 	fc := func(fileName string, fs FileStruct) (FileStruct, error) {
 		fp := filepath.Join(fs.directory, fileName)
 		_, err := os.Stat(fp)
@@ -335,8 +275,38 @@ func (dm DirectoryMap) DeleteMissingFiles() error {
 	}
 	return dm.rangeMutate(fc)
 }
+
+// Persist the directory map to disk
 func (dm DirectoryMap) Persist(directory string) error {
-	return dm.WriteDirectory(directory)
+	err := dm.SelfCheck(directory)
+	if err != nil {
+		return err
+	}
+	prepare := func() (bool, error) {
+		dm.lock.Lock()
+		defer dm.lock.Unlock()
+		if !*dm.stale {
+			return true, nil
+		}
+		*dm.stale = false
+		if len(dm.mp) == 0 {
+			return true, md5FileWrite(directory, nil)
+		}
+		return false, nil
+	}
+
+	if ret, err := prepare(); ret { // sneaky trick to save messing with defer locks
+		return err
+	}
+	// Write out a new Xml from the structure
+	ba, err := dm.ToXML()
+	switch err {
+	case nil:
+	case io.EOF:
+	default:
+		return fmt.Errorf("unknown Error Marshalling Xml:%w", err)
+	}
+	return md5FileWrite(directory, ba)
 }
 func (dm DirectoryMap) Visitor(directory, file string, d fs.DirEntry) error {
 	return dm.VisitFunc(dm, directory, file, d)
@@ -352,11 +322,11 @@ func (dm DirectoryMap) UpdateValues(directory string, d fs.DirEntry) error {
 	fs, ok := dm.Get(file)
 
 	if !ok {
-		fsp, err := NewFileStructFromStat(directory, file, info)
+		fs, err := NewFileStructFromStat(directory, file, info)
 		if err != nil {
 			return err
 		}
-		dm.Add(*fsp)
+		dm.Add(fs)
 		return nil
 	}
 	if changed, err := fs.Changed(info); !changed {
@@ -364,7 +334,8 @@ func (dm DirectoryMap) UpdateValues(directory string, d fs.DirEntry) error {
 	}
 	fs.Mtime = info.ModTime().Unix()
 	fs.Size = info.Size()
-	fs.Checksum = "" // FIXME should we calculate this
+	fs.Checksum = "" // FIXME we should calculate this.
+	fs.ArchivedAt = []string{}
 	dm.Add(fs)
 	return nil
 }

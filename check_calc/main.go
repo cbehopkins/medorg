@@ -68,7 +68,6 @@ func main() {
 		fmt.Println("Finished move detection")
 	}
 
-
 	var con *medorg.Concentrator
 
 	// Have a buffer of compute tokens
@@ -117,8 +116,8 @@ func main() {
 			}
 			return dm, dm.DeleteMissingFiles()
 		}
-		de := medorg.NewDirectoryEntry(dir, mkFk)
-		return de, nil
+		de, err := medorg.NewDirectoryEntry(dir, mkFk)
+		return de, err
 	}
 	for _, dir := range directories {
 		if *conflg {

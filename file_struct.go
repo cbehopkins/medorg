@@ -55,22 +55,22 @@ func (fs FileStruct) Equal(ca FileStruct) bool {
 	return (fs.Size == ca.Size) && (fs.Checksum == ca.Checksum)
 }
 
-func NewFileStruct(directory string, fn string) (*FileStruct, error) {
+func NewFileStruct(directory string, fn string) (FileStruct, error) {
 	fp := filepath.Join(directory, fn)
-	fs, err := os.Stat(fp)
+	stat, err := os.Stat(fp)
 	if err != nil {
-		return nil, err
+		return FileStruct{}, err
 	}
-	return NewFileStructFromStat(directory, fn, fs)
+	return NewFileStructFromStat(directory, fn, stat)
 }
 
-func NewFileStructFromStat(directory string, fn string, fs os.FileInfo) (*FileStruct, error) {
+func NewFileStructFromStat(directory string, fn string, fs os.FileInfo) (FileStruct, error) {
 	itm := new(FileStruct)
 	itm.Name = fn
 	itm.Mtime = fs.ModTime().Unix()
 	itm.Size = fs.Size()
 	itm.directory = directory
-	return itm, nil
+	return *itm, nil
 }
 
 func (fs FileStruct) indexTag(tag string) int {
@@ -119,4 +119,22 @@ func (fs FileStruct) Changed(info fs.FileInfo) (bool, error) {
 		return true, nil
 	}
 	return false, nil
+}
+
+func (fs *FileStruct) UpdateChecksum(forceUpdate bool) error {
+	if !forceUpdate && (fs.Checksum != "") {
+		return nil
+	}
+	// FIXME we need a compute token for this
+	cks, err := CalcMd5File(fs.directory, fs.Name)
+	if err != nil {
+		return err
+	}
+	if fs.Checksum == cks {
+		return nil
+	}
+	// log.Println("Recalculation of ", file, "found a changed checksum")
+	fs.Checksum = cks
+	fs.ArchivedAt = []string{}
+	return nil
 }

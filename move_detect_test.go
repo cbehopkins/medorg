@@ -95,7 +95,7 @@ func checkTestDirectoryChecksums(dir string) error {
 			dm.VisitFunc = checkChecksums
 			return dm, err
 		}
-		return NewDirectoryEntry(dir, mkFk), nil
+		return NewDirectoryEntry(dir, mkFk)
 	}
 	errChan := NewDirTracker(dir, makerFunc)
 	for err := range errChan {

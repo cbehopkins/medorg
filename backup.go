@@ -132,13 +132,10 @@ func scanBackupDirectories(destDir, srcDir, volumeName string) error {
 	makerFuncDest := func(dir string) (DirectoryTrackerInterface, error) {
 		mkFk := func(dir string) (DirectoryEntryInterface, error) {
 			dm, err := DirectoryMapFromDir(dir)
-			// fk := func(dir, fn string, d fs.DirEntry) error {
-			// 	return modifyFuncDestinationDm(dm, dir, fn, d)
-			// }
 			dm.VisitFunc = modifyFuncDestinationDm
 			return dm, err
 		}
-		return NewDirectoryEntry(dir, mkFk), nil
+		return NewDirectoryEntry(dir, mkFk)
 	}
 	makerFuncSrc := func(dir string) (DirectoryTrackerInterface, error) {
 		mkFk := func(dir string) (DirectoryEntryInterface, error) {
@@ -147,7 +144,7 @@ func scanBackupDirectories(destDir, srcDir, volumeName string) error {
 			return dm, err
 
 		}
-		return NewDirectoryEntry(dir, mkFk), nil
+		return NewDirectoryEntry(dir, mkFk)
 	}
 
 	errChan := runSerialDirTrackerJob([]dirTrackerJob{
@@ -206,15 +203,14 @@ func extractCopyFiles(targetDir, volumeName string) (fpathListList, error) {
 			dm.VisitFunc = visitFunc
 			return dm, err
 		}
-		return NewDirectoryEntry(dir, mkFk), nil
+		return NewDirectoryEntry(dir, mkFk)
 	}
 	errChan := NewDirTracker(targetDir, makerFunc)
 	for err := range errChan {
 		for range errChan {
 		}
-		errWrapped := fmt.Errorf("extractCopyFiles::%w", err)
-		if errWrapped != nil {
-			return remainingFiles, errWrapped
+		if err != nil {
+			return remainingFiles, fmt.Errorf("extractCopyFiles::%w", err)
 		}
 	}
 	return remainingFiles, nil
@@ -246,7 +242,7 @@ func doACopy(srcDir, destDir, backupLabelName string, file Fpath, fc FileCopier)
 	}
 	_ = src.AddTag(backupLabelName)
 	dmSrc.Add(src)
-	dmSrc.WriteDirectory(srcDir)
+	dmSrc.Persist(srcDir)
 	_ = src.RemoveTag(backupLabelName)
 	// Update the destDir with the checksum from the srcDir
 	dmDst, err := DirectoryMapFromDir(destDir)
@@ -260,7 +256,7 @@ func doACopy(srcDir, destDir, backupLabelName string, file Fpath, fc FileCopier)
 	src.directory = destDir
 	src.Mtime = fs.ModTime().Unix()
 	dmDst.Add(src)
-	dmDst.WriteDirectory(destDir)
+	dmDst.Persist(destDir)
 	return nil
 }
 

@@ -70,7 +70,7 @@ func MvFile(srcDir, srcFn, dstDir, dstFn string) error {
 	}
 
 	srcDm.Rm(srcFn)
-	err = srcDm.WriteDirectory(srcDir)
+	err = srcDm.Persist(srcDir)
 	if err != nil {
 		return err
 	}
@@ -78,8 +78,8 @@ func MvFile(srcDir, srcFn, dstDir, dstFn string) error {
 	if err != nil {
 		return err
 	}
-	dstDm.Add(*dstFs)
-	err = dstDm.WriteDirectory(dstDir)
+	dstDm.Add(dstFs)
+	err = dstDm.Persist(dstDir)
 	if err != nil {
 		return err
 	}
