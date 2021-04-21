@@ -90,7 +90,9 @@ func main() {
 		<-tokenBuffer
 		err = dm.UpdateChecksum(directory, file, *rclflg)
 		tokenBuffer <- struct{}{}
-
+		if err != nil {
+			return err
+		}
 		if AF != nil {
 			AF.WkFun(dm, directory, file, d)
 		}

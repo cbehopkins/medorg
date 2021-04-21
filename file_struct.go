@@ -61,17 +61,21 @@ func NewFileStruct(directory string, fn string) (fs FileStruct, err error) {
 	if err != nil {
 		return fs, err
 	}
-	fs.FromStat(directory, fn, stat)
-	return fs, nil
+
+	return fs.FromStat(directory, fn, stat)
 }
 
-func (fs *FileStruct) FromStat(directory string, fn string, fsi os.FileInfo) {
+func (fs *FileStruct) FromStat(directory string, fn string, fsi os.FileInfo) (FileStruct, error) {
+	if changed, err := fs.Changed(fsi); !changed {
+		return *fs, err
+	}
 	fs.Name = fn
 	fs.Mtime = fsi.ModTime().Unix()
 	fs.Size = fsi.Size()
-	fs.Checksum = ""
+	fs.Checksum = "" //
 	fs.ArchivedAt = []string{}
 	fs.directory = directory
+	return *fs, nil
 }
 
 func (fs FileStruct) indexTag(tag string) int {

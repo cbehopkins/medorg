@@ -21,7 +21,8 @@ type DirectoryMap struct {
 	mp    map[string]FileStruct
 	stale *bool
 	// We want to copy the DirectoryMap elsewhere
-	lock      *sync.RWMutex
+	lock *sync.RWMutex
+
 	VisitFunc func(DirectoryMap, string, string, fs.DirEntry) error
 }
 
@@ -241,18 +242,14 @@ func (dm DirectoryMap) UpdateChecksum(directory, file string, forceUpdate bool) 
 	}
 
 	fs, ok := dm.Get(file)
+	var err error
 	if !ok {
-		var err error
 		fs, err = NewFileStruct(directory, file)
 		if err != nil {
 			return nil
 		}
-		if Debug && fs.Name == "" {
-			return errors.New("created a null file")
-		}
-		dm.Add(fs)
 	}
-	err := fs.UpdateChecksum(forceUpdate)
+	err = fs.UpdateChecksum(forceUpdate)
 	if err != nil {
 		return err
 	}
@@ -276,7 +273,7 @@ func (dm DirectoryMap) DeleteMissingFiles() error {
 	return dm.rangeMutate(fc)
 }
 
-// Persist the directory map to disk
+// Persist self to disk
 func (dm DirectoryMap) Persist(directory string) error {
 	err := dm.SelfCheck(directory)
 	if err != nil {
@@ -308,7 +305,14 @@ func (dm DirectoryMap) Persist(directory string) error {
 	}
 	return md5FileWrite(directory, ba)
 }
+
+// Visitor satisfies DirectoryEntryInterface
+// It's saying, the walker is visiting this file.
 func (dm DirectoryMap) Visitor(directory, file string, d fs.DirEntry) error {
+	// Note the difference between this and VisitFunc
+	// We pass self in, so that the worker func can be declared once
+	// rather than always having to be a closure
+	// This is slightly odd, but requires fewer closures - and the costs associated
 	return dm.VisitFunc(dm, directory, file, d)
 }
 
@@ -323,7 +327,7 @@ func (dm DirectoryMap) UpdateValues(directory string, d fs.DirEntry) error {
 	if changed, err := fs.Changed(info); ok && !changed {
 		return err
 	}
-	fs, err = fs.FromStat(directory, file, info)
+	_, err = fs.FromStat(directory, file, info)
 	if err != nil {
 		return err
 	}

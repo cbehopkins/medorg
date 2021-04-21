@@ -82,13 +82,18 @@ func scanBackupDirectories(destDir, srcDir, volumeName string) error {
 		if fn == Md5FileName {
 			return nil
 		}
+		<-tokenBuffer
+		// Update the checksum, creating the FS if needed
 		err := dm.UpdateChecksum(dir, fn, false)
+		tokenBuffer <- struct{}{}
 		if err != nil {
 			return err
 		}
+
 		// Add everything we find to the destination map
 		fs, ok := dm.Get(fn)
-		if !ok {
+		if Debug && !ok {
+			// If the FS does not exist, then UpdateChecksum is faulty
 			return fmt.Errorf("dst %w: %s/%s", ErrMissingSrcEntry, dir, fn)
 		}
 		backupDestination.Add(fs)
@@ -98,18 +103,19 @@ func scanBackupDirectories(destDir, srcDir, volumeName string) error {
 		if fn == Md5FileName {
 			return nil
 		}
-		<-tokenBuffer
-		err := dm.UpdateChecksum(dir, fn, false)
-		tokenBuffer <- struct{}{}
-
-		if err != nil {
-			return err
-		}
 
 		fs, ok := dm.Get(fn)
 		if !ok {
 			return fmt.Errorf("src %w: %s/%s", ErrMissingSrcEntry, dir, fn)
 		}
+
+		<-tokenBuffer
+		err := fs.UpdateChecksum(false)
+		tokenBuffer <- struct{}{}
+		if err != nil {
+			return err
+		}
+
 		// If it exists in the destination already
 		_, ok = backupDestination.Lookup(fs.Key())
 		if ok {
