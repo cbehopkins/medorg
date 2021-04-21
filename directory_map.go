@@ -320,22 +320,13 @@ func (dm DirectoryMap) UpdateValues(directory string, d fs.DirEntry) error {
 	}
 	file := d.Name()
 	fs, ok := dm.Get(file)
-
-	if !ok {
-		fs, err := NewFileStructFromStat(directory, file, info)
-		if err != nil {
-			return err
-		}
-		dm.Add(fs)
-		return nil
-	}
-	if changed, err := fs.Changed(info); !changed {
+	if changed, err := fs.Changed(info); ok && !changed {
 		return err
 	}
-	fs.Mtime = info.ModTime().Unix()
-	fs.Size = info.Size()
-	fs.Checksum = "" // FIXME we should calculate this.
-	fs.ArchivedAt = []string{}
+	fs, err = fs.FromStat(directory, file, info)
+	if err != nil {
+		return err
+	}
 	dm.Add(fs)
 	return nil
 }

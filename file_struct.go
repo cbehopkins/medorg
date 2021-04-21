@@ -55,22 +55,23 @@ func (fs FileStruct) Equal(ca FileStruct) bool {
 	return (fs.Size == ca.Size) && (fs.Checksum == ca.Checksum)
 }
 
-func NewFileStruct(directory string, fn string) (FileStruct, error) {
+func NewFileStruct(directory string, fn string) (fs FileStruct, err error) {
 	fp := filepath.Join(directory, fn)
 	stat, err := os.Stat(fp)
 	if err != nil {
-		return FileStruct{}, err
+		return fs, err
 	}
-	return NewFileStructFromStat(directory, fn, stat)
+	fs.FromStat(directory, fn, stat)
+	return fs, nil
 }
 
-func NewFileStructFromStat(directory string, fn string, fs os.FileInfo) (FileStruct, error) {
-	itm := new(FileStruct)
-	itm.Name = fn
-	itm.Mtime = fs.ModTime().Unix()
-	itm.Size = fs.Size()
-	itm.directory = directory
-	return *itm, nil
+func (fs *FileStruct) FromStat(directory string, fn string, fsi os.FileInfo) {
+	fs.Name = fn
+	fs.Mtime = fsi.ModTime().Unix()
+	fs.Size = fsi.Size()
+	fs.Checksum = ""
+	fs.ArchivedAt = []string{}
+	fs.directory = directory
 }
 
 func (fs FileStruct) indexTag(tag string) int {
