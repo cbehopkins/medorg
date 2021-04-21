@@ -135,16 +135,19 @@ func scanBackupDirectories(destDir, srcDir, volumeName string) error {
 			// fk := func(dir, fn string, d fs.DirEntry) error {
 			// 	return modifyFuncDestinationDm(dm, dir, fn, d)
 			// }
+			dm.visitor = modifyFuncDestinationDm
 			return dm, err
 		}
-		return NewDirectoryEntry(dir, modifyFuncDestinationDm, mkFk), nil
+		return NewDirectoryEntry(dir, nil, mkFk), nil
 	}
 	makerFuncSrc := func(dir string) (DirectoryTrackerInterface, error) {
 		mkFk := func(dir string) (DirectoryEntryInterface, error) {
 			dm, err := DirectoryMapFromDir(dir)
+			dm.visitor = modifyFuncSourceDm
 			return dm, err
+
 		}
-		return NewDirectoryEntry(dir, modifyFuncSourceDm, mkFk), nil
+		return NewDirectoryEntry(dir, nil, mkFk), nil
 	}
 
 	errChan := runSerialDirTrackerJob([]dirTrackerJob{
@@ -200,10 +203,10 @@ func extractCopyFiles(targetDir, volumeName string) (fpathListList, error) {
 	makerFunc := func(dir string) (DirectoryTrackerInterface, error) {
 		mkFk := func(dir string) (DirectoryEntryInterface, error) {
 			dm, err := DirectoryMapFromDir(dir)
-			//dm.visitor = visitFunc
+			dm.visitor = visitFunc
 			return dm, err
 		}
-		return NewDirectoryEntry(dir, visitFunc, mkFk), nil
+		return NewDirectoryEntry(dir, nil, mkFk), nil
 	}
 	errChan := NewDirTracker(targetDir, makerFunc)
 	for err := range errChan {

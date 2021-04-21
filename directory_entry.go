@@ -11,7 +11,7 @@ type WorkItem struct {
 	d        fs.DirEntry
 	callback func()
 }
-type DirectoryVisitorFunc func(dm DirectoryMap, directory string, file string, d fs.DirEntry) error
+type DirectoryVisitorFunc func(dm DirectoryEntryInterface, directory string, file string, d fs.DirEntry) error
 type DirectoryEntryInterface interface {
 	Persist(string) error
 	Visitor(directory, file string, d fs.DirEntry) error
@@ -28,7 +28,7 @@ type DirectoryEntry struct {
 	fileWorker  DirectoryVisitorFunc
 	dir         string
 	errorChan   chan error
-	dm          DirectoryMap
+	dm          DirectoryEntryInterface
 	activeFiles *sync.WaitGroup
 }
 
@@ -41,7 +41,7 @@ func NewDirectoryEntry(path string, fw DirectoryVisitorFunc, mkF EntryMaker) Dir
 	itm.fileWorker = fw
 	// TBD, can we go this somehow? Do we even need to if we read it in quick enough?
 	// FIXME error prop
-	itm.dm, _ = DirectoryMapFromDir(path)
+	itm.dm, _ = mkF(path)
 	itm.activeFiles = new(sync.WaitGroup)
 	itm.activeFiles.Add(1) // need to dummy add 1 to get it going
 	return itm             // I think here we should return the worker function for the receiver to go. So that they can mutate the itm themselves before starting it
@@ -91,7 +91,7 @@ func (de DirectoryEntry) worker() {
 	}
 }
 
-// Used bu one of the mains
-func (de DirectoryEntry) DeleteMissingFiles() error {
-	return de.dm.DeleteMissingFiles()
-}
+// // Used bu one of the mains
+// func (de DirectoryEntry) DeleteMissingFiles() error {
+// 	return de.dm.DeleteMissingFiles()
+// }

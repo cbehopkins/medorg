@@ -92,9 +92,10 @@ func checkTestDirectoryChecksums(dir string) error {
 	makerFunc := func(dir string) (DirectoryTrackerInterface, error) {
 		mkFk := func(dir string) (DirectoryEntryInterface, error) {
 			dm, err := DirectoryMapFromDir(dir)
+			dm.visitor = checkChecksums
 			return dm, err
 		}
-		return NewDirectoryEntry(dir, checkChecksums, mkFk), nil
+		return NewDirectoryEntry(dir, nil, mkFk), nil
 	}
 	errChan := NewDirTracker(dir, makerFunc)
 	for err := range errChan {
@@ -148,14 +149,14 @@ func TestMoveDetect(t *testing.T) {
 		{cfg: []int{1, 1, 1}, moveN: 1},
 		{cfg: []int{2, 0, 1}, moveN: 1},
 		{cfg: []int{10, 1, 1}, moveN: 2},
-		{cfg: []int{3, 3, 4}, moveN: 2},
-		{cfg: []int{3, 3, 4}, moveN: 4},
+		// {cfg: []int{3, 3, 4}, moveN: 2},
+		// {cfg: []int{3, 3, 4}, moveN: 4},
 		// {cfg: []int{4, 2, 8}, moveN: 16},
 		// {cfg: []int{6, 4, 2}, moveN: 36},
-		{cfg: []int{10, 2, 1}, moveN: 2},
-		// {cfg: []int{100, 0, 1}, moveN: 2},
-		// {cfg: []int{100, 1, 1}, moveN: 2},
-		// {cfg: []int{1000, 0, 1}, moveN: 2},
+		// {cfg: []int{10, 2, 1}, moveN: 2},
+		{cfg: []int{100, 0, 1}, moveN: 2},
+		{cfg: []int{100, 1, 1}, moveN: 2},
+		{cfg: []int{1000, 0, 1}, moveN: 2},
 		// {cfg: []int{10000, 0, 1}, moveN: 2},
 	}
 
@@ -199,6 +200,7 @@ func TestMoveDetect(t *testing.T) {
 				t.Error("Error moving files", err)
 			}
 			err = checkTestDirectoryChecksums(root)
+			// We have moved things around, therefor we expect a missing checksum
 			if !errors.Is(err, errMissingChecksum) {
 				if movable {
 					t.Error("Error checking checksums for directories", err)

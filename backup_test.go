@@ -63,9 +63,10 @@ func recalcTestDirectory(dir string) error {
 	makerFunc := func(dir string) (DirectoryTrackerInterface, error) {
 		mkFk := func(dir string) (DirectoryEntryInterface, error) {
 			dm, err := DirectoryMapFromDir(dir)
+			dm.visitor = recalcForTest
 			return dm, err
 		}
-		return NewDirectoryEntry(dir, recalcForTest, mkFk), nil
+		return NewDirectoryEntry(dir, nil, mkFk), nil
 	}
 	for err := range NewDirTracker(dir, makerFunc) {
 		return fmt.Errorf("Error received on closing:%w", err)
@@ -118,16 +119,18 @@ func TestDuplicateDetect(t *testing.T) {
 	makerFuncDest := func(dir string) (DirectoryTrackerInterface, error) {
 		mkFk := func(dir string) (DirectoryEntryInterface, error) {
 			dm, err := DirectoryMapFromDir(dir)
+			dm.visitor = mfDst
 			return dm, err
 		}
-		return NewDirectoryEntry(dir, mfDst, mkFk), nil
+		return NewDirectoryEntry(dir, nil, mkFk), nil
 	}
 	makerFuncSrc := func(dir string) (DirectoryTrackerInterface, error) {
 		mkFk := func(dir string) (DirectoryEntryInterface, error) {
 			dm, err := DirectoryMapFromDir(dir)
+			dm.visitor = mfSrc
 			return dm, err
 		}
-		return NewDirectoryEntry(dir, mfSrc, mkFk), nil
+		return NewDirectoryEntry(dir, nil, mkFk), nil
 	}
 	for err := range NewDirTracker(srcDir, makerFuncSrc) {
 		t.Error("Error received on closing:", err)
@@ -188,9 +191,10 @@ func TestDuplicateArchivedAtPopulation(t *testing.T) {
 	makerFunc := func(dir string) (DirectoryTrackerInterface, error) {
 		mkFk := func(dir string) (DirectoryEntryInterface, error) {
 			dm, err := DirectoryMapFromDir(dir)
+			dm.visitor = archiveWalkFunc
 			return dm, err
 		}
-		return NewDirectoryEntry(dir, archiveWalkFunc, mkFk), nil
+		return NewDirectoryEntry(dir, nil, mkFk), nil
 	}
 	for err := range NewDirTracker(dirs[0], makerFunc) {
 		t.Error("Error received on closing:", err)
@@ -267,9 +271,10 @@ func TestBackupExtract(t *testing.T) {
 	makerFunc := func(dir string) (DirectoryTrackerInterface, error) {
 		mkFk := func(dir string) (DirectoryEntryInterface, error) {
 			dm, err := DirectoryMapFromDir(dir)
+			dm.visitor = directoryWalker
 			return dm, err
 		}
-		return NewDirectoryEntry(dir, directoryWalker, mkFk), nil
+		return NewDirectoryEntry(dir, nil, mkFk), nil
 	}
 	for err := range NewDirTracker(dirs[0], makerFunc) {
 		t.Error("Error received on closing:", err)
