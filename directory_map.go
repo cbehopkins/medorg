@@ -21,8 +21,8 @@ type DirectoryMap struct {
 	mp    map[string]FileStruct
 	stale *bool
 	// We want to copy the DirectoryMap elsewhere
-	lock    *sync.RWMutex
-	visitor func(DirectoryMap, string, string, fs.DirEntry) error
+	lock      *sync.RWMutex
+	VisitFunc func(DirectoryMap, string, string, fs.DirEntry) error
 }
 
 // NewDirectoryMap creates a new dm
@@ -31,7 +31,7 @@ func NewDirectoryMap() *DirectoryMap {
 	itm.mp = make(map[string]FileStruct)
 	itm.stale = new(bool)
 	itm.lock = new(sync.RWMutex)
-	itm.visitor = func(dm DirectoryMap, directory, file string, d fs.DirEntry) error {
+	itm.VisitFunc = func(dm DirectoryMap, directory, file string, d fs.DirEntry) error {
 		return ErrUnimplementedVisitor
 	}
 	return itm
@@ -125,7 +125,7 @@ func DirectoryMapFromDir(directory string) (dm DirectoryMap, err error) {
 	var f *os.File
 	_, err = os.Stat(fn)
 
-	if os.IsNotExist(err) {
+	if errors.Is(err, os.ErrNotExist) {
 		return
 	}
 	f, err = os.Open(fn)
@@ -339,7 +339,7 @@ func (dm DirectoryMap) Persist(directory string) error {
 	return dm.WriteDirectory(directory)
 }
 func (dm DirectoryMap) Visitor(directory, file string, d fs.DirEntry) error {
-	return dm.visitor(dm, directory, file, d)
+	return dm.VisitFunc(dm, directory, file, d)
 }
 
 // UpdateValues in the DirectoryEntry to those found on the fs

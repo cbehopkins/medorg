@@ -27,6 +27,7 @@ func main() {
 
 	var calcCnt = flag.Int("calc", 2, "Max Number of MD5 calculators")
 	var delflg = flag.Bool("delete", false, "Delete duplicated Files")
+	var mvdflg = flag.Bool("mvd", false, "Move Detect")
 	var rnmflg = flag.Bool("rename", false, "Auto Rename Files")
 	var rclflg = flag.Bool("recalc", false, "Recalculate all checksums")
 
@@ -57,6 +58,16 @@ func main() {
 		AF = medorg.NewAutoFix(xc.Af)
 		AF.DeleteFiles = *delflg
 	}
+
+	if *mvdflg {
+		err := medorg.NewMoveDetect().RunMoveDetect(directories)
+		if err != nil {
+			fmt.Println("Error! In move detect", err)
+			os.Exit(4)
+		}
+		fmt.Println("Finished move detection")
+	}
+
 
 	var con *medorg.Concentrator
 
@@ -96,16 +107,17 @@ func main() {
 			if err != nil {
 				return dm, err
 			}
+			dm.VisitFunc = visitor
+			if con != nil {
+				err := con.DirectoryVisit(dm, dir)
+				if err != nil {
+					fmt.Println("Received error from concentrate", err)
+					os.Exit(3)
+				}
+			}
 			return dm, dm.DeleteMissingFiles()
 		}
-		de := medorg.NewDirectoryEntry(dir, visitor, mkFk)
-		if con != nil {
-			err := con.DirectoryVisit(de.dm, dir)
-			if err != nil {
-				fmt.Println("Received error from concentrate", err)
-				os.Exit(3)
-			}
-		}
+		de := medorg.NewDirectoryEntry(dir, mkFk)
 		return de, nil
 	}
 	for _, dir := range directories {

@@ -44,13 +44,13 @@ func (mvd *MoveDetect) runMoveDetectFindDeleted(directory string) error {
 	makerFunc := func(dir string) (DirectoryTrackerInterface, error) {
 		mkFk := func(dir string) (DirectoryEntryInterface, error) {
 			dm, err := DirectoryMapFromDir(dir)
+			dm.VisitFunc = visitFunc
 			if err != nil {
 				return dm, err
 			}
-			dm.visitor = visitFunc
 			return dm, dm.rangeMutate(fc)
 		}
-		md := NewDirectoryEntry(dir, nil, mkFk)
+		md := NewDirectoryEntry(dir, mkFk)
 		// This need some rework in our interface so that
 		// makerFunc can retuen an error to the NewDirTracker that is creating it
 		return md, nil
@@ -86,10 +86,10 @@ func (mvd *MoveDetect) runMoveDetectFindNew(directory string) error {
 	makerFunc := func(dir string) (DirectoryTrackerInterface, error) {
 		mkFk := func(dir string) (DirectoryEntryInterface, error) {
 			dm, err := DirectoryMapFromDir(dir)
-			dm.visitor = visitFunc
+			dm.VisitFunc = visitFunc
 			return dm, err
 		}
-		return NewDirectoryEntry(dir, nil, mkFk), nil
+		return NewDirectoryEntry(dir, mkFk), nil
 	}
 	errChan := NewDirTracker(directory, makerFunc)
 	for err := range errChan {

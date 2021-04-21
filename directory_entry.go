@@ -25,23 +25,21 @@ type EntryMaker func(string) (DirectoryEntryInterface, error)
 type DirectoryEntry struct {
 	workItems   chan WorkItem
 	closeChan   chan struct{}
-	fileWorker  DirectoryVisitorFunc
 	dir         string
 	errorChan   chan error
 	dm          DirectoryEntryInterface
 	activeFiles *sync.WaitGroup
 }
 
-func NewDirectoryEntry(path string, fw DirectoryVisitorFunc, mkF EntryMaker) DirectoryEntry {
+func NewDirectoryEntry(path string, mkF EntryMaker) DirectoryEntry {
 	var itm DirectoryEntry
 	itm.dir = path
+	itm.dm, _ = mkF(path)
 	itm.workItems = make(chan WorkItem)
 	itm.closeChan = make(chan struct{})
 	itm.errorChan = make(chan error)
-	itm.fileWorker = fw
 	// TBD, can we go this somehow? Do we even need to if we read it in quick enough?
 	// FIXME error prop
-	itm.dm, _ = mkF(path)
 	itm.activeFiles = new(sync.WaitGroup)
 	itm.activeFiles.Add(1) // need to dummy add 1 to get it going
 	return itm             // I think here we should return the worker function for the receiver to go. So that they can mutate the itm themselves before starting it
@@ -69,15 +67,7 @@ func (de DirectoryEntry) worker() {
 		select {
 		case wi := <-de.workItems:
 			go func(dir, file string, d fs.DirEntry) {
-				err := de.dm.Visitor(dir, file, d)
-				if err == ErrUnimplementedVisitor {
-					if de.fileWorker != nil {
-						de.errorChan <- de.fileWorker(de.dm, dir, file, d)
-					}
-				} else if err != nil {
-					de.errorChan <- err
-				}
-
+				de.errorChan <- de.dm.Visitor(dir, file, d)
 				de.activeFiles.Done()
 				wi.callback()
 			}(wi.dir, wi.file, wi.d)
@@ -90,8 +80,3 @@ func (de DirectoryEntry) worker() {
 		}
 	}
 }
-
-// // Used bu one of the mains
-// func (de DirectoryEntry) DeleteMissingFiles() error {
-// 	return de.dm.DeleteMissingFiles()
-// }
