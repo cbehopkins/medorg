@@ -11,7 +11,7 @@ type WorkItem struct {
 	d        fs.DirEntry
 	callback func()
 }
-type DirectoryVisitorFunc func(de DirectoryEntry, directory string, file string, d fs.DirEntry) error
+type DirectoryVisitorFunc func(dm DirectoryMap, directory string, file string, d fs.DirEntry) error
 type DirectoryEntryInterface interface {
 	Persist(string) error
 	Visitor(directory, file string, d fs.DirEntry) error
@@ -72,7 +72,7 @@ func (de DirectoryEntry) worker() {
 				err := de.dm.Visitor(dir, file, d)
 				if err == ErrUnimplementedVisitor {
 					if de.fileWorker != nil {
-						de.errorChan <- de.fileWorker(de, dir, file, d)
+						de.errorChan <- de.fileWorker(de.dm, dir, file, d)
 					}
 				} else if err != nil {
 					de.errorChan <- err

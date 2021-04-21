@@ -28,7 +28,7 @@ func NewMoveDetect() *MoveDetect {
 // looking for any files which have been deleted
 // And move the FileStruct from the dm into a map
 func (mvd *MoveDetect) runMoveDetectFindDeleted(directory string) error {
-	visitFunc := func(de DirectoryEntry, dir, fn string, d fs.DirEntry) error {
+	visitFunc := func(dm DirectoryMap, dir, fn string, d fs.DirEntry) error {
 		return nil
 	}
 	fc := func(fn string, fileStruct FileStruct) (FileStruct, error) {
@@ -63,7 +63,7 @@ func (mvd *MoveDetect) runMoveDetectFindDeleted(directory string) error {
 // looking for any new files and if they exist in the map
 // then populate the entry withou a calculation
 func (mvd *MoveDetect) runMoveDetectFindNew(directory string) error {
-	visitFunc := func(de DirectoryEntry, dir, fn string, d fs.DirEntry) error {
+	visitFunc := func(dm DirectoryMap, dir, fn string, d fs.DirEntry) error {
 		if fn == Md5FileName {
 			return nil
 		}
@@ -74,10 +74,11 @@ func (mvd *MoveDetect) runMoveDetectFindNew(directory string) error {
 		if err != nil {
 			return err
 		}
-		v.directory = de.dir
-		de.dm.Add(v)
+		// BUM
+		v.directory = dir
+		dm.Add(v)
 		mvd.delete(v)
-		return de.dm.UpdateValues(de.dir, d)
+		return dm.UpdateValues(dir, d)
 	}
 	makerFunc := func(dir string) (DirectoryTrackerInterface, error) {
 		mkFk := func(dir string) (DirectoryEntryInterface, error) {

@@ -100,9 +100,6 @@ func scanBackupDirectories(destDir, srcDir, volumeName string) error {
 		backupDestination.Add(fs)
 		return nil
 	}
-	modifyFuncDestinationDe := func(de DirectoryEntry, dir, fn string, d fs.DirEntry) error {
-		return modifyFuncDestinationDm(de.dm, dir, fn, d)
-	}
 	modifyFuncSourceDm := func(dm DirectoryMap, dir, fn string, d fs.DirEntry) error {
 		if fn == Md5FileName {
 			return nil
@@ -138,9 +135,6 @@ func scanBackupDirectories(destDir, srcDir, volumeName string) error {
 		dm.Add(fs)
 		return nil
 	}
-	modifyFuncSource := func(de DirectoryEntry, dir, fn string, d fs.DirEntry) error {
-		return modifyFuncSourceDm(de.dm, dir, fn, d)
-	}
 	makerFuncDest := func(dir string) (DirectoryTrackerInterface, error) {
 		mkFk := func(dir string) (DirectoryEntryInterface, error) {
 			dm, err := DirectoryMapFromDir(dir)
@@ -149,14 +143,14 @@ func scanBackupDirectories(destDir, srcDir, volumeName string) error {
 			// }
 			return dm, err
 		}
-		return NewDirectoryEntry(dir, modifyFuncDestinationDe, mkFk), nil
+		return NewDirectoryEntry(dir, modifyFuncDestinationDm, mkFk), nil
 	}
 	makerFuncSrc := func(dir string) (DirectoryTrackerInterface, error) {
 		mkFk := func(dir string) (DirectoryEntryInterface, error) {
 			dm, err := DirectoryMapFromDir(dir)
 			return dm, err
 		}
-		return NewDirectoryEntry(dir, modifyFuncSource, mkFk), nil
+		return NewDirectoryEntry(dir, modifyFuncSourceDm, mkFk), nil
 	}
 
 	errChan := runSerialDirTrackerJob([]dirTrackerJob{
@@ -188,11 +182,11 @@ func scanBackupDirectories(destDir, srcDir, volumeName string) error {
 // That don't have the volume name as an archived at
 func extractCopyFiles(targetDir, volumeName string) (fpathListList, error) {
 	remainingFiles := fpathListList{}
-	visitFunc := func(de DirectoryEntry, dir, fn string, d fs.DirEntry) error {
+	visitFunc := func(dm DirectoryMap, dir, fn string, d fs.DirEntry) error {
 		if fn == Md5FileName {
 			return nil
 		}
-		fs, ok := de.dm.Get(fn)
+		fs, ok := dm.Get(fn)
 		if !ok {
 			return fmt.Errorf("%w: %s/%s", ErrMissingCopyEntry, dir, fn)
 		}

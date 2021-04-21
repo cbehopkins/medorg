@@ -45,15 +45,15 @@ func createTestBackupDirectories(numberOfFiles, numberOfDuplicates int) ([]strin
 	}
 	return directoriesCreated, nil
 }
-func recalcForTest(de DirectoryEntry, directory, fn string, d fs.DirEntry) error {
+func recalcForTest(dm DirectoryMap, directory, fn string, d fs.DirEntry) error {
 	if fn == Md5FileName {
 		return nil
 	}
-	err := de.dm.UpdateValues(directory, d)
+	err := dm.UpdateValues(directory, d)
 	if err != nil {
 		return err
 	}
-	err = de.dm.UpdateChecksum(directory, fn, false)
+	err = dm.UpdateChecksum(directory, fn, false)
 	if err != nil {
 		return err
 	}
@@ -90,7 +90,7 @@ func TestDuplicateDetect(t *testing.T) {
 	srcTm := NewBackupDupeMap()
 	dstTm := NewBackupDupeMap()
 
-	mfSrcDm := func(dm DirectoryMap, dir, fn string, d fs.DirEntry) error {
+	mfSrc := func(dm DirectoryMap, dir, fn string, d fs.DirEntry) error {
 		if fn == Md5FileName {
 			return nil
 		}
@@ -101,10 +101,7 @@ func TestDuplicateDetect(t *testing.T) {
 		srcTm.Add(fs)
 		return nil
 	}
-	mfSrc := func(de DirectoryEntry, dir, fn string, d fs.DirEntry) error {
-		return mfSrcDm(de.dm, dir, fn, d)
-	}
-	mfDstDm := func(dm DirectoryMap, dir, fn string, d fs.DirEntry) error {
+	mfDst := func(dm DirectoryMap, dir, fn string, d fs.DirEntry) error {
 		if fn == Md5FileName {
 			return nil
 		}
@@ -114,9 +111,6 @@ func TestDuplicateDetect(t *testing.T) {
 		}
 		dstTm.Add(fs)
 		return nil
-	}
-	mfDst := func(de DirectoryEntry, dir, fn string, d fs.DirEntry) error {
-		return mfDstDm(de.dm, dir, fn, d)
 	}
 	srcDir := dirs[1]
 	destDir := dirs[0]
@@ -177,7 +171,7 @@ func TestDuplicateArchivedAtPopulation(t *testing.T) {
 	}
 
 	expectedDuplicates := 10
-	archiveWalkFuncDm := func(dm DirectoryMap, dir, fn string, d fs.DirEntry) error {
+	archiveWalkFunc := func(dm DirectoryMap, dir, fn string, d fs.DirEntry) error {
 		if fn == Md5FileName {
 			return nil
 		}
@@ -190,9 +184,7 @@ func TestDuplicateArchivedAtPopulation(t *testing.T) {
 		}
 		return nil
 	}
-	archiveWalkFunc := func(de DirectoryEntry, dir, fn string, d fs.DirEntry) error {
-		return archiveWalkFuncDm(de.dm, dir, fn, d)
-	}
+
 	makerFunc := func(dir string) (DirectoryTrackerInterface, error) {
 		mkFk := func(dir string) (DirectoryEntryInterface, error) {
 			dm, err := DirectoryMapFromDir(dir)
@@ -244,7 +236,7 @@ func TestBackupExtract(t *testing.T) {
 	numExtra := 1
 	extraMap := make(map[Fpath]struct{})
 
-	directoryWalkerDm := func(dm DirectoryMap, dir, fn string, d fs.DirEntry) error {
+	directoryWalker := func(dm DirectoryMap, dir, fn string, d fs.DirEntry) error {
 		if fn == Md5FileName {
 			return nil
 		}
@@ -271,9 +263,6 @@ func TestBackupExtract(t *testing.T) {
 			}
 		}
 		return nil
-	}
-	directoryWalker := func(de DirectoryEntry, dir, fn string, d fs.DirEntry) error {
-		return directoryWalkerDm(de.dm, dir, fn, d)
 	}
 	makerFunc := func(dir string) (DirectoryTrackerInterface, error) {
 		mkFk := func(dir string) (DirectoryEntryInterface, error) {
