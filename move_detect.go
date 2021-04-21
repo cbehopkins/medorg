@@ -74,7 +74,6 @@ func (mvd *MoveDetect) runMoveDetectFindNew(directory string) error {
 		if err != nil {
 			return err
 		}
-		// BUM
 		v.directory = dir
 		dm.Add(v)
 		mvd.delete(v)

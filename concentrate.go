@@ -11,7 +11,7 @@ var ErrFirstDirNotSeen = errors.New("not yet seen first concentrate dir")
 
 type Concentrator struct {
 	baseDir string
-	de      *DirectoryEntry
+	dm      *DirectoryMap
 }
 
 // FIXME add test cases for all this
@@ -27,16 +27,13 @@ func NewConcentrator(dir string) *Concentrator {
 	itm.baseDir = dir
 	return itm
 }
-func (con *Concentrator) DirectoryVisit(de DirectoryEntry, directory string) error {
-	if con.de == nil {
+func (con *Concentrator) DirectoryVisit(dm DirectoryMap, directory string) error {
+	if con.dm == nil {
 		// The first directory!
-		if de.dir != directory {
-			return ErrIncorrectFirstDirectory
-		}
 		if con.baseDir != directory {
 			return ErrIncorrectFirstDirectory
 		}
-		con.de = &de
+		con.dm = &dm
 		return nil
 	}
 	return nil
@@ -44,10 +41,10 @@ func (con *Concentrator) DirectoryVisit(de DirectoryEntry, directory string) err
 
 // Visiter is what we need to call for each file
 func (con Concentrator) Visiter(dm DirectoryMap, directory, file string, d fs.DirEntry) error {
-	if con.de == nil {
+	if con.dm == nil {
 		return ErrFirstDirNotSeen
 	}
-	err := MoveFile(NewFpath(directory, file), NewFpath(con.de.dir, file))
+	err := MoveFile(NewFpath(directory, file), NewFpath(con.baseDir, file))
 	if err != nil {
 		return err
 	}
@@ -56,6 +53,6 @@ func (con Concentrator) Visiter(dm DirectoryMap, directory, file string, d fs.Di
 		return errors.New("missing file in concentrator mover")
 	}
 	fileStruct.directory = con.baseDir
-	con.de.dm.Add(fileStruct)
+	con.dm.Add(fileStruct)
 	return nil
 }

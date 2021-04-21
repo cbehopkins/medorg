@@ -22,7 +22,7 @@ type DirectoryMap struct {
 	stale *bool
 	// We want to copy the DirectoryMap elsewhere
 	lock    *sync.RWMutex
-	visitor func(string, string, fs.DirEntry) error
+	visitor func(DirectoryMap, string, string, fs.DirEntry) error
 }
 
 // NewDirectoryMap creates a new dm
@@ -31,7 +31,7 @@ func NewDirectoryMap() *DirectoryMap {
 	itm.mp = make(map[string]FileStruct)
 	itm.stale = new(bool)
 	itm.lock = new(sync.RWMutex)
-	itm.visitor = func(directory, file string, d fs.DirEntry) error {
+	itm.visitor = func(dm DirectoryMap, directory, file string, d fs.DirEntry) error {
 		return ErrUnimplementedVisitor
 	}
 	return itm
@@ -320,7 +320,6 @@ func (dm DirectoryMap) UpdateChecksum(directory, file string, forceUpdate bool) 
 
 // DeleteMissingFiles Delete any file entries that are in the dm,
 // but not on the disk
-// FIXME, this should be a method on dm
 // FIXME write a test for this
 func (dm DirectoryMap) DeleteMissingFiles() error {
 	// FIXME this would be more efficient to mark the fs
@@ -340,7 +339,7 @@ func (dm DirectoryMap) Persist(directory string) error {
 	return dm.WriteDirectory(directory)
 }
 func (dm DirectoryMap) Visitor(directory, file string, d fs.DirEntry) error {
-	return dm.visitor(directory, file, d)
+	return dm.visitor(dm, directory, file, d)
 }
 
 // UpdateValues in the DirectoryEntry to those found on the fs

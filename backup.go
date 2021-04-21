@@ -43,12 +43,6 @@ func (bdm *backupDupeMap) Remove(key backupKey) {
 	bdm.Unlock()
 }
 
-func (bdm *backupDupeMap) Len() int {
-	bdm.Lock()
-	defer bdm.Unlock()
-	return len(bdm.dupeMap)
-
-}
 func (bdm *backupDupeMap) Lookup(key backupKey) (Fpath, bool) {
 	bdm.Lock()
 	defer bdm.Unlock()
@@ -206,6 +200,7 @@ func extractCopyFiles(targetDir, volumeName string) (fpathListList, error) {
 	makerFunc := func(dir string) (DirectoryTrackerInterface, error) {
 		mkFk := func(dir string) (DirectoryEntryInterface, error) {
 			dm, err := DirectoryMapFromDir(dir)
+			//dm.visitor = visitFunc
 			return dm, err
 		}
 		return NewDirectoryEntry(dir, visitFunc, mkFk), nil

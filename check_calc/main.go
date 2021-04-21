@@ -68,24 +68,24 @@ func main() {
 		tokenBuffer <- struct{}{}
 	}
 
-	visitor := func(de medorg.DirectoryEntry, directory, file string, d fs.DirEntry) error {
+	visitor := func(dm medorg.DirectoryMap, directory, file string, d fs.DirEntry) error {
 		if file == medorg.Md5FileName {
 			return nil
 		}
-		err := de.UpdateValues(directory, d)
+		err := dm.UpdateValues(directory, d)
 		if err != nil {
 			return err
 		}
 		// Grab a compute token
 		<-tokenBuffer
-		err = de.UpdateChecksum(directory, file, *rclflg)
+		err = dm.UpdateChecksum(directory, file, *rclflg)
 		tokenBuffer <- struct{}{}
 
 		if AF != nil {
-			AF.WkFun(de.dm, directory, file, d)
+			AF.WkFun(dm, directory, file, d)
 		}
 		if con != nil {
-			con.Visiter(de.dm, directory, file, d)
+			con.Visiter(dm, directory, file, d)
 		}
 		return err
 	}
@@ -93,12 +93,14 @@ func main() {
 	makerFunc := func(dir string) (medorg.DirectoryTrackerInterface, error) {
 		mkFk := func(dir string) (medorg.DirectoryEntryInterface, error) {
 			dm, err := medorg.DirectoryMapFromDir(dir)
-			return dm, err
+			if err != nil {
+				return dm, err
+			}
+			return dm, dm.DeleteMissingFiles()
 		}
 		de := medorg.NewDirectoryEntry(dir, visitor, mkFk)
-		de.dm.DeleteMissingFiles()
 		if con != nil {
-			err := con.DirectoryVisit(de, dir)
+			err := con.DirectoryVisit(de.dm, dir)
 			if err != nil {
 				fmt.Println("Received error from concentrate", err)
 				os.Exit(3)
