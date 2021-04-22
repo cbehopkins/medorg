@@ -305,28 +305,6 @@ func ResolveFnClash(directory, fn string, extension, orig string) string {
 	return pfn
 }
 
-// Consolidate files into a dest directory
-// Returns true if the file was actually moved
-// FIXME - is this needed now we have concentrate.go?
-// func (af AutoFix) Consolidate(srcDir, fn, dstDir string) bool {
-// 	strippedFn, ext := StripExtension(fn)
-// 	if ext == "" {
-// 		// unknown extension
-// 		return false
-// 	}
-// 	strippedFn, _ = af.stripNumber(strippedFn)
-// 	newFn := ResolveFnClash(dstDir, strippedFn, ext, fn)
-// 	err := MvFile(srcDir, fn, dstDir, newFn)
-// 	if err != nil {
-// 		log.Println("Failed to move", srcDir, fn, dstDir, newFn)
-// 		return false
-// 	}
-// 	_ = md5FileWrite(srcDir, nil)
-
-// 	return true
-
-// }
-
 // WkFun Walk function across the supplied directories
 // FIXME add testcases for this function
 func (af *AutoFix) WkFun(dm DirectoryMap, directory, file string, d fs.DirEntry) error {

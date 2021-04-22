@@ -115,10 +115,10 @@ func CopyFile(src, dst Fpath) (err error) {
 			return
 		}
 	}
-	// FIXME This is here for testing purposes to intentionally slow things down
-	// if err = os.Link(srcs, dsts); err == nil {
-	// 	return
-	// }
+
+	if err = os.Link(srcs, dsts); err == nil {
+		return
+	}
 	err = copyFileContents(src, dst)
 	return
 }

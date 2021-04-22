@@ -33,13 +33,17 @@ type DirectoryEntry struct {
 
 func NewDirectoryEntry(path string, mkF EntryMaker) (DirectoryEntry, error) {
 	var itm DirectoryEntry
+	var err error
 	itm.dir = path
-	itm.dm, _ = mkF(path)
+	itm.dm, err = mkF(path)
+	if err != nil {
+		return itm, err
+	}
+
 	itm.workItems = make(chan WorkItem)
 	itm.closeChan = make(chan struct{})
 	itm.errorChan = make(chan error)
 	// TBD, can we go this somehow? Do we even need to if we read it in quick enough?
-	// FIXME error prop
 	itm.activeFiles = new(sync.WaitGroup)
 	itm.activeFiles.Add(1) // need to dummy add 1 to get it going
 	return itm, nil        // I think here we should return the worker function for the receiver to go. So that they can mutate the itm themselves before starting it

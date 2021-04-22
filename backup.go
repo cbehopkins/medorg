@@ -103,17 +103,16 @@ func scanBackupDirectories(destDir, srcDir, volumeName string) error {
 		if fn == Md5FileName {
 			return nil
 		}
+		<-tokenBuffer
+		err := dm.UpdateChecksum(dir, fn, false)
+		tokenBuffer <- struct{}{}
+		if err != nil {
+			return err
+		}
 
 		fs, ok := dm.Get(fn)
 		if !ok {
 			return fmt.Errorf("src %w: %s/%s", ErrMissingSrcEntry, dir, fn)
-		}
-
-		<-tokenBuffer
-		err := fs.UpdateChecksum(false)
-		tokenBuffer <- struct{}{}
-		if err != nil {
-			return err
 		}
 
 		// If it exists in the destination already
