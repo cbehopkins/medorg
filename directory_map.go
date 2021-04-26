@@ -116,7 +116,10 @@ func DirectoryMapFromDir(directory string) (dm DirectoryMap, err error) {
 	_, err = os.Stat(fn)
 
 	if errors.Is(err, os.ErrNotExist) {
-		return
+		// The MD5 file not existing is not an error,
+		// as long as there are no files in the directory,
+		// or it is the first time we've gone into it
+		return dm, nil
 	}
 	f, err = os.Open(fn)
 
@@ -235,11 +238,8 @@ func (dm DirectoryMap) rangeMutate(fc func(string, FileStruct) (FileStruct, erro
 	return nil
 }
 
-// UpdateChecksum will recalc the checksum of an entry
-func (dm DirectoryMap) UpdateChecksum(directory, file string, forceUpdate bool) error {
-	if Debug && file == "" {
-		return errors.New("asked to update a checksum on a null filename")
-	}
+// RunFc will recalc the checksum of an entry
+func (dm DirectoryMap) RunFsFc(directory, file string, fc func(fs *FileStruct) error) error {
 
 	fs, ok := dm.Get(file)
 	var err error
@@ -249,13 +249,25 @@ func (dm DirectoryMap) UpdateChecksum(directory, file string, forceUpdate bool) 
 			return nil
 		}
 	}
-	err = fs.UpdateChecksum(forceUpdate)
+	err = fc(&fs)
 	if err != nil {
 		return err
 	}
 	dm.Add(fs)
 
 	return nil
+}
+
+// UpdateChecksum will recalc the checksum of an entry
+func (dm DirectoryMap) UpdateChecksum(directory, file string, forceUpdate bool) error {
+	if Debug && file == "" {
+		return errors.New("asked to update a checksum on a null filename")
+	}
+
+	fc := func(fs *FileStruct) error {
+		return fs.UpdateChecksum(forceUpdate)
+	}
+	return dm.RunFsFc(directory, file, fc)
 }
 
 // DeleteMissingFiles Delete any file entries that are in the dm,

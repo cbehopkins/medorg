@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -16,6 +17,8 @@ var MaxBackups = 4
 var ErrMissingEntry = errors.New("attempting to copy a file there seems to be no directory entry for")
 var ErrMissingSrcEntry = errors.New("missing source entry")
 var ErrMissingCopyEntry = errors.New("copying a file without an entry")
+var ErrDummyCopy = errors.New("not really copying, it's all good though")
+var ErrNoSpace = syscall.Errno(28) // I don't like this, but don't know a better way
 
 type backupKey struct {
 	size     int64
@@ -36,7 +39,11 @@ func (bdm *backupDupeMap) Add(fs FileStruct) {
 	bdm.dupeMap[key] = Fpath(fs.Path())
 	bdm.Unlock()
 }
-
+func (bdm *backupDupeMap) Len() int {
+	bdm.Lock()
+	defer bdm.Unlock()
+	return len(bdm.dupeMap)
+}
 func (bdm *backupDupeMap) Remove(key backupKey) {
 	bdm.Lock()
 	delete(bdm.dupeMap, key)
@@ -70,7 +77,7 @@ func (bdm0 *backupDupeMap) findDuplicates(bdm1 *backupDupeMap) <-chan []Fpath {
 
 // scanBackupDirectories will mark srcDir's ArchiveAt
 // tag, with any files that are already found in the destination
-func scanBackupDirectories(destDir, srcDir, volumeName string) error {
+func scanBackupDirectories(destDir, srcDir, volumeName string, dupeFunc func(path string) error) error {
 	calcCnt := 2
 	tokenBuffer := makeTokenChan(calcCnt)
 	defer close(tokenBuffer)
@@ -165,14 +172,14 @@ func scanBackupDirectories(destDir, srcDir, volumeName string) error {
 		}
 	}
 
-	//if backupDestination.Len() > 0 {
-	// There's stuff on the backup that's not in the Source
-	// We'll need to do somethign about this soon!
-	// log.Println("Unexpected items left in backup destination")
-	// for _, v := range backupDestination.dupeMap {
-	// 	log.Println(v)
-	// }
-	//}
+	if (dupeFunc != nil) && (backupDestination.Len() > 0) {
+		// There's stuff on the backup that's not in the Source
+		// We'll need to do somethign about this soon!
+		// log.Println("Unexpected items left in backup destination")
+		for _, v := range backupDestination.dupeMap {
+			dupeFunc(string(v))
+		}
+	}
 	return nil
 }
 
@@ -223,27 +230,46 @@ func extractCopyFiles(targetDir, volumeName string) (fpathListList, error) {
 
 type FileCopier func(src, dst Fpath) error
 
-func doACopy(srcDir, destDir, backupLabelName string, file Fpath, fc FileCopier) error {
+func doACopy(
+	srcDir, // The source of the backup as specified on the command line
+	destDir, // The destination directory as specified...
+	backupLabelName string, // the tag w should add to the sorce
+	file Fpath, // The full path of the file
+	fc FileCopier) error {
 	if fc == nil {
 		fc = CopyFile
 	}
-	// log.Println("Copy", file, srcDir, destDir)
+
 	// Workout the new path the target file should have
+	// this is relative to the srcdir so that
+	// the dst dir keeps the hierarchy
 	rel, err := filepath.Rel(srcDir, string(file))
 	if err != nil {
 		return err
 	}
 
 	// Actually copy the file
-	fc(file, NewFpath(destDir, rel))
+	err = fc(file, NewFpath(destDir, rel))
+	if errors.Is(err, ErrDummyCopy) {
+		return nil
+	}
+	if errors.Is(err, ErrNoSpace) {
+		_ = rmFilename(NewFpath(destDir, rel))
+		return ErrNoSpace
+	}
 	// Update the srcDir .md5 file with the fact we've backed this up now
-	dmSrc, err := DirectoryMapFromDir(srcDir)
+	basename := filepath.Base(string(file))
+	sd := filepath.Dir(string(file))
 	if err != nil {
 		return err
 	}
-	src, ok := dmSrc.Get(rel)
+	dmSrc, err := DirectoryMapFromDir(sd)
+	if err != nil {
+		return err
+	}
+	src, ok := dmSrc.Get(basename)
 	if !ok {
-		return fmt.Errorf("%w: %s", ErrMissingEntry, file)
+		return fmt.Errorf("%w: %s, \"%s\" \"%s\":::", ErrMissingEntry, file, sd, basename)
 	}
 	_ = src.AddTag(backupLabelName)
 	dmSrc.Add(src)
@@ -265,7 +291,7 @@ func doACopy(srcDir, destDir, backupLabelName string, file Fpath, fc FileCopier)
 	return nil
 }
 
-func BackupRunner(xc *XMLCfg, fc FileCopier, srcDir, destDir string) error {
+func BackupRunner(xc *XMLCfg, fc FileCopier, srcDir, destDir string, orphanFunc func(path string) error) error {
 	// Go ahead and run a check_calc style scan of the directories and make sure
 	// they have all their existing md5s up to date
 	backupLabelName, err := getVolumeLabel(xc, destDir)
@@ -274,7 +300,7 @@ func BackupRunner(xc *XMLCfg, fc FileCopier, srcDir, destDir string) error {
 	}
 	log.Println("Determined label as:", backupLabelName)
 	// First of all get the srcDir updated with files that are already in destDir
-	err = scanBackupDirectories(destDir, srcDir, backupLabelName)
+	err = scanBackupDirectories(destDir, srcDir, backupLabelName, nil)
 	if err != nil {
 		return err
 	}
@@ -293,6 +319,10 @@ func BackupRunner(xc *XMLCfg, fc FileCopier, srcDir, destDir string) error {
 	for _, copyFiles := range copyFilesArray {
 		for _, file := range copyFiles {
 			err := doACopy(srcDir, destDir, backupLabelName, file, fc)
+			if errors.Is(err, ErrNoSpace) {
+				log.Println("Destination full")
+				return nil
+			}
 			if err != nil {
 				return fmt.Errorf("copy failed, %w::%s, %s, %s, %s", err, srcDir, destDir, backupLabelName, file)
 			}

@@ -2,6 +2,7 @@ package medorg
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -17,14 +18,14 @@ import (
 // We should be able to use that to pace limit this
 var md5WriteTokenChan = makeTokenChan(4)
 
-// md5FileWrite write to the directopry's file
+// md5FileWrite write to the directory's file
 // deletes the file, if the ba to write is empty
 func md5FileWrite(directory string, ba []byte) error {
 	<-md5WriteTokenChan
 	defer func() { md5WriteTokenChan <- struct{}{} }()
 
 	fn := filepath.Join(directory, Md5FileName)
-	if _, err := os.Stat(fn); !os.IsNotExist(err) {
+	if _, err := os.Stat(fn); !errors.Is(err, os.ErrNotExist) {
 		_ = os.Remove(fn)
 	}
 	if ba == nil || (len(ba) == 0) {
@@ -32,13 +33,6 @@ func md5FileWrite(directory string, ba []byte) error {
 	}
 	return ioutil.WriteFile(fn, ba, 0600)
 }
-
-// RmFile removes a file in a convenent fashion
-// updating the xml as it goes
-// func RmFile(dir, fn string) error {
-// 	dm := DirectoryMapFromDir(dir)
-// 	return dm.RmFile(dir, fn)
-// }
 
 // FileExist tests if a file exists in a convenient fashion
 func FileExist(directory, fn string) bool {
@@ -86,6 +80,14 @@ func MvFile(srcDir, srcFn, dstDir, dstFn string) error {
 
 	return nil
 }
+func createDestDirectoryAsNeeded(dst string) error {
+	dir := filepath.Dir(dst)
+	stat, err := os.Stat(dir)
+	if err == nil && stat.IsDir() {
+		return nil
+	}
+	return os.MkdirAll(dir, 0777)
+}
 
 // CopyFile copies a file from src to dst. If src and dst files exist, and are
 // the same, then return success. Otherise, attempt to create a hard link
@@ -95,7 +97,7 @@ func CopyFile(src, dst Fpath) (err error) {
 	dsts := string(dst)
 	sfi, err := os.Stat(srcs)
 	if err != nil {
-		return
+		return fmt.Errorf("error in CopyFile src file status %w %s", err, srcs)
 	}
 	if !sfi.Mode().IsRegular() {
 		// cannot copy non-regular files (e.g., directories,
@@ -107,20 +109,23 @@ func CopyFile(src, dst Fpath) (err error) {
 		if !os.IsNotExist(err) {
 			return
 		}
+		err = nil
 	} else {
 		if !(dfi.Mode().IsRegular()) {
 			return fmt.Errorf("CopyFile: non-regular destination file %s (%q)", dfi.Name(), dfi.Mode().String())
 		}
 		if os.SameFile(sfi, dfi) {
-			return
+			return nil
 		}
 	}
-
-	if err = os.Link(srcs, dsts); err == nil {
-		return
+	err = createDestDirectoryAsNeeded(dsts)
+	if err != nil {
+		return fmt.Errorf("issue in CopyFile creating directory tree %w", err)
 	}
-	err = copyFileContents(src, dst)
-	return
+	if err = os.Link(srcs, dsts); err == nil {
+		return nil
+	}
+	return copyFileContents(srcs, dsts)
 }
 func rmFilename(fn Fpath) error {
 	fns := string(fn)
@@ -144,7 +149,7 @@ func MoveFile(src, dst Fpath) (err error) {
 	}
 	err = CopyFile(src, dst)
 	if err != nil {
-		log.Fatalf("Copy problem\nType:%T\nVal:%v\n", err, err)
+		return fmt.Errorf("copy problem when moving %w", err)
 	}
 	return rmFilename(src)
 }
@@ -153,17 +158,15 @@ func MoveFile(src, dst Fpath) (err error) {
 // by dst. The file will be created if it does not already exist. If the
 // destination file exists, all it's contents will be replaced by the contents
 // of the source file.
-func copyFileContents(src, dst Fpath) (err error) {
-	srcs := string(src)
-	dsts := string(dst)
+func copyFileContents(srcs, dsts string) (err error) {
 	in, err := os.Open(srcs)
 	if err != nil {
-		return
+		return fmt.Errorf("info error on src in copyFileContents : %w", err)
 	}
 	defer func() { _ = in.Close() }()
 	out, err := os.Create(dsts)
 	if err != nil {
-		return
+		return fmt.Errorf("unable to write to output file in copyFileContents %w %s", err, dsts)
 	}
 	defer func() {
 		cerr := out.Close()

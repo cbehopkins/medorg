@@ -66,8 +66,9 @@ func main() {
 			fmt.Println("Error while saving config file", err)
 		}
 	}()
-	var scanflg = flag.Bool("scan", false, "Only scan files, don't run the backup")
+	var scanflg = flag.Bool("scan", false, "Only scan files in src & dst updating labels, don't run the backup")
 	var dummyflg = flag.Bool("dummy", false, "Don't copy, just tell me what you'd do")
+	var delflg = flag.Bool("delete", false, "Delete duplicated Files")
 
 	flag.Parse()
 	if flag.NArg() > 0 {
@@ -102,8 +103,12 @@ func main() {
 	}()
 	var wg sync.WaitGroup
 	copyer := func(src, dst medorg.Fpath) error {
-		srcSize := sizeOf(string(src))
+		if *dummyflg {
+			fmt.Println("Copy from:", src, " to ", dst)
+			return medorg.ErrDummyCopy
+		}
 
+		srcSize := sizeOf(string(src))
 		closeChan := make(chan struct{})
 		wg.Add(1)
 		go func() {
@@ -125,19 +130,31 @@ func main() {
 				}
 			}
 		}()
-		if *dummyflg {
-			fmt.Println("Copy from:", src, " to ", dst)
-			return nil
-		}
+
 		err := medorg.CopyFile(src, dst)
 		close(closeChan)
 		return err
 	}
+	var orphanedFunc func(string) error
 	if *scanflg {
-		copyer = nil
+		copyer = func(src, dst medorg.Fpath) error { return nil }
+	}
+	if *dummyflg {
+		orphanedFunc = func(path string) error {
+			fmt.Println(path, "orphaned")
+			return nil
+		}
+	} else if *delflg {
+		orphanedFunc = func(path string) error {
+			fmt.Println(path, "orphaned")
+			// if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+			// 	_ = os.Remove(path)
+			// }
+			return nil
+		}
 	}
 	fmt.Println("Starting Backup Run")
-	err := medorg.BackupRunner(xc, copyer, directories[0], directories[1])
+	err := medorg.BackupRunner(xc, copyer, directories[0], directories[1], orphanedFunc)
 	fmt.Println("Completed Backup Run")
 
 	if err != nil {

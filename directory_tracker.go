@@ -136,6 +136,9 @@ func (dt *DirTracker) directoryWalker(path string, d fs.DirEntry, err error) err
 		return err
 	}
 	if d.IsDir() {
+		if (len(path) > 1) && strings.HasPrefix(path, ".") { // I never want to backup hidden dirctories
+			return nil
+		}
 		dt.pathCloser(path, nil)
 		// FIXME test the path exists
 		de := dt.getDirectoryEntry(path)

@@ -25,6 +25,8 @@ func isDir(fn string) bool {
 func main() {
 	var directories []string
 
+	var scrubflg = flag.Bool("scrub", false, "Scrub all backup labels from src records")
+
 	var calcCnt = flag.Int("calc", 2, "Max Number of MD5 calculators")
 	var delflg = flag.Bool("delete", false, "Delete duplicated Files")
 	var mvdflg = flag.Bool("mvd", false, "Move Detect")
@@ -32,7 +34,6 @@ func main() {
 	var rclflg = flag.Bool("recalc", false, "Recalculate all checksums")
 
 	var conflg = flag.Bool("conc", false, "Concentrate files together in same directory")
-	//var mvdflg = flag.Bool("mvd", false, "Move Detect - look for same name and size in a different directory")
 	flag.Parse()
 	if flag.NArg() > 0 {
 		for _, fl := range flag.Args() {
@@ -82,14 +83,36 @@ func main() {
 		if file == medorg.Md5FileName {
 			return nil
 		}
-		err := dm.UpdateValues(directory, d)
-		if err != nil {
-			return err
+
+		fc := func(fs medorg.FileStruct) error {
+			info, err := d.Info()
+			if err != nil {
+				return err
+			}
+			changed, err := fs.Changed(info)
+			if err != nil {
+				return err
+			}
+
+			if *scrubflg {
+				if len(fs.ArchivedAt) > 0 {
+					changed = true
+					fs.ArchivedAt = []string{}
+				}
+			}
+
+			if !(changed || *rclflg || fs.Checksum == "") {
+				// if we have no reason to recalculate
+				return nil
+			}
+
+			fs.FromStat(directory, file, info)
+			// Grab a compute token
+			<-tokenBuffer
+			defer func() { tokenBuffer <- struct{}{} }()
+			return fs.UpdateChecksum(*rclflg)
 		}
-		// Grab a compute token
-		<-tokenBuffer
-		err = dm.UpdateChecksum(directory, file, *rclflg)
-		tokenBuffer <- struct{}{}
+		err := dm.RunFsFc(directory, file, fc)
 		if err != nil {
 			return err
 		}

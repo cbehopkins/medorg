@@ -131,8 +131,46 @@ func (vc *VolumeCfg) GenerateNewVolumeLabel(xc *XMLCfg) error {
 		}
 	}
 }
+func formVolumeName(dir string) string {
+	return filepath.Join(dir, ".medorg.xml")
+}
+func findVolumeConfig(dir string) string {
+	info, err := os.Stat(dir)
+	if err != nil {
+		return ""
+	}
+	if !info.IsDir() {
+		dir, _ = filepath.Split(dir)
+	}
+
+	finder := func(d string) bool {
+		fn := filepath.Join(filepath.VolumeName(dir), formVolumeName(d))
+		_, err := os.Stat(fn)
+		return !errors.Is(err, os.ErrNotExist)
+	}
+	getParent := func(dir string) string {
+		ds := strings.Split(dir, string(filepath.Separator))
+		if len(ds) > 1 {
+			result := filepath.Join(ds[0 : len(ds)-1]...)
+			if strings.HasPrefix(dir, "/") {
+				return filepath.Join("/", result)
+			}
+			return result
+		}
+		return "/"
+	}
+
+	d := strings.TrimPrefix(dir, filepath.VolumeName(dir))
+	for exists := finder(d); !exists; exists = finder(d) {
+		d = getParent(d)
+		if d == "/" {
+			return formVolumeName(dir)
+		}
+	}
+	return filepath.Join(filepath.VolumeName(dir), formVolumeName(d))
+}
 func VolumeCfgFromDir(xc *XMLCfg, dir string) (*VolumeCfg, error) {
-	fn := filepath.Join(dir, ".medorg.xml")
+	fn := findVolumeConfig(dir)
 	vc, err := NewVolumeCfg(xc, fn)
 	return vc, err
 

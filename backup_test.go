@@ -99,6 +99,9 @@ func TestDuplicateDetect(t *testing.T) {
 		if !ok {
 			return fmt.Errorf("%w:%s", errMissingTestFile, fn)
 		}
+		if fs.Checksum == "" {
+			return fmt.Errorf("Empty checksum %w:%s", errSelfCheckProblem, fn)
+		}
 		srcTm.Add(fs)
 		return nil
 	}
@@ -110,11 +113,14 @@ func TestDuplicateDetect(t *testing.T) {
 		if !ok {
 			return fmt.Errorf("%w:%s", errMissingTestFile, fn)
 		}
+		if fs.Checksum == "" {
+			return fmt.Errorf("Empty checksum %w:%s", errSelfCheckProblem, fn)
+		}
 		dstTm.Add(fs)
 		return nil
 	}
-	srcDir := dirs[1]
-	destDir := dirs[0]
+	srcDir := dirs[1]	// This has 1 file(s)
+	destDir := dirs[0] 	// This has 2 files
 	// First we populate the src dir
 	makerFuncDest := func(dir string) (DirectoryTrackerInterface, error) {
 		mkFk := func(dir string) (DirectoryEntryInterface, error) {
@@ -168,7 +174,7 @@ func TestDuplicateArchivedAtPopulation(t *testing.T) {
 
 	backupLabelName := "tstBackup"
 	t.Log("Created Test Directories:", dirs)
-	err = scanBackupDirectories(dirs[1], dirs[0], backupLabelName)
+	err = scanBackupDirectories(dirs[1], dirs[0], backupLabelName, nil)
 	if err != nil {
 		t.Error(err)
 	}
@@ -230,7 +236,8 @@ func TestBackupExtract(t *testing.T) {
 	altBackupLabelName := "tstBackup1"
 	t.Log("Created Test Directories:", dirs)
 
-	scanBackupDirectories(dirs[1], dirs[0], backupLabelName)
+	// FIXME error handling
+	_ = scanBackupDirectories(dirs[1], dirs[0], backupLabelName, nil)
 
 	// Now hack it about so that we pretend  n of the files
 	// are additionally backed up to an alternate location
@@ -345,7 +352,7 @@ func TestBackupMain(t *testing.T) {
 		callCount++
 		return nil
 	}
-	err = BackupRunner(&xc, fc, dirs[0], dirs[1])
+	err = BackupRunner(&xc, fc, dirs[0], dirs[1], nil)
 	if err != nil {
 		t.Error(err)
 	}

@@ -68,11 +68,10 @@ func newXMLManager(inputChan chan FileStruct) *sync.WaitGroup {
 
 func managerWorker(inputChan chan FileStruct, wg *sync.WaitGroup) {
 	for fs := range inputChan {
-		direct := fs.directory
-		if direct == "" {
+		if fs.directory == "" {
 			log.Fatal("Empty Directory description")
 		}
-		appendXML(direct, []FileStruct{fs})
+		appendXML(fs.directory, []FileStruct{fs})
 	}
 	log.Println("managerWorker closing")
 	wg.Done()
@@ -176,7 +175,6 @@ func (cb *CalcBuffer) Close() {
 	}
 }
 func md5Calc(trigger chan struct{}, wg *sync.WaitGroup, fp string) (iw io.Writer) {
-	// FIXME checksum needs to cause the archiveAt field to be cleared
 	h := md5.New()
 	iw = io.Writer(h)
 	wg.Add(1)
