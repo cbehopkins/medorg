@@ -41,12 +41,12 @@ func NewVolumeCfg(xc *XMLCfg, fn string) (*VolumeCfg, error) {
 		}
 	} else {
 		f, err = os.Open(fn)
+		defer f.Close()
 
 		if err != nil {
 			return nil, fmt.Errorf("error opening NewVolumeCfg file:%s::%w", fn, err)
 		}
 		byteValue, err := ioutil.ReadAll(f)
-		_ = f.Close()
 		if err != nil {
 			return nil, fmt.Errorf("error loading NewVolumeCfg file:%s::%w", fn, err)
 
@@ -56,6 +56,7 @@ func NewVolumeCfg(xc *XMLCfg, fn string) (*VolumeCfg, error) {
 			return nil, fmt.Errorf("unable to unmarshal config NewVolumeCfg file:%s::%w", fn, err)
 		}
 	}
+	fmt.Println("Creating", itm.Label)
 	// We don't care if the label is there already or not
 	_ = xc.AddLabel(itm.Label)
 	return itm, nil
@@ -132,7 +133,7 @@ func (vc *VolumeCfg) GenerateNewVolumeLabel(xc *XMLCfg) error {
 	}
 }
 func formVolumeName(dir string) string {
-	return filepath.Join(dir, ".medorg.xml")
+	return filepath.Join(dir, ".mdbackup.xml")
 }
 func findVolumeConfig(dir string) string {
 	info, err := os.Stat(dir)
@@ -178,5 +179,8 @@ func VolumeCfgFromDir(xc *XMLCfg, dir string) (*VolumeCfg, error) {
 
 func getVolumeLabel(xc *XMLCfg, destDir string) (string, error) {
 	vc, err := VolumeCfgFromDir(xc, destDir)
+	if err != nil {
+		return "", err
+	}
 	return vc.Label, err
 }

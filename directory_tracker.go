@@ -2,8 +2,10 @@ package medorg
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"log"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -131,13 +133,36 @@ func (dt DirTracker) getDirectoryEntry(path string) DirectoryTrackerInterface {
 	return de
 }
 
+func isHiddenDirectory(path string) bool {
+	if path == "." || path == ".." {
+		return false
+	}
+	stat, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	if !stat.IsDir() {
+		path, _ = filepath.Split(path)
+	}
+	path = filepath.Clean(path)
+	pa := strings.Split(path, string(filepath.Separator))
+
+	for _, p := range pa {
+		if strings.HasPrefix(p, ".") {
+			return true
+		}
+	}
+	return false
+
+}
+
 func (dt *DirTracker) directoryWalker(path string, d fs.DirEntry, err error) error {
 	if err != nil {
 		return err
 	}
 	if d.IsDir() {
-		if (len(path) > 1) && strings.HasPrefix(path, ".") { // I never want to backup hidden dirctories
-			return nil
+		if isHiddenDirectory(path) {
+			return filepath.SkipDir
 		}
 		dt.pathCloser(path, nil)
 		// FIXME test the path exists
@@ -152,6 +177,10 @@ func (dt *DirTracker) directoryWalker(path string, d fs.DirEntry, err error) err
 		return nil
 	}
 	dir, file := filepath.Split(path)
+	if file == ".mdSkipDir" {
+		fmt.Println("Skipping:", dir)
+		return filepath.SkipDir
+	}
 	if dir == "" {
 		dir = "."
 	} else {

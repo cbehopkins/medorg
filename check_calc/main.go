@@ -84,7 +84,7 @@ func main() {
 			return nil
 		}
 
-		fc := func(fs medorg.FileStruct) error {
+		fc := func(fs *medorg.FileStruct) error {
 			info, err := d.Info()
 			if err != nil {
 				return err

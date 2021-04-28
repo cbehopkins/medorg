@@ -119,8 +119,8 @@ func TestDuplicateDetect(t *testing.T) {
 		dstTm.Add(fs)
 		return nil
 	}
-	srcDir := dirs[1]	// This has 1 file(s)
-	destDir := dirs[0] 	// This has 2 files
+	srcDir := dirs[1]  // This has 1 file(s)
+	destDir := dirs[0] // This has 2 files
 	// First we populate the src dir
 	makerFuncDest := func(dir string) (DirectoryTrackerInterface, error) {
 		mkFk := func(dir string) (DirectoryEntryInterface, error) {

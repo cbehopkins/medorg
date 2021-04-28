@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -58,6 +59,10 @@ func main() {
 		fmt.Println("no config file found")
 		fn := filepath.Join(string(medorg.HomeDir()), "/.medorg.xml")
 		xc = medorg.NewXMLCfg(fn)
+	}
+	if xc == nil {
+		fmt.Println("Unable to get config")
+		os.Exit(ExitNoConfig)
 	}
 	defer func() {
 		fmt.Println("Saving out config")
@@ -147,9 +152,9 @@ func main() {
 	} else if *delflg {
 		orphanedFunc = func(path string) error {
 			fmt.Println(path, "orphaned")
-			// if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
-			// 	_ = os.Remove(path)
-			// }
+			if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+				_ = os.Remove(path)
+			}
 			return nil
 		}
 	}
