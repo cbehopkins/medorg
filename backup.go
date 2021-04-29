@@ -56,24 +56,25 @@ func (bdm *backupDupeMap) Lookup(key backupKey) (Fpath, bool) {
 	v, ok := bdm.dupeMap[key]
 	return v, ok
 }
-func (bdm0 *backupDupeMap) findDuplicates(bdm1 *backupDupeMap) <-chan []Fpath {
-	matchChan := make(chan []Fpath)
-	go func() {
-		bdm0.Lock()
-		bdm1.Lock()
-		for key, value := range bdm0.dupeMap {
-			val, ok := bdm1.dupeMap[key]
-			if ok {
-				// Value found in both maps
-				matchChan <- []Fpath{value, val}
-			}
-		}
-		bdm1.Unlock()
-		bdm0.Unlock()
-		close(matchChan)
-	}()
-	return matchChan
-}
+
+// func (bdm0 *backupDupeMap) findDuplicates(bdm1 *backupDupeMap) <-chan []Fpath {
+// 	matchChan := make(chan []Fpath)
+// 	go func() {
+// 		bdm0.Lock()
+// 		bdm1.Lock()
+// 		for key, value := range bdm0.dupeMap {
+// 			val, ok := bdm1.dupeMap[key]
+// 			if ok {
+// 				// Value found in both maps
+// 				matchChan <- []Fpath{value, val}
+// 			}
+// 		}
+// 		bdm1.Unlock()
+// 		bdm0.Unlock()
+// 		close(matchChan)
+// 	}()
+// 	return matchChan
+// }
 
 // scanBackupDirectories will mark srcDir's ArchiveAt
 // tag, with any files that are already found in the destination
@@ -269,7 +270,7 @@ func doACopy(
 	}
 	src, ok := dmSrc.Get(basename)
 	if !ok {
-		return fmt.Errorf("%w: %s, \"%s\" \"%s\":::", ErrMissingEntry, file, sd, basename)
+		return fmt.Errorf("%w: %s, \"%s\" \"%s\"", ErrMissingEntry, file, sd, basename)
 	}
 	_ = src.AddTag(backupLabelName)
 	dmSrc.Add(src)

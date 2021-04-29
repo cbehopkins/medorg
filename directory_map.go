@@ -38,8 +38,7 @@ func NewDirectoryMap() *DirectoryMap {
 	return itm
 }
 
-//ToXML is a standard marshaller
-func (dm DirectoryMap) ToXML() (output []byte, err error) {
+func (dm DirectoryMap) ToMd5File() (*Md5File, error) {
 	m5f := NewMd5File()
 	dm.lock.RLock()
 	defer dm.lock.RUnlock()
@@ -50,6 +49,15 @@ func (dm DirectoryMap) ToXML() (output []byte, err error) {
 		} else {
 			return nil, ErrKey
 		}
+	}
+	return m5f, nil
+}
+
+//ToXML is a standard marshaller
+func (dm DirectoryMap) ToXML() (output []byte, err error) {
+	m5f, err := dm.ToMd5File()
+	if err != nil {
+		return nil, err
 	}
 	return m5f.ToXML()
 }

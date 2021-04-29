@@ -12,7 +12,6 @@ import (
 // XMLCfg structure used to specify the detailed config
 type XMLCfg struct {
 	XMLName struct{} `xml:"xc"`
-	Ts           int64    `xml:"tstamp,attr,omitempty"`
 
 	// Autoformatting rules
 	Af []string `xml:"af"`

@@ -15,6 +15,7 @@ type DirectoryVisitorFunc func(dm DirectoryEntryInterface, directory string, fil
 type DirectoryEntryInterface interface {
 	Persist(string) error
 	Visitor(directory, file string, d fs.DirEntry) error
+	ToMd5File() (*Md5File, error) // FIXME I don't like that we need this
 }
 type EntryMaker func(string) (DirectoryEntryInterface, error)
 

@@ -12,6 +12,8 @@ import (
 // It contains a lost of the files and the properties assoxciated with them
 type Md5File struct {
 	XMLName struct{}     `xml:"dr"`
+	Ts      int64        `xml:"tstamp,attr,omitempty"`
+	Dir     string       `xml:"dir,attr,omitempty"`
 	Files   []FileStruct `xml:"fr"`
 }
 
@@ -33,11 +35,8 @@ func (md *Md5File) AddFile(filename string) {
 }
 
 // ToXML standard marshaller
-func (md Md5File) ToXML() (output []byte, err error) {
-	//output, err = xml.Marshal(md)
-
-	output, err = xml.MarshalIndent(md, "", "  ")
-	return
+func (md Md5File) ToXML() ([]byte, error) {
+	return xml.MarshalIndent(md, "", "  ")
 }
 func (md Md5File) String() string {
 	txt, err := xml.MarshalIndent(md, "", "  ")
@@ -66,4 +65,18 @@ func (md *Md5File) FromXML(input []byte) (err error) {
 		return fmt.Errorf("unknown Error UnMarshalling Md5File:%w", err)
 	}
 	return nil
+}
+func (md0 Md5File) Equal(md1 Md5File) bool {
+	if md0.Dir != md1.Dir {
+		return false
+	}
+	for i, v := range md0.Files {
+		if v.Name != md1.Files[i].Name {
+			return false
+		}
+		if !v.Equal(md1.Files[i]) {
+			return false
+		}
+	}
+	return true
 }

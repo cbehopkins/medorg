@@ -41,11 +41,11 @@ func NewVolumeCfg(xc *XMLCfg, fn string) (*VolumeCfg, error) {
 		}
 	} else {
 		f, err = os.Open(fn)
-		defer f.Close()
-
 		if err != nil {
 			return nil, fmt.Errorf("error opening NewVolumeCfg file:%s::%w", fn, err)
 		}
+		defer f.Close()
+
 		byteValue, err := ioutil.ReadAll(f)
 		if err != nil {
 			return nil, fmt.Errorf("error loading NewVolumeCfg file:%s::%w", fn, err)
