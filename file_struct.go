@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // FileStruct contains all the properties associated with a file
@@ -20,6 +21,18 @@ type FileStruct struct {
 	Analysed   int64    `xml:"analysed,omitempty"`
 	Tags       []string `xml:"tags,omitempty"`
 	ArchivedAt []string `xml:"ArchivedAt,omitempty"`
+}
+type FileStructArray []FileStruct
+
+func (fsa FileStructArray) Len() int {
+	return len(fsa)
+}
+func (fsa FileStructArray) Swap(i, j int) {
+	fsa[i], fsa[j] = fsa[j], fsa[i]
+}
+func (fsa FileStructArray) Less(i, j int) bool {
+	// REVISIT!
+	return strings.Compare(fsa[i].Name, fsa[j].Name) == -1
 }
 
 func (fs FileStruct) String() string {

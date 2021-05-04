@@ -50,6 +50,7 @@ func (jo Journal) directoryExists(md5fp *Md5File, dir string) bool {
 }
 
 func (jo *Journal) appendItem(md5fp *Md5File, dir string) error {
+	// log.Println("Adding Item to journal:", dir, *md5fp)
 	jo.location[dir] = len(jo.fl)
 	jo.fl = append(jo.fl, *md5fp)
 	// FIXME when we implement the file handling for this

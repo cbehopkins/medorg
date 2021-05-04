@@ -6,15 +6,16 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"sort"
 )
 
 // Md5File is the struct written into each directory
 // It contains a lost of the files and the properties assoxciated with them
 type Md5File struct {
-	XMLName struct{}     `xml:"dr"`
-	Ts      int64        `xml:"tstamp,attr,omitempty"`
-	Dir     string       `xml:"dir,attr,omitempty"`
-	Files   []FileStruct `xml:"fr"`
+	XMLName struct{}        `xml:"dr"`
+	Ts      int64           `xml:"tstamp,attr,omitempty"`
+	Dir     string          `xml:"dir,attr,omitempty"`
+	Files   FileStructArray `xml:"fr"`
 }
 
 // NewMd5File creates a new one
@@ -66,14 +67,22 @@ func (md *Md5File) FromXML(input []byte) (err error) {
 	}
 	return nil
 }
+func (md Md5File) Sort() {
+	sort.Sort(md.Files)
+}
 func (md0 Md5File) Equal(md1 Md5File) bool {
 	if md0.Dir != md1.Dir {
 		return false
 	}
+	md0.Sort()
+	md1.Sort()
+
 	for i, v := range md0.Files {
+		// We also care about the name being the same
 		if v.Name != md1.Files[i].Name {
 			return false
 		}
+		// The default equals looks at things like checksim and size.
 		if !v.Equal(md1.Files[i]) {
 			return false
 		}
