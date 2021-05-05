@@ -18,7 +18,8 @@ var ErrMissingEntry = errors.New("attempting to copy a file there seems to be no
 var ErrMissingSrcEntry = errors.New("missing source entry")
 var ErrMissingCopyEntry = errors.New("copying a file without an entry")
 var ErrDummyCopy = errors.New("not really copying, it's all good though")
-var ErrNoSpace = syscall.Errno(28) // I don't like this, but don't know a better way
+var ErrIOError = syscall.Errno(5) // I don't like this, but don't know a better way
+var ErrNoSpace = syscall.Errno(28)
 
 type backupKey struct {
 	size     int64
