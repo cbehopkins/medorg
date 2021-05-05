@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io/fs"
@@ -110,7 +111,12 @@ func main() {
 			// Grab a compute token
 			<-tokenBuffer
 			defer func() { tokenBuffer <- struct{}{} }()
-			return fs.UpdateChecksum(*rclflg)
+			err = fs.UpdateChecksum(*rclflg)
+			if errors.Is(err, medorg.ErrIOError) {
+				fmt.Println("Received an IO error calculating checksum ", fs.Name, err)
+				return nil
+			}
+			return err
 		}
 		err := dm.RunFsFc(directory, file, fc)
 		if err != nil {
