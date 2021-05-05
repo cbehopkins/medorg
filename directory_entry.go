@@ -46,8 +46,7 @@ func NewDirectoryEntry(path string, mkF EntryMaker) (DirectoryEntry, error) {
 	itm.errorChan = make(chan error)
 	// TBD, can we go this somehow? Do we even need to if we read it in quick enough?
 	itm.activeFiles = new(sync.WaitGroup)
-	itm.activeFiles.Add(1) // need to dummy add 1 to get it going
-	return itm, nil        // I think here we should return the worker function for the receiver to go. So that they can mutate the itm themselves before starting it
+	return itm, nil // I think here we should return the worker function for the receiver to go. So that they can mutate the itm themselves before starting it
 }
 func (de DirectoryEntry) ErrChan() <-chan error {
 	return de.errorChan
@@ -61,6 +60,7 @@ func (de DirectoryEntry) VisitFile(dir, file string, d fs.DirEntry, callback fun
 	de.workItems <- WorkItem{dir, file, d, callback}
 }
 func (de DirectoryEntry) Start() error {
+	de.activeFiles.Add(1)
 	go de.worker()
 	return nil
 }

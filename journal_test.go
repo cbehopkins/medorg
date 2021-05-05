@@ -129,25 +129,28 @@ func TestJournalBasicXml(t *testing.T) {
 
 	// Now what happens if we send the same directory names, but with different files in them
 	// We should see that they are treated the same as new directories
-	// dm, ok := td0.de.dm.(DirectoryMap)
-	// if !ok {
-	// 	t.Error("Unable to cast spell")
-	// }
-	// changesToMake := 1
-	// changeArray := make([]string, changesToMake)
-	// for filename := range dm.mp {
-	// 	if changesToMake <= 0 {
-	// 		break
-	// 	}
-	// 	changeArray[changesToMake-1] = filename
-	// }
-	// for _, v := range changeArray {
-	// 	newFilename := v + "_mod"
-	// 	dm.mp[newFilename] = dm.mp[v]
-	// 	delete(dm.mp, v)
-	// }
+	dm, ok := td0.de.dm.(DirectoryMap)
+	if !ok {
+		t.Error("Unable to cast spell")
+	}
+	changesToMake := 1
+	expectedAdditions := changesToMake
 
-	expectedAdditions := 0
+	changeArray := make([]string, changesToMake)
+	for filename := range dm.mp {
+		if changesToMake <= 0 {
+			break
+		}
+		changeArray[changesToMake-1] = filename
+	}
+	for _, v := range changeArray {
+		newFilename := v + "_mod"
+		fs := dm.mp[v]
+		fs.Name = newFilename
+		dm.mp[newFilename] = fs
+		delete(dm.mp, v)
+	}
+
 	visitFuncAdd0 := func(de DirectoryEntry) error {
 		err := journal.AppendJournalFromDm(de.dm, de.dir)
 		if err == errFileExistsInJournal {

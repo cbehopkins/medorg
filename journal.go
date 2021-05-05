@@ -67,12 +67,12 @@ func (jo *Journal) AppendJournalFromDm(dm DirectoryEntryInterface, dir string) e
 		jo.location = make(map[string]int)
 	}
 	md5fp, err := dm.ToMd5File()
-	md5fp.Dir = dir
-	md5fp.Ts = time.Now().Unix()
 
 	if err != nil {
 		return err
 	}
+	md5fp.Dir = dir
+	md5fp.Ts = time.Now().Unix()
 	dirExists := jo.directoryExists(md5fp, dir)
 	err = jo.appendItem(md5fp, dir)
 	if err != nil {
