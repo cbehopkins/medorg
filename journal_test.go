@@ -1,6 +1,7 @@
 package medorg
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"testing"
@@ -74,28 +75,58 @@ func runDirectory(t *testing.T, dts *directoryTestStuff, visitFunc func(de Direc
 		}
 	}
 }
-func TestJournalBasicXml(t *testing.T) {
-	td0 := populateDirectoryStuff(2, 5)
-	td0.Dirs = []directoryTestStuff{
-		populateDirectoryStuff(1, 5),
-		populateDirectoryStuff(1, 5),
-		populateDirectoryStuff(1, 5),
+func modifyFilesInJournal(changesToMake int, dts directoryTestStuff) error {
+	dm, ok := dts.de.dm.(DirectoryMap)
+	if !ok {
+		return errors.New("Unable to cast spell")
 	}
-	t.Log("Working with:", td0)
-	journal := Journal{}
+	changeArray := make([]string, changesToMake)
+	for filename := range dm.mp {
+		if changesToMake <= 0 {
+			break
+		}
+		changeArray[changesToMake-1] = filename
+	}
+	// Modify the filename on anything that's in the change array
+	for _, v := range changeArray {
+		newFilename := v + "_mod"
+		fs := dm.mp[v]
+		fs.Name = newFilename
+		dm.mp[newFilename] = fs
+		delete(dm.mp, v)
+	}
+	return nil
+}
 
+func createInitialJournal(t *testing.T, initialDirectoryStructure *directoryTestStuff) Journal {
+	journal := Journal{}
 	visitFuncInitial0 := func(de DirectoryEntry) error {
 		err := journal.AppendJournalFromDm(de.dm, de.dir)
 		if err == errFileExistsInJournal {
-			return fmt.Errorf("initial setup TestJournalBasicXml %w,%s", err, de.dir)
+			return fmt.Errorf("initial setup TestJournalDummyWalks %w,%s", err, de.dir)
 		}
 		return err
 	}
-	// Let's get ourselves an initial setup
-	runDirectory(t, &td0, visitFuncInitial0)
+	// Startoff with an initial directory and get a journal
+	// that has all those in
+	runDirectory(t, initialDirectoryStructure, visitFuncInitial0)
+	return journal
+}
+
+// TestJournalDummyWalk does not write anything to disk
+// Everything is done through a dummy structure
+// But basically check that
+func TestJournalDummyWalk(t *testing.T) {
+	initialDirectoryStructure := populateDirectoryStuff(2, 5)
+	initialDirectoryStructure.Dirs = []directoryTestStuff{
+		populateDirectoryStuff(1, 5),
+		populateDirectoryStuff(1, 5),
+		populateDirectoryStuff(1, 5),
+	}
+	t.Log("Working with:", initialDirectoryStructure)
+	journal := createInitialJournal(t, &initialDirectoryStructure)
 	t.Log(journal)
 
-	// Now we want to pretend we are doing a walk, and all is unchanged
 	visitFuncRevisit := func(de DirectoryEntry) error {
 		err := journal.AppendJournalFromDm(de.dm, de.dir)
 		if err != errFileExistsInJournal {
@@ -107,48 +138,59 @@ func TestJournalBasicXml(t *testing.T) {
 	// Here we are going for a walk over the the test data
 	// Nothing exists on disk in this test, but journal should report
 	// having seen this already
-	runDirectory(t, &td0, visitFuncRevisit)
+	runDirectory(t, &initialDirectoryStructure, visitFuncRevisit)
+
+}
+
+// Again no file access, but pretend we are
+// adding some files
+func TestJournalDummyAddFiles(t *testing.T) {
+	initialDirectoryStructure := populateDirectoryStuff(2, 5)
+	initialDirectoryStructure.Dirs = []directoryTestStuff{
+		populateDirectoryStuff(1, 5),
+		populateDirectoryStuff(1, 5),
+		populateDirectoryStuff(1, 5),
+	}
+	numFilesToAdd := 3
+	numDirsToAdd := 1
+	t.Log("Working with:", initialDirectoryStructure)
+	journal := createInitialJournal(t, &initialDirectoryStructure)
+	t.Log(journal)
 
 	// Now let's add a few files
 	// This should be a new directory with 3 files
-	numFiles := 3
-	numDirs := 1
-	td1 := populateDirectoryStuff(numDirs, numFiles)
 	visitFuncInitial1 := func(de DirectoryEntry) error {
 		err := journal.AppendJournalFromDm(de.dm, de.dir)
 		if err == errFileExistsInJournal {
 			return fmt.Errorf("initial1 TestJournalBasicXml %w,%s", err, de.dir)
 		}
-		numDirs--
+		numDirsToAdd--
 		return err
 	}
+	td1 := populateDirectoryStuff(numDirsToAdd, numFilesToAdd)
 	runDirectory(t, &td1, visitFuncInitial1)
-	if numDirs != 0 {
-		t.Error("Strange number of directories", numDirs)
+	if numDirsToAdd != 0 {
+		t.Error("Strange number of directories", numDirsToAdd)
 	}
+}
+func TestJournalDummyModifyFiles(t *testing.T) {
+	initialDirectoryStructure := populateDirectoryStuff(2, 5)
+	initialDirectoryStructure.Dirs = []directoryTestStuff{
+		populateDirectoryStuff(1, 5),
+		populateDirectoryStuff(1, 5),
+		populateDirectoryStuff(1, 5),
+	}
+
+	expectedAdditions := 1
+	t.Log("Working with:", initialDirectoryStructure)
+	journal := createInitialJournal(t, &initialDirectoryStructure)
+	t.Log(journal)
 
 	// Now what happens if we send the same directory names, but with different files in them
 	// We should see that they are treated the same as new directories
-	dm, ok := td0.de.dm.(DirectoryMap)
-	if !ok {
-		t.Error("Unable to cast spell")
-	}
-	changesToMake := 1
-	expectedAdditions := changesToMake
-
-	changeArray := make([]string, changesToMake)
-	for filename := range dm.mp {
-		if changesToMake <= 0 {
-			break
-		}
-		changeArray[changesToMake-1] = filename
-	}
-	for _, v := range changeArray {
-		newFilename := v + "_mod"
-		fs := dm.mp[v]
-		fs.Name = newFilename
-		dm.mp[newFilename] = fs
-		delete(dm.mp, v)
+	err := modifyFilesInJournal(expectedAdditions, initialDirectoryStructure)
+	if err != nil {
+		t.Error(err)
 	}
 
 	visitFuncAdd0 := func(de DirectoryEntry) error {
@@ -161,11 +203,58 @@ func TestJournalBasicXml(t *testing.T) {
 		}
 		return err
 	}
-	runDirectory(t, &td0, visitFuncAdd0)
+	runDirectory(t, &initialDirectoryStructure, visitFuncAdd0)
 	if expectedAdditions != 0 {
 		t.Error("Strange number of expectedAdditions", expectedAdditions)
 	}
+}
 
-	// Now we need to test removing some directories
+// TestJournalDummyRmDir will pretend that we have gone and deleted
+// one of the sub directories
+func TestJournalDummyRmDir(t *testing.T) {
+	initialDirectoryStructure := populateDirectoryStuff(2, 5)
+	initialDirectoryStructure.Dirs = []directoryTestStuff{
+		populateDirectoryStuff(1, 5),
+		populateDirectoryStuff(1, 5),
+		populateDirectoryStuff(1, 5),
+	}
 
+	t.Log("Working with:", initialDirectoryStructure)
+	journal := createInitialJournal(t, &initialDirectoryStructure)
+	t.Log(journal)
+	expectedDeletions := 1
+
+	bob := initialDirectoryStructure.Dirs[0]
+	deletedDirectory := directoryTestStuff{
+		Name: bob.Name,
+	}
+
+	// Now we have an entry to delete, submit that to the journal
+	visitFuncDeleter := func(de DirectoryEntry) error {
+		err := journal.AppendJournalFromDm(de.dm, de.dir)
+		if err == errFileExistsInJournal {
+			// All files should already exist
+			return nil
+		}
+		return err
+	}
+	runDirectory(t, &deletedDirectory, visitFuncDeleter)
+
+	// Now run our origional directory structure
+	visitFuncCheck := func(de DirectoryEntry) error {
+		err := journal.AppendJournalFromDm(de.dm, de.dir)
+		if err == errFileExistsInJournal {
+			return nil
+		}
+		if err == nil {
+			// Any deleted directories should behave as if deleted
+			expectedDeletions--
+		}
+		return err
+	}
+	runDirectory(t, &deletedDirectory, visitFuncCheck)
+
+	if expectedDeletions != 0 {
+		t.Error("Strange number of expectedDeletions", expectedDeletions)
+	}
 }

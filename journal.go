@@ -74,6 +74,13 @@ func (jo *Journal) AppendJournalFromDm(dm DirectoryEntryInterface, dir string) e
 	md5fp.Dir = dir
 	md5fp.Ts = time.Now().Unix()
 	dirExists := jo.directoryExists(md5fp, dir)
+	if len(md5fp.Files) == 0 {
+		delete(jo.location, dir)
+		if dirExists {
+			return errFileExistsInJournal
+		}
+		return nil
+	}
 	err = jo.appendItem(md5fp, dir)
 	if err != nil {
 		return err
