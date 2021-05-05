@@ -209,6 +209,31 @@ func TestJournalDummyModifyFiles(t *testing.T) {
 	}
 }
 
+func deleteNDirectories(n int, t *testing.T, initialDirectoryStructure directoryTestStuff, journal Journal) {
+	// FIXME
+	if n != 1 {
+		t.Error("Bang")
+	}
+	bob := initialDirectoryStructure.Dirs[0]
+	deletedDirectory := directoryTestStuff{
+		Name: filepath.Join(initialDirectoryStructure.de.dir, bob.Name),
+	}
+
+	// Now we have an entry to delete, submit that to the journal
+	visitFuncDeleter := func(de DirectoryEntry) error {
+		err := journal.AppendJournalFromDm(de.dm, de.dir)
+		if err == errFileExistsInJournal {
+			// All files should already exist
+			return nil
+		}
+		if err == nil {
+			return errors.New("all files should exist")
+		}
+		return err
+	}
+	runDirectory(t, &deletedDirectory, visitFuncDeleter)
+}
+
 // TestJournalDummyRmDir will pretend that we have gone and deleted
 // one of the sub directories
 func TestJournalDummyRmDir(t *testing.T) {
@@ -224,21 +249,7 @@ func TestJournalDummyRmDir(t *testing.T) {
 	t.Log(journal)
 	expectedDeletions := 1
 
-	bob := initialDirectoryStructure.Dirs[0]
-	deletedDirectory := directoryTestStuff{
-		Name: bob.Name,
-	}
-
-	// Now we have an entry to delete, submit that to the journal
-	visitFuncDeleter := func(de DirectoryEntry) error {
-		err := journal.AppendJournalFromDm(de.dm, de.dir)
-		if err == errFileExistsInJournal {
-			// All files should already exist
-			return nil
-		}
-		return err
-	}
-	runDirectory(t, &deletedDirectory, visitFuncDeleter)
+	deleteNDirectories(expectedDeletions, t, initialDirectoryStructure, journal)
 
 	// Now run our origional directory structure
 	visitFuncCheck := func(de DirectoryEntry) error {
@@ -252,9 +263,44 @@ func TestJournalDummyRmDir(t *testing.T) {
 		}
 		return err
 	}
-	runDirectory(t, &deletedDirectory, visitFuncCheck)
+	runDirectory(t, &initialDirectoryStructure, visitFuncCheck)
 
 	if expectedDeletions != 0 {
 		t.Error("Strange number of expectedDeletions", expectedDeletions)
+	}
+}
+
+// TestJournalDummyVisitDirs will test that the journal records what we expect
+func TestJournalDummyVisitDirs(t *testing.T) {
+	initialDirectoryStructure := populateDirectoryStuff(2, 5)
+	initialDirectoryStructure.Dirs = []directoryTestStuff{
+		populateDirectoryStuff(1, 5),
+		populateDirectoryStuff(1, 5),
+		populateDirectoryStuff(1, 5),
+	}
+
+	t.Log("Working with:", initialDirectoryStructure)
+	journal := createInitialJournal(t, &initialDirectoryStructure)
+	t.Log(journal)
+
+	expectedDirectoryCount := 1 + len(initialDirectoryStructure.Dirs)
+	visitor := func(md5f Md5File) error {
+		expectedDirectoryCount--
+		if len(md5f.Files) != 5 {
+			t.Error("Wrong File count for:", md5f)
+		}
+		return nil
+	}
+	journal.Range(visitor)
+	if expectedDirectoryCount != 0 {
+		t.Error("Unexpected expectedDirectoryCount", expectedDirectoryCount)
+	}
+
+	expectedDeletions := 1
+	deleteNDirectories(expectedDeletions, t, initialDirectoryStructure, journal)
+	expectedDirectoryCount = 1 + len(initialDirectoryStructure.Dirs) - expectedDeletions
+	journal.Range(visitor)
+	if expectedDirectoryCount != 0 {
+		t.Error("Unexpected expectedDirectoryCount", expectedDirectoryCount)
 	}
 }

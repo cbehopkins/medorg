@@ -67,20 +67,20 @@ func (jo *Journal) AppendJournalFromDm(dm DirectoryEntryInterface, dir string) e
 		jo.location = make(map[string]int)
 	}
 	md5fp, err := dm.ToMd5File()
-
 	if err != nil {
 		return err
 	}
-	md5fp.Dir = dir
-	md5fp.Ts = time.Now().Unix()
-	dirExists := jo.directoryExists(md5fp, dir)
 	if len(md5fp.Files) == 0 {
-		delete(jo.location, dir)
-		if dirExists {
+		_, ok := jo.location[dir]
+		if ok {
+			delete(jo.location, dir)
 			return errFileExistsInJournal
 		}
 		return nil
 	}
+	md5fp.Dir = dir
+	md5fp.Ts = time.Now().Unix()
+	dirExists := jo.directoryExists(md5fp, dir)
 	err = jo.appendItem(md5fp, dir)
 	if err != nil {
 		return err
@@ -89,5 +89,17 @@ func (jo *Journal) AppendJournalFromDm(dm DirectoryEntryInterface, dir string) e
 	if dirExists {
 		return errFileExistsInJournal
 	}
+	return nil
+}
+
+func (jo Journal) Range(visitor func(Md5File) error) error {
+	for _, location := range jo.location {
+		md5f := jo.fl[location]
+		err := visitor(md5f)
+		if err != nil {
+			return err
+		}
+	}
+
 	return nil
 }

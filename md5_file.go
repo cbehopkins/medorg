@@ -74,6 +74,9 @@ func (md0 Md5File) Equal(md1 Md5File) bool {
 	if md0.Dir != md1.Dir {
 		return false
 	}
+	if len(md0.Files) != len(md1.Files) {
+		return false
+	}
 	md0.Sort()
 	md1.Sort()
 
