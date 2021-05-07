@@ -246,10 +246,7 @@ func HomeDir() Fpath {
 
 // AfConfig return the location of the xml config file if it exists in a known place
 func AfConfig() Fpath {
-	fn := filepath.Join(string(HomeDir()), "/.autofix")
-	if _, err := os.Stat(fn); os.IsNotExist(err) {
-		fn = filepath.Join(string(HomeDir()), "/home/.autofix")
-	}
+	fn := ConfigPath(".autofix")
 	if _, err := os.Stat(fn); os.IsNotExist(err) {
 		fn = ""
 	}
@@ -258,12 +255,17 @@ func AfConfig() Fpath {
 
 // XmConfig return the location of the xml config file if it exists in a known place
 func XmConfig() Fpath {
-	fn := filepath.Join(string(HomeDir()), "/.medorg.xml")
-	if _, err := os.Stat(fn); os.IsNotExist(err) {
-		fn = filepath.Join(string(HomeDir()), "/home/.medorg.xml")
-	}
+	fn := ConfigPath(".medorg.xml")
 	if _, err := os.Stat(fn); os.IsNotExist(err) {
 		fn = ""
 	}
 	return Fpath(fn)
+}
+
+func ConfigPath(file string) string {
+	fn := filepath.Join(string(HomeDir()), "home", file)
+	if _, err := os.Stat(fn); os.IsNotExist(err) {
+		fn = filepath.Join(string(HomeDir()), file)
+	}
+	return fn
 }

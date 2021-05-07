@@ -1,9 +1,11 @@
 package medorg
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -302,5 +304,61 @@ func TestJournalDummyVisitDirs(t *testing.T) {
 	journal.Range(visitor)
 	if expectedDirectoryCount != 0 {
 		t.Error("Unexpected expectedDirectoryCount", expectedDirectoryCount)
+	}
+}
+
+func TestJournalScannerInternals(t *testing.T) {
+	type scannerTestStruct struct {
+		txt          string
+		recCnt       int
+		failExpected bool
+	}
+	inputs := []scannerTestStruct{
+		{"<dr>something</dr>", 1, false},
+		{"<dr>\nsomething\n</dr>\n", 1, false},
+		{"<dr>\nsomething\n</dr>\n\n", 1, false},
+		{"<dr><bob>wibble</bob></dr>\n\n", 1, false},
+		{"<dr>\nsomething\n</dr><dr>\nsomething\n</dr>\n", 2, false},
+		{"<dr>\nsomething\n</dr>\nwibble wibble\n", 1, true},
+	}
+	for _, input := range inputs {
+		expectedCnt := input.recCnt
+		fc := func(record string) error {
+			expectedCnt--
+			t.Log("Got a record", record)
+			return nil
+		}
+		err := slupReadFunc(strings.NewReader(input.txt), fc)
+		if (err != nil) != (input.failExpected) {
+			t.Error(err)
+		}
+		if expectedCnt != 0 {
+			t.Error("Expected count issue on:", input, expectedCnt)
+		}
+	}
+}
+
+func TestJournalXmlIo(t *testing.T) {
+	initialDirectoryStructure := populateDirectoryStuff(2, 5)
+	initialDirectoryStructure.Dirs = []directoryTestStuff{
+		populateDirectoryStuff(1, 5),
+		populateDirectoryStuff(1, 5),
+		populateDirectoryStuff(1, 5),
+	}
+	journal := createInitialJournal(t, &initialDirectoryStructure)
+	var b bytes.Buffer
+	err := journal.DumpWriter(&b)
+	if err != nil {
+		t.Error(err)
+	}
+	journalTo := Journal{}
+	err = journalTo.SlurpReader(&b)
+	if err != nil {
+		t.Error(err)
+	}
+	t.Log(journalTo)
+	err = journal.Equals(journalTo, nil)
+	if err != nil {
+		t.Error(err)
 	}
 }
