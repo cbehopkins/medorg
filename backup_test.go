@@ -74,89 +74,81 @@ func recalcTestDirectory(dir string) error {
 	return nil
 }
 
+func (bdm *backupDupeMap) aFile(dm DirectoryMap, dir, fn string, d fs.DirEntry) error {
+	if fn == Md5FileName {
+		return nil
+	}
+	fs, ok := dm.Get(fn)
+	if !ok {
+		return fmt.Errorf("%w:%s", errMissingTestFile, fn)
+	}
+	if fs.Checksum == "" {
+		return fmt.Errorf("Empty checksum %w:%s", errSelfCheckProblem, fn)
+	}
+	bdm.Add(fs)
+	return nil
+}
+
 // Test whether we can detect duplicates within the
 // FIXME move test to using scanBackupDirectories instead
-// func TestDuplicateDetect(t *testing.T) {
-// 	dirs, err := createTestBackupDirectories(20, 10)
-// 	if err != nil {
-// 		t.Error("Failed to create test Directories", err)
-// 	}
-// 	defer func() {
-// 		for i := range dirs {
-// 			os.RemoveAll(dirs[i])
-// 		}
-// 	}()
-// 	t.Log("Created Test Directories:", dirs)
-// 	_ = recalcTestDirectory(dirs[0])
-// 	_ = recalcTestDirectory(dirs[1])
-// 	srcTm := NewBackupDupeMap()
-// 	dstTm := NewBackupDupeMap()
+func TestDuplicateDetect(t *testing.T) {
+	numberOfFiles := 20
+	numberOfDuplicates := 10
+	dirs, err := createTestBackupDirectories(numberOfFiles, numberOfDuplicates)
+	if err != nil {
+		t.Error("Failed to create test Directories", err)
+	}
+	defer func() {
+		for i := range dirs {
+			os.RemoveAll(dirs[i])
+		}
+	}()
+	t.Log("Created Test Directories:", dirs)
+	_ = recalcTestDirectory(dirs[0])
+	_ = recalcTestDirectory(dirs[1])
+	var srcTm backupDupeMap
+	var dstTm backupDupeMap
 
-// 	mfSrc := func(dm DirectoryMap, dir, fn string, d fs.DirEntry) error {
-// 		if fn == Md5FileName {
-// 			return nil
-// 		}
-// 		fs, ok := dm.Get(fn)
-// 		if !ok {
-// 			return fmt.Errorf("%w:%s", errMissingTestFile, fn)
-// 		}
-// 		if fs.Checksum == "" {
-// 			return fmt.Errorf("Empty checksum %w:%s", errSelfCheckProblem, fn)
-// 		}
-// 		srcTm.Add(fs)
-// 		return nil
-// 	}
-// 	mfDst := func(dm DirectoryMap, dir, fn string, d fs.DirEntry) error {
-// 		if fn == Md5FileName {
-// 			return nil
-// 		}
-// 		fs, ok := dm.Get(fn)
-// 		if !ok {
-// 			return fmt.Errorf("%w:%s", errMissingTestFile, fn)
-// 		}
-// 		if fs.Checksum == "" {
-// 			return fmt.Errorf("Empty checksum %w:%s", errSelfCheckProblem, fn)
-// 		}
-// 		dstTm.Add(fs)
-// 		return nil
-// 	}
-// 	srcDir := dirs[1]  // This has 1 file(s)
-// 	destDir := dirs[0] // This has 2 files
-// 	// First we populate the src dir
-// 	makerFuncDest := func(dir string) (DirectoryTrackerInterface, error) {
-// 		mkFk := func(dir string) (DirectoryEntryInterface, error) {
-// 			dm, err := DirectoryMapFromDir(dir)
-// 			dm.VisitFunc = mfDst
-// 			return dm, err
-// 		}
-// 		return NewDirectoryEntry(dir, mkFk)
-// 	}
-// 	makerFuncSrc := func(dir string) (DirectoryTrackerInterface, error) {
-// 		mkFk := func(dir string) (DirectoryEntryInterface, error) {
-// 			dm, err := DirectoryMapFromDir(dir)
-// 			dm.VisitFunc = mfSrc
-// 			return dm, err
-// 		}
-// 		return NewDirectoryEntry(dir, mkFk)
-// 	}
-// 	for err := range NewDirTracker(srcDir, makerFuncSrc) {
-// 		t.Error("Error received on closing:", err)
-// 	}
-// 	for err := range NewDirTracker(destDir, makerFuncDest) {
-// 		t.Error("Error received on closing:", err)
-// 	}
-
-// 	matchChan := srcTm.findDuplicates(&dstTm)
-// 	expectedDuplicates := 10
-// 	for val := range matchChan {
-// 		expectedDuplicates--
-
-// 		t.Log(val)
-// 	}
-// 	if expectedDuplicates != 0 {
-// 		t.Error("Expected 0 duplicates left, got:", expectedDuplicates)
-// 	}
-// }
+	srcDir := dirs[1]
+	destDir := dirs[0]
+	// First we populate the src dir
+	makerFuncDest := func(dir string) (DirectoryTrackerInterface, error) {
+		mkFk := func(dir string) (DirectoryEntryInterface, error) {
+			dm, err := DirectoryMapFromDir(dir)
+			dm.VisitFunc = dstTm.aFile
+			return dm, err
+		}
+		return NewDirectoryEntry(dir, mkFk)
+	}
+	makerFuncSrc := func(dir string) (DirectoryTrackerInterface, error) {
+		mkFk := func(dir string) (DirectoryEntryInterface, error) {
+			dm, err := DirectoryMapFromDir(dir)
+			dm.VisitFunc = srcTm.aFile
+			return dm, err
+		}
+		return NewDirectoryEntry(dir, mkFk)
+	}
+	for err := range NewDirTracker(srcDir, makerFuncSrc) {
+		t.Error("Error received on closing:", err)
+	}
+	for err := range NewDirTracker(destDir, makerFuncDest) {
+		t.Error("Error received on closing:", err)
+	}
+	expectedDuplicates := numberOfDuplicates
+	bs := backScanner{
+		lookupFunc: func(path Fpath, ok bool) error {
+			if ok {
+				expectedDuplicates--
+				t.Log(path, "is a duplicate")
+			}
+			return nil
+		},
+	}
+	bs.scanBackupDirectories(srcDir, destDir, "wibble")
+	if expectedDuplicates != 0 {
+		t.Error("Expected 0 duplicates left, got:", expectedDuplicates)
+	}
+}
 
 func TestDuplicateArchivedAtPopulation(t *testing.T) {
 	// As per TestDuplicateDetect, but have they had the
@@ -175,7 +167,8 @@ func TestDuplicateArchivedAtPopulation(t *testing.T) {
 
 	backupLabelName := "tstBackup"
 	t.Log("Created Test Directories:", dirs)
-	err = scanBackupDirectories(dirs[1], dirs[0], backupLabelName, nil)
+	var bs backScanner
+	err = bs.scanBackupDirectories(dirs[1], dirs[0], backupLabelName)
 	if err != nil {
 		t.Error(err)
 	}
@@ -238,7 +231,8 @@ func TestBackupExtract(t *testing.T) {
 	t.Log("Created Test Directories:", dirs)
 
 	// FIXME error handling
-	_ = scanBackupDirectories(dirs[1], dirs[0], backupLabelName, nil)
+	var bs backScanner
+	_ = bs.scanBackupDirectories(dirs[1], dirs[0], backupLabelName)
 
 	// Now hack it about so that we pretend  n of the files
 	// are additionally backed up to an alternate location

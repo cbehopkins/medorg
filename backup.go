@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"sync"
 	"syscall"
-	"time"
 )
 
 var MaxBackups = 4
@@ -30,10 +29,6 @@ type backupDupeMap struct {
 	dupeMap map[backupKey]Fpath
 }
 
-func NewBackupDupeMap() (itm backupDupeMap) {
-	// itm.dupeMap = make(map[backupKey]Fpath)
-	return
-}
 func (bdm *backupDupeMap) Add(fs FileStruct) {
 	key := backupKey{fs.Size, fs.Checksum}
 	bdm.Lock()
@@ -70,28 +65,27 @@ func (bdm *backupDupeMap) Lookup(key backupKey) (Fpath, bool) {
 	return v, ok
 }
 
-// func (bdm0 *backupDupeMap) findDuplicates(bdm1 *backupDupeMap) <-chan []Fpath {
-// 	matchChan := make(chan []Fpath)
-// 	go func() {
-// 		bdm0.Lock()
-// 		bdm1.Lock()
-// 		for key, value := range bdm0.dupeMap {
-// 			val, ok := bdm1.dupeMap[key]
-// 			if ok {
-// 				// Value found in both maps
-// 				matchChan <- []Fpath{value, val}
-// 			}
-// 		}
-// 		bdm1.Unlock()
-// 		bdm0.Unlock()
-// 		close(matchChan)
-// 	}()
-// 	return matchChan
-// }
+type backupMaker struct {
+	visitFunc func(dm DirectoryMap, dir, fn string, d fs.DirEntry) error
+}
+
+func (bm backupMaker) backMake(dir string) (DirectoryTrackerInterface, error) {
+	mkFk := func(dir string) (DirectoryEntryInterface, error) {
+		dm, err := DirectoryMapFromDir(dir)
+		dm.VisitFunc = bm.visitFunc
+		return dm, err
+	}
+	return NewDirectoryEntry(dir, mkFk)
+}
+
+type backScanner struct {
+	dupeFunc   func(path string) error
+	lookupFunc func(Fpath, bool) error
+}
 
 // scanBackupDirectories will mark srcDir's ArchiveAt
 // tag, with any files that are already found in the destination
-func scanBackupDirectories(destDir, srcDir, volumeName string, dupeFunc func(path string) error) error {
+func (bs backScanner) scanBackupDirectories(destDir, srcDir, volumeName string) error {
 	calcCnt := 2
 	tokenBuffer := makeTokenChan(calcCnt)
 	defer close(tokenBuffer)
@@ -99,7 +93,6 @@ func scanBackupDirectories(destDir, srcDir, volumeName string, dupeFunc func(pat
 	var backupDestination backupDupeMap
 	var backupSource backupDupeMap
 	modifyFuncDestinationDm := func(dm DirectoryMap, dir, fn string, d fs.DirEntry) error {
-
 		if fn == Md5FileName {
 			return nil
 		}
@@ -137,7 +130,13 @@ func scanBackupDirectories(destDir, srcDir, volumeName string, dupeFunc func(pat
 		}
 
 		// If it exists in the destination already
-		_, ok = backupDestination.Lookup(fs.Key())
+		path, ok := backupDestination.Lookup(fs.Key())
+		if bs.lookupFunc != nil {
+			err = bs.lookupFunc(path, ok)
+			if err != nil {
+				return err
+			}
+		}
 		if ok {
 			// Then mark in the source as already backed up
 			_ = fs.AddTag(volumeName)
@@ -151,31 +150,20 @@ func scanBackupDirectories(destDir, srcDir, volumeName string, dupeFunc func(pat
 		}
 
 		backupSource.Add(fs)
-		fs.Analysed = time.Now().Unix()
 		dm.Add(fs)
 		return nil
 	}
-	makerFuncDest := func(dir string) (DirectoryTrackerInterface, error) {
-		mkFk := func(dir string) (DirectoryEntryInterface, error) {
-			dm, err := DirectoryMapFromDir(dir)
-			dm.VisitFunc = modifyFuncDestinationDm
-			return dm, err
-		}
-		return NewDirectoryEntry(dir, mkFk)
-	}
-	makerFuncSrc := func(dir string) (DirectoryTrackerInterface, error) {
-		mkFk := func(dir string) (DirectoryEntryInterface, error) {
-			dm, err := DirectoryMapFromDir(dir)
-			dm.VisitFunc = modifyFuncSourceDm
-			return dm, err
 
-		}
-		return NewDirectoryEntry(dir, mkFk)
+	makerFuncDest := backupMaker{
+		visitFunc: modifyFuncDestinationDm,
+	}
+	makerFuncSrc := backupMaker{
+		visitFunc: modifyFuncSourceDm,
 	}
 
 	errChan := runSerialDirTrackerJob([]dirTrackerJob{
-		{destDir, makerFuncDest},
-		{srcDir, makerFuncSrc},
+		{destDir, makerFuncDest.backMake},
+		{srcDir, makerFuncSrc.backMake},
 	})
 
 	for err := range errChan {
@@ -186,12 +174,12 @@ func scanBackupDirectories(destDir, srcDir, volumeName string, dupeFunc func(pat
 		}
 	}
 
-	if (dupeFunc != nil) && (backupDestination.Len() > 0) {
+	if (bs.dupeFunc != nil) && (backupDestination.Len() > 0) {
 		// There's stuff on the backup that's not in the Source
 		// We'll need to do somethign about this soon!
 		// log.Println("Unexpected items left in backup destination")
 		for _, v := range backupDestination.dupeMap {
-			dupeFunc(string(v))
+			bs.dupeFunc(string(v))
 		}
 	}
 	return nil
@@ -314,7 +302,8 @@ func BackupRunner(xc *XMLCfg, fc FileCopier, srcDir, destDir string, orphanFunc 
 	}
 	log.Println("Determined label as:", backupLabelName)
 	// First of all get the srcDir updated with files that are already in destDir
-	err = scanBackupDirectories(destDir, srcDir, backupLabelName, nil)
+	var bs backScanner
+	err = bs.scanBackupDirectories(destDir, srcDir, backupLabelName)
 	if err != nil {
 		return err
 	}

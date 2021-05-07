@@ -196,7 +196,6 @@ func slupReadFunc(fd io.Reader, fc func(string) error) error {
 			return err
 		}
 	}
-	return nil
 }
 
 // SlurpReader slurps the whole file in

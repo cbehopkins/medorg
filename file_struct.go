@@ -78,6 +78,7 @@ func NewFileStruct(directory string, fn string) (fs FileStruct, err error) {
 	return fs.FromStat(directory, fn, stat)
 }
 
+// FromStat update the file struct from a supplied file structure
 func (fs *FileStruct) FromStat(directory string, fn string, fsi os.FileInfo) (FileStruct, error) {
 	if changed, err := fs.Changed(fsi); !changed {
 		return *fs, err
@@ -85,7 +86,7 @@ func (fs *FileStruct) FromStat(directory string, fn string, fsi os.FileInfo) (Fi
 	fs.Name = fn
 	fs.Mtime = fsi.ModTime().Unix()
 	fs.Size = fsi.Size()
-	fs.Checksum = "" //
+	fs.Checksum = ""
 	fs.ArchivedAt = []string{}
 	fs.directory = directory
 	return *fs, nil
@@ -151,7 +152,6 @@ func (fs *FileStruct) UpdateChecksum(forceUpdate bool) error {
 	if fs.Checksum == cks {
 		return nil
 	}
-	// log.Println("Recalculation of ", file, "found a changed checksum")
 	fs.Checksum = cks
 	fs.ArchivedAt = []string{}
 	return nil
