@@ -1,6 +1,10 @@
 package medorg
 
-import "path/filepath"
+import (
+	"os"
+	"path/filepath"
+	"strings"
+)
 
 // Fpath is used to indicate we are talking about the full file path
 type Fpath string
@@ -31,4 +35,39 @@ func (fpll *fpathListList) Add(index int, fp Fpath) {
 	}
 
 	(*fpll)[index].Add(fp)
+}
+func isChildPath(ref, candidate string) (bool, error) {
+
+	rp, err := filepath.Abs(ref)
+	if err != nil {
+		return false, err
+	}
+	can, err := filepath.Abs(candidate)
+	if err != nil {
+		return false, err
+	}
+
+	return strings.Contains(rp, can), nil
+}
+
+func isHiddenDirectory(path string) bool {
+	if path == "." || path == ".." {
+		return false
+	}
+	stat, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	if !stat.IsDir() {
+		path, _ = filepath.Split(path)
+	}
+	path = filepath.Clean(path)
+	pa := strings.Split(path, string(filepath.Separator))
+
+	for _, p := range pa {
+		if strings.HasPrefix(p, ".") {
+			return true
+		}
+	}
+	return false
 }

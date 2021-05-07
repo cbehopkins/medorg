@@ -30,8 +30,7 @@ func TestB2B(t *testing.T) {
 	bob := NewMd5File()
 
 	for _, file := range files {
-		//log.Println(file.Name())
-		bob.AddFile(file.Name())
+		bob.Files = append(bob.Files, FileStruct{Name: file.Name()})
 	}
 
 	//log.Println(bob)

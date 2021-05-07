@@ -45,7 +45,7 @@ func (dm DirectoryMap) ToMd5File() (*Md5File, error) {
 
 	for key, value := range dm.mp {
 		if key == value.Name {
-			m5f.Append(value)
+			m5f.append(value)
 		} else {
 			return nil, ErrKey
 		}
@@ -246,7 +246,8 @@ func (dm DirectoryMap) rangeMutate(fc func(string, FileStruct) (FileStruct, erro
 	return nil
 }
 
-// RunFc will recalc the checksum of an entry
+// RunFsFc lookup the FileStruct for the requested file
+// and run the supplied function
 func (dm DirectoryMap) RunFsFc(directory, file string, fc func(fs *FileStruct) error) error {
 
 	fs, ok := dm.Get(file)

@@ -5,9 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
-	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 )
 
@@ -37,8 +35,14 @@ func makeTokenChan(numOutsanding int) chan struct{} {
 	return tokenChan
 }
 
-const NumTrackerOutstanding = 1
+const NumTrackerOutstanding = 4
 
+// NewDirTracker does what it says
+// a dir tracker will walk the supplied directory
+// for each directory it finds on its walk it will create a newEntry
+// That new entry will then have its visitor called for each file in that directory
+// At some later time, we will then close the directory
+// There are no guaranetees about when this will happen
 func NewDirTracker(dir string, newEntry func(string) (DirectoryTrackerInterface, error)) <-chan error {
 	numOutsanding := NumTrackerOutstanding // FIXME expose this
 	var dt DirTracker
@@ -59,19 +63,39 @@ func NewDirTracker(dir string, newEntry func(string) (DirectoryTrackerInterface,
 	}()
 	return dt.errChan
 }
-func isChildPath(ref, candidate string) (bool, error) {
 
-	rp, err := filepath.Abs(ref)
-	if err != nil {
-		return false, err
+// Should we export this?
+// so that clients can not have to recreate them
+func (dt DirTracker) getDirectoryEntry(path string) DirectoryTrackerInterface {
+	de, ok := dt.dm[path]
+	if ok {
+		return de
 	}
-	can, err := filepath.Abs(candidate)
-	if err != nil {
-		return false, err
+	// Call out to the external function to return a new entry
+	de, err := dt.newEntry(path)
+	// FIXME error handling
+	if de == nil || err != nil {
+		return nil
 	}
-
-	return strings.Contains(rp, can), nil
+	go func() {
+		err := de.Start()
+		if err != nil {
+			dt.errChan <- err
+		}
+	}()
+	dt.dm[path] = de
+	dt.wg.Add(1)
+	go func() {
+		for err := range de.ErrChan() {
+			if err != nil {
+				dt.errChan <- err
+			}
+		}
+		dt.wg.Done()
+	}()
+	return de
 }
+
 func (dt *DirTracker) pathCloser(path string, closerFunc func(string)) {
 	// The job of this is to work out if we have gone out of scope
 	// i.e. close /fred/bob if we have received /fred/steve
@@ -103,57 +127,6 @@ func (dt *DirTracker) pathCloser(path string, closerFunc func(string)) {
 		closerFunc(dt.lastPath)
 		delete(dt.dm, dt.lastPath)
 	}
-}
-func (dt DirTracker) getDirectoryEntry(path string) DirectoryTrackerInterface {
-	de, ok := dt.dm[path]
-	if ok {
-		return de
-	}
-	// Call out to the external function to return a new entry
-	de, err := dt.newEntry(path)
-	// FIXME error handling
-	if de == nil || err != nil {
-		return nil
-	}
-	err = de.Start()
-	if err != nil {
-		// FIXME
-		return nil
-	}
-	dt.dm[path] = de
-	dt.wg.Add(1)
-	go func() {
-		for err := range de.ErrChan() {
-			if err != nil {
-				dt.errChan <- err
-			}
-		}
-		dt.wg.Done()
-	}()
-	return de
-}
-
-func isHiddenDirectory(path string) bool {
-	if path == "." || path == ".." {
-		return false
-	}
-	stat, err := os.Stat(path)
-	if err != nil {
-		return false
-	}
-	if !stat.IsDir() {
-		path, _ = filepath.Split(path)
-	}
-	path = filepath.Clean(path)
-	pa := strings.Split(path, string(filepath.Separator))
-
-	for _, p := range pa {
-		if strings.HasPrefix(p, ".") {
-			return true
-		}
-	}
-	return false
-
 }
 
 func (dt *DirTracker) directoryWalker(path string, d fs.DirEntry, err error) error {
@@ -208,7 +181,7 @@ func (dt DirTracker) close(dir string) {
 		delete(dt.dm, key)
 		val.Close()
 	}
-	log.Println("All closed in ", dir)
+	log.Println("All closed in ", dir) // FIXME can we report this another way than logging?
 }
 
 type dirTrackerJob struct {

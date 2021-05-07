@@ -5,7 +5,7 @@ import (
 	"sync"
 )
 
-type WorkItem struct {
+type workItem struct {
 	dir      string
 	file     string
 	d        fs.DirEntry
@@ -24,7 +24,7 @@ type EntryMaker func(string) (DirectoryEntryInterface, error)
 // xml file, and when requested, close it again
 // We are also able to send it files to work
 type DirectoryEntry struct {
-	workItems   chan WorkItem
+	workItems   chan workItem
 	closeChan   chan struct{}
 	dir         string
 	errorChan   chan error
@@ -41,27 +41,35 @@ func NewDirectoryEntry(path string, mkF EntryMaker) (DirectoryEntry, error) {
 		return itm, err
 	}
 
-	itm.workItems = make(chan WorkItem)
+	itm.workItems = make(chan workItem)
 	itm.closeChan = make(chan struct{})
 	itm.errorChan = make(chan error)
-	// TBD, can we go this somehow? Do we even need to if we read it in quick enough?
 	itm.activeFiles = new(sync.WaitGroup)
-	return itm, nil // I think here we should return the worker function for the receiver to go. So that they can mutate the itm themselves before starting it
+	return itm, nil
 }
+
+// ErrChan returns a channel that will have any errors encountered
+// the channel closing says that this DE is finished with
 func (de DirectoryEntry) ErrChan() <-chan error {
 	return de.errorChan
 }
+
+// Close the directory
 func (de DirectoryEntry) Close() {
 	close(de.closeChan)
 }
+
+// VisitFile satisfy the DirectoryTrackerInterface
+// this type is visiting this file
 func (de DirectoryEntry) VisitFile(dir, file string, d fs.DirEntry, callback func()) {
 	// Random thought: Could this test if the worker has been started, ad start if needed?
 	de.activeFiles.Add(1)
-	de.workItems <- WorkItem{dir, file, d, callback}
+	de.workItems <- workItem{dir, file, d, callback}
 }
+
+// Start and run the worker
 func (de DirectoryEntry) Start() error {
-	de.activeFiles.Add(1)
-	go de.worker()
+	de.worker()
 	return nil
 }
 func (de DirectoryEntry) worker() {
@@ -77,7 +85,6 @@ func (de DirectoryEntry) worker() {
 				wi.callback()
 			}(wi.dir, wi.file, wi.d)
 		case <-de.closeChan:
-			de.activeFiles.Done() // From the NewDirectoryEntry
 			close(de.workItems)
 			de.activeFiles.Wait()
 			de.errorChan <- de.dm.Persist(de.dir)

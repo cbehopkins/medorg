@@ -31,27 +31,39 @@ type backupDupeMap struct {
 }
 
 func NewBackupDupeMap() (itm backupDupeMap) {
-	itm.dupeMap = make(map[backupKey]Fpath)
+	// itm.dupeMap = make(map[backupKey]Fpath)
 	return
 }
 func (bdm *backupDupeMap) Add(fs FileStruct) {
 	key := backupKey{fs.Size, fs.Checksum}
 	bdm.Lock()
+	if bdm.dupeMap == nil {
+		bdm.dupeMap = make(map[backupKey]Fpath)
+	}
 	bdm.dupeMap[key] = Fpath(fs.Path())
 	bdm.Unlock()
 }
 func (bdm *backupDupeMap) Len() int {
+	if bdm.dupeMap == nil {
+		return 0
+	}
 	bdm.Lock()
 	defer bdm.Unlock()
 	return len(bdm.dupeMap)
 }
 func (bdm *backupDupeMap) Remove(key backupKey) {
+	if bdm.dupeMap == nil {
+		return
+	}
 	bdm.Lock()
 	delete(bdm.dupeMap, key)
 	bdm.Unlock()
 }
 
 func (bdm *backupDupeMap) Lookup(key backupKey) (Fpath, bool) {
+	if bdm.dupeMap == nil {
+		return "", false
+	}
 	bdm.Lock()
 	defer bdm.Unlock()
 	v, ok := bdm.dupeMap[key]
@@ -84,8 +96,8 @@ func scanBackupDirectories(destDir, srcDir, volumeName string, dupeFunc func(pat
 	tokenBuffer := makeTokenChan(calcCnt)
 	defer close(tokenBuffer)
 
-	backupDestination := NewBackupDupeMap()
-	backupSource := NewBackupDupeMap()
+	var backupDestination backupDupeMap
+	var backupSource backupDupeMap
 	modifyFuncDestinationDm := func(dm DirectoryMap, dir, fn string, d fs.DirEntry) error {
 
 		if fn == Md5FileName {

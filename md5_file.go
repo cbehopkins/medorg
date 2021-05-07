@@ -21,19 +21,19 @@ type Md5File struct {
 // NewMd5File creates a new one
 func NewMd5File() *Md5File {
 	itm := new(Md5File)
-	itm.Files = make([]FileStruct, 0)
+	// itm.Files = make([]FileStruct, 0)
 	return itm
 }
 
-// Append Adds a struct to the struct
-func (md *Md5File) Append(fs FileStruct) {
+// append Adds a struct to the struct
+func (md *Md5File) append(fs FileStruct) {
 	md.Files = append(md.Files, fs)
 }
 
 // AddFile adds a file to the struct
-func (md *Md5File) AddFile(filename string) {
-	md.Append(FileStruct{Name: filename})
-}
+// func (md *Md5File) AddFile(filename string) {
+// 	md.append(FileStruct{Name: filename})
+// }
 
 // ToXML standard marshaller
 func (md Md5File) ToXML() ([]byte, error) {
