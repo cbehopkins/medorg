@@ -152,7 +152,7 @@ func TestDuplicateDetect(t *testing.T) {
 
 func TestDuplicateArchivedAtPopulation(t *testing.T) {
 	// As per TestDuplicateDetect, but have they had the
-	// ArchivedAt tag populated appropriatly
+	// ArchivedAt tag populated appropriately
 	dirs, err := createTestBackupDirectories(20, 10)
 	if err != nil {
 		t.Error("Failed to create test Directories", err)
@@ -211,7 +211,7 @@ func TestBackupExtract(t *testing.T) {
 	// Following on from TestDuplicateArchivedAtPopulation
 	// We have correctly detected the duplicates and populated the
 	// tags with this information.
-	// Knowing this, we wnat to make sure when we scan though that tagged dir
+	// Knowing this, we want to make sure when we scan though that tagged dir
 	// we select the correct files to back up.
 	srcFiles := 20
 	numberBackedUp := 10
@@ -321,7 +321,7 @@ func TestBackupMain(t *testing.T) {
 	// Following on from TestDuplicateArchivedAtPopulation
 	// We have correctly detected the duplicates and populated the
 	// tags with this information.
-	// Knowing this, we wnat to make sure when we scan though that tagged dir
+	// Knowing this, we want to make sure when we scan though that tagged dir
 	// we select the correct files to back up.
 	srcFiles := 20
 	numberBackedUp := 11

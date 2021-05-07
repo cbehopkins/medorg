@@ -58,10 +58,8 @@ func (md *Md5File) FromXML(input []byte) (err error) {
 	switch true {
 	case err == nil:
 	case errors.Is(err, io.EOF):
-		err = nil
 	case errors.As(err, &xse):
 		log.Println("Unmarshalling error:", err)
-		err = nil
 	default:
 		return fmt.Errorf("unknown Error UnMarshalling Md5File:%w", err)
 	}

@@ -253,7 +253,7 @@ func TestJournalDummyRmDir(t *testing.T) {
 
 	deleteNDirectories(expectedDeletions, t, initialDirectoryStructure, journal)
 
-	// Now run our origional directory structure
+	// Now run our original directory structure
 	visitFuncCheck := func(de DirectoryEntry) error {
 		err := journal.AppendJournalFromDm(de.dm, de.dir)
 		if err == errFileExistsInJournal {

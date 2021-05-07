@@ -296,7 +296,7 @@ func ResolveFnClash(directory, fn string, extension, orig string) string {
 		for i := 0; exist; i++ {
 			pfn, exist = potentialFilename(directory, fn, extension, i)
 			if pfn == orig {
-				// If we are back to our origional
+				// If we are back to our original
 				// break!
 				exist = false
 			}

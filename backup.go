@@ -176,7 +176,7 @@ func (bs backScanner) scanBackupDirectories(destDir, srcDir, volumeName string) 
 
 	if (bs.dupeFunc != nil) && (backupDestination.Len() > 0) {
 		// There's stuff on the backup that's not in the Source
-		// We'll need to do somethign about this soon!
+		// We'll need to do something about this soon!
 		// log.Println("Unexpected items left in backup destination")
 		for _, v := range backupDestination.dupeMap {
 			bs.dupeFunc(string(v))
