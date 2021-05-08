@@ -83,6 +83,22 @@ type backScanner struct {
 	lookupFunc func(Fpath, bool) error
 }
 
+func (dm DirectoryMap) updateAndGo(dir, fn string) (fs FileStruct, err error) {
+	// Update the checksum, creating the FS if needed
+	err = dm.UpdateChecksum(dir, fn, false)
+	if err != nil {
+		return
+	}
+
+	// Add everything we find to the destination map
+	fs, ok := dm.Get(fn)
+	if Debug && !ok {
+		// If the FS does not exist, then UpdateChecksum is faulty
+		return fs, fmt.Errorf("dst %w: %s/%s", ErrMissingSrcEntry, dir, fn)
+	}
+	return
+}
+
 // scanBackupDirectories will mark srcDir's ArchiveAt
 // tag, with any files that are already found in the destination
 func (bs backScanner) scanBackupDirectories(destDir, srcDir, volumeName string) error {
@@ -92,23 +108,17 @@ func (bs backScanner) scanBackupDirectories(destDir, srcDir, volumeName string) 
 
 	var backupDestination backupDupeMap
 	var backupSource backupDupeMap
+
 	modifyFuncDestinationDm := func(dm DirectoryMap, dir, fn string, d fs.DirEntry) error {
 		if fn == Md5FileName {
 			return nil
 		}
 		<-tokenBuffer
-		// Update the checksum, creating the FS if needed
-		err := dm.UpdateChecksum(dir, fn, false)
+		fs, err := dm.updateAndGo(dir, fn)
 		tokenBuffer <- struct{}{}
+
 		if err != nil {
 			return err
-		}
-
-		// Add everything we find to the destination map
-		fs, ok := dm.Get(fn)
-		if Debug && !ok {
-			// If the FS does not exist, then UpdateChecksum is faulty
-			return fmt.Errorf("dst %w: %s/%s", ErrMissingSrcEntry, dir, fn)
 		}
 		backupDestination.Add(fs)
 		return nil
@@ -118,17 +128,11 @@ func (bs backScanner) scanBackupDirectories(destDir, srcDir, volumeName string) 
 			return nil
 		}
 		<-tokenBuffer
-		err := dm.UpdateChecksum(dir, fn, false)
+		fs, err := dm.updateAndGo(dir, fn)
 		tokenBuffer <- struct{}{}
 		if err != nil {
 			return err
 		}
-
-		fs, ok := dm.Get(fn)
-		if !ok {
-			return fmt.Errorf("src %w: %s/%s", ErrMissingSrcEntry, dir, fn)
-		}
-
 		// If it exists in the destination already
 		path, ok := backupDestination.Lookup(fs.Key())
 		if bs.lookupFunc != nil {

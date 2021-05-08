@@ -18,27 +18,11 @@ type Md5File struct {
 	Files   FileStructArray `xml:"fr"`
 }
 
-// NewMd5File creates a new one
-func NewMd5File() *Md5File {
-	itm := new(Md5File)
-	// itm.Files = make([]FileStruct, 0)
-	return itm
-}
-
-// append Adds a struct to the struct
+// append adds a struct to the struct
 func (md *Md5File) append(fs FileStruct) {
 	md.Files = append(md.Files, fs)
 }
 
-// AddFile adds a file to the struct
-// func (md *Md5File) AddFile(filename string) {
-// 	md.append(FileStruct{Name: filename})
-// }
-
-// ToXML standard marshaller
-func (md Md5File) ToXML() ([]byte, error) {
-	return xml.MarshalIndent(md, "", "  ")
-}
 func (md Md5File) String() string {
 	txt, err := xml.MarshalIndent(md, "", "  ")
 	switch err {
@@ -49,23 +33,27 @@ func (md Md5File) String() string {
 	}
 	return string(txt)
 }
-
-// FromXML Standard unmarshaller
-func (md *Md5File) FromXML(input []byte) (err error) {
-	err = xml.Unmarshal(input, md)
-	//fmt.Printf("Unmarshalling completed on:\n%v\nOutput:\n%v\n\n",input, md)
+func supressXmlUnmarshallErrors(data []byte, v interface{}) error {
+	err := xml.Unmarshal(data, v)
 	xse := &xml.SyntaxError{}
 	switch true {
 	case err == nil:
 	case errors.Is(err, io.EOF):
 	case errors.As(err, &xse):
+		// Supress error from causing a genuine failure (disks are unreliable)
+		// But still note that it happened
 		log.Println("Unmarshalling error:", err)
 	default:
-		return fmt.Errorf("unknown Error UnMarshalling Md5File:%w", err)
+		return fmt.Errorf("unknown Error UnMarshalling:%w", err)
 	}
 	return nil
 }
-func (md Md5File) Sort() {
+
+// FromXML Standard unmarshaller
+func (md *Md5File) FromXML(input []byte) (err error) {
+	return supressXmlUnmarshallErrors(input, md)
+}
+func (md Md5File) sort() {
 	sort.Sort(md.Files)
 }
 func (md0 Md5File) Equal(md1 Md5File) bool {
@@ -75,8 +63,8 @@ func (md0 Md5File) Equal(md1 Md5File) bool {
 	if len(md0.Files) != len(md1.Files) {
 		return false
 	}
-	md0.Sort()
-	md1.Sort()
+	md0.sort()
+	md1.sort()
 
 	for i, v := range md0.Files {
 		// We also care about the name being the same

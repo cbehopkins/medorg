@@ -1,6 +1,7 @@
 package medorg
 
 import (
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
@@ -38,8 +39,10 @@ func NewDirectoryMap() *DirectoryMap {
 	return itm
 }
 
+// ToMd5File returns the dm as an md5 file
+// i.e. why the hell are we not just using that?
 func (dm DirectoryMap) ToMd5File() (*Md5File, error) {
-	m5f := NewMd5File()
+	var m5f Md5File
 	dm.lock.RLock()
 	defer dm.lock.RUnlock()
 
@@ -50,7 +53,7 @@ func (dm DirectoryMap) ToMd5File() (*Md5File, error) {
 			return nil, ErrKey
 		}
 	}
-	return m5f, nil
+	return &m5f, nil
 }
 
 //ToXML is a standard marshaller
@@ -59,7 +62,7 @@ func (dm DirectoryMap) ToXML() (output []byte, err error) {
 	if err != nil {
 		return nil, err
 	}
-	return m5f.ToXML()
+	return xml.MarshalIndent(m5f, "", "  ")
 }
 
 // FromXML is a standard unmarshaller

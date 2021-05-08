@@ -13,21 +13,16 @@ type moveKey struct {
 	size int64
 	name string
 }
-type MoveDetect struct {
+
+type moveDetect struct {
 	sync.RWMutex
 	dupeMap map[moveKey]FileStruct
-}
-
-func NewMoveDetect() *MoveDetect {
-	var itm MoveDetect
-	itm.dupeMap = make(map[moveKey]FileStruct)
-	return &itm
 }
 
 // runMoveDetectFindDeleted will run through the directory
 // looking for any files which have been deleted
 // And move the FileStruct from the dm into a map
-func (mvd *MoveDetect) runMoveDetectFindDeleted(directory string) error {
+func (mvd *moveDetect) runMoveDetectFindDeleted(directory string) error {
 	visitFunc := func(dm DirectoryMap, dir, fn string, d fs.DirEntry) error {
 		return nil
 	}
@@ -63,7 +58,7 @@ func (mvd *MoveDetect) runMoveDetectFindDeleted(directory string) error {
 // runMoveDetectFindNew will run through the directory
 // looking for any new files and if they exist in the map
 // then populate the entry withou a calculation
-func (mvd *MoveDetect) runMoveDetectFindNew(directory string) error {
+func (mvd *moveDetect) runMoveDetectFindNew(directory string) error {
 	visitFunc := func(dm DirectoryMap, dir, fn string, d fs.DirEntry) error {
 		if fn == Md5FileName {
 			return nil
@@ -98,7 +93,10 @@ func (mvd *MoveDetect) runMoveDetectFindNew(directory string) error {
 	}
 	return nil
 }
-func (mvd *MoveDetect) RunMoveDetect(dirs []string) error {
+
+// RunMoveDetect the move detect on specified directories
+func RunMoveDetect(dirs []string) error {
+	var mvd moveDetect
 	for _, dir := range dirs {
 		// FIXME we should be able to run this in parallel
 		err := mvd.runMoveDetectFindDeleted(dir)
@@ -114,25 +112,34 @@ func (mvd *MoveDetect) RunMoveDetect(dirs []string) error {
 	}
 	return nil
 }
-func (mvd *MoveDetect) add(fileStruct FileStruct) {
+func (mvd *moveDetect) add(fileStruct FileStruct) {
 	mvd.Lock()
+	if mvd.dupeMap == nil {
+		mvd.dupeMap = make(map[moveKey]FileStruct)
+	}
 	mvd.dupeMap[moveKey{fileStruct.Size, fileStruct.Name}] = fileStruct
 	mvd.Unlock()
 }
-func (mvd *MoveDetect) delete(fileStruct FileStruct) {
+func (mvd *moveDetect) delete(fileStruct FileStruct) {
+	if mvd.dupeMap == nil {
+		return
+	}
 	mvd.Lock()
 	delete(mvd.dupeMap, moveKey{fileStruct.Size, fileStruct.Name})
 	mvd.Unlock()
 }
 
 // query if the file struct (equivalent) is in the move detect array
-func (mvd *MoveDetect) query(d fs.DirEntry) (FileStruct, error) {
+func (mvd *moveDetect) query(d fs.DirEntry) (FileStruct, error) {
 	info, err := d.Info()
 	if err != nil {
 		return FileStruct{}, err
 	}
 	mvd.RLock()
 	defer mvd.RUnlock()
+	if mvd.dupeMap == nil {
+		return FileStruct{}, errMvdQueryFailed
+	}
 	key := moveKey{info.Size(), info.Name()}
 	v, ok := mvd.dupeMap[key]
 	if !ok {

@@ -32,6 +32,9 @@ type DirectoryEntry struct {
 	activeFiles *sync.WaitGroup
 }
 
+// NewDirectoryEntry creates a directory entry
+// That is an entry for each file in the dirctory
+// We will later be visited populating this structure
 func NewDirectoryEntry(path string, mkF EntryMaker) (DirectoryEntry, error) {
 	var itm DirectoryEntry
 	var err error

@@ -2,6 +2,7 @@ package medorg
 
 import (
 	"bufio"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
@@ -24,13 +25,6 @@ var errFileExistsInJournal = errors.New("file exists already")
 
 func (jo Journal) String() string {
 	return fmt.Sprint(jo.fl)
-}
-
-// Len returns the number of directories in the struct
-// Note a directory can have >1 entries in the file list
-// but only 1 entry in the location list
-func (jo Journal) Len() int {
-	return len(jo.location)
 }
 
 var errJournalSelfCheckFail = errors.New("journal self check fail")
@@ -120,7 +114,7 @@ var errShortWrite = errors.New("short write in journal")
 // DumpWriter dumps the whole journal to a writer
 func (jo Journal) DumpWriter(fd io.Writer) error {
 	visitor := func(md5f Md5File) error {
-		xm, err := md5f.ToXML()
+		xm, err := xml.MarshalIndent(md5f, "", "  ")
 		if err != nil {
 			return err
 		}
@@ -204,12 +198,12 @@ func (jo *Journal) SlurpReader(fd io.Reader) error {
 		jo.location = make(map[string]int)
 	}
 	fc := func(ip string) error {
-		md5f := NewMd5File()
-		err := md5f.FromXML([]byte(ip))
+		var md5f Md5File
+		err := supressXmlUnmarshallErrors([]byte(ip), &md5f)
 		if err != nil {
 			return err
 		}
-		jo.appendItem(md5f, md5f.Dir)
+		jo.appendItem(&md5f, md5f.Dir)
 		return nil
 	}
 	return slupReadFunc(fd, fc)

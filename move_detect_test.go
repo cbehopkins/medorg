@@ -206,7 +206,7 @@ func TestMoveDetect(t *testing.T) {
 					t.Error("Error checking checksums for directories", err)
 				}
 			}
-			err = NewMoveDetect().RunMoveDetect([]string{root})
+			err = RunMoveDetect([]string{root})
 			if err != nil {
 				t.Error("move detect problem", err)
 			}

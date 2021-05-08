@@ -62,7 +62,7 @@ func main() {
 	}
 
 	if *mvdflg {
-		err := medorg.NewMoveDetect().RunMoveDetect(directories)
+		err := medorg.RunMoveDetect(directories)
 		if err != nil {
 			fmt.Println("Error! In move detect", err)
 			os.Exit(4)

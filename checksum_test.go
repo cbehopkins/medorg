@@ -27,7 +27,7 @@ func TestB2B(t *testing.T) {
 	files, err := ioutil.ReadDir(dirToProc)
 	check(err)
 
-	bob := NewMd5File()
+	var bob Md5File
 
 	for _, file := range files {
 		bob.Files = append(bob.Files, FileStruct{Name: file.Name()})
@@ -35,7 +35,7 @@ func TestB2B(t *testing.T) {
 
 	//log.Println(bob)
 	marshelled := bob.String()
-	fred := NewMd5File()
+	var fred Md5File
 	err = fred.FromXML([]byte(marshelled))
 	if err != nil {
 		log.Fatal("um error", err)
