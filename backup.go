@@ -193,6 +193,7 @@ func (bs backScanner) scanBackupDirectories(destDir, srcDir, volumeName string) 
 // i.e. walk through src file system looking for files
 // That don't have the volume name as an archived at
 func extractCopyFiles(targetDir, volumeName string) (fpathListList, error) {
+	var lk sync.Mutex
 	remainingFiles := fpathListList{}
 	visitFunc := func(dm DirectoryMap, dir, fn string, d fs.DirEntry) error {
 		if fn == Md5FileName {
@@ -210,8 +211,9 @@ func extractCopyFiles(targetDir, volumeName string) (fpathListList, error) {
 		if lenArchive > MaxBackups {
 			return nil
 		}
+		lk.Lock()
 		remainingFiles.Add(lenArchive, fp)
-
+		lk.Unlock()
 		return nil
 	}
 

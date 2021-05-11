@@ -12,10 +12,10 @@ import (
 // Md5File is the struct written into each directory
 // It contains a lost of the files and the properties assoxciated with them
 type Md5File struct {
-	XMLName struct{}        `xml:"dr"`
-	Ts      int64           `xml:"tstamp,attr,omitempty"`
-	Dir     string          `xml:"dir,attr,omitempty"`
-	Files   FileStructArray `xml:"fr"`
+	XMLName struct{} `xml:"dr"`
+	// Ts      int64           `xml:"tstamp,attr,omitempty"`
+	Dir   string          `xml:"dir,attr,omitempty"`
+	Files FileStructArray `xml:"fr"`
 }
 
 // append adds a struct to the struct
@@ -49,13 +49,6 @@ func supressXmlUnmarshallErrors(data []byte, v interface{}) error {
 	return nil
 }
 
-// FromXML Standard unmarshaller
-func (md *Md5File) FromXML(input []byte) (err error) {
-	return supressXmlUnmarshallErrors(input, md)
-}
-func (md Md5File) sort() {
-	sort.Sort(md.Files)
-}
 func (md0 Md5File) Equal(md1 Md5File) bool {
 	if md0.Dir != md1.Dir {
 		return false
@@ -63,8 +56,9 @@ func (md0 Md5File) Equal(md1 Md5File) bool {
 	if len(md0.Files) != len(md1.Files) {
 		return false
 	}
-	md0.sort()
-	md1.sort()
+
+	sort.Sort(md0.Files)
+	sort.Sort(md1.Files)
 
 	for i, v := range md0.Files {
 		// We also care about the name being the same

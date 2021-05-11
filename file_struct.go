@@ -127,6 +127,7 @@ func (fs *FileStruct) RemoveTag(tag string) bool {
 	return true
 }
 
+// Changed reports if the filestruct has changed from the supplied info
 func (fs FileStruct) Changed(info fs.FileInfo) (bool, error) {
 	if info == nil {
 		return false, errors.New("changed called on nil fileinfo")
@@ -140,6 +141,7 @@ func (fs FileStruct) Changed(info fs.FileInfo) (bool, error) {
 	return false, nil
 }
 
+// UpdateChecksum makes the tea
 func (fs *FileStruct) UpdateChecksum(forceUpdate bool) error {
 	if !forceUpdate && (fs.Checksum != "") {
 		return nil

@@ -65,7 +65,7 @@ func main() {
 			}
 			dm.VisitFunc = visitor
 
-			return dm, journal.AppendJournalFromDm(dm, dir)
+			return dm, journal.AppendJournalFromDm(&dm, dir)
 		}
 		de, err := medorg.NewDirectoryEntry(dir, mkFk)
 		return de, err

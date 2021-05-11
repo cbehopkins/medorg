@@ -38,11 +38,18 @@ func NewDirectoryMap() *DirectoryMap {
 	}
 	return itm
 }
+func (dm DirectoryMap) Len() int {
+	dm.lock.RLock()
+	defer dm.lock.RUnlock()
+	return len(dm.mp)
+}
 
 // ToMd5File returns the dm as an md5 file
 // i.e. why the hell are we not just using that?
-func (dm DirectoryMap) ToMd5File() (*Md5File, error) {
-	var m5f Md5File
+func (dm DirectoryMap) ToMd5File(dir string) (*Md5File, error) {
+	m5f := Md5File{
+		Dir: dir,
+	}
 	dm.lock.RLock()
 	defer dm.lock.RUnlock()
 
@@ -56,26 +63,26 @@ func (dm DirectoryMap) ToMd5File() (*Md5File, error) {
 	return &m5f, nil
 }
 
-//ToXML is a standard marshaller
-func (dm DirectoryMap) ToXML() (output []byte, err error) {
-	m5f, err := dm.ToMd5File()
+//ToXML
+func (dm DirectoryMap) ToXML(dir string) (output []byte, err error) {
+	m5f, err := dm.ToMd5File(dir)
 	if err != nil {
 		return nil, err
 	}
 	return xml.MarshalIndent(m5f, "", "  ")
 }
 
-// FromXML is a standard unmarshaller
-func (dm *DirectoryMap) FromXML(input []byte) (err error) {
+// FromXML
+func (dm *DirectoryMap) FromXML(input []byte) (dir string, err error) {
 	var m5f Md5File
-	err = m5f.FromXML(input)
+	err = supressXmlUnmarshallErrors(input, &m5f)
 	if err != nil {
-		return err
+		return "", err
 	}
 	for _, val := range m5f.Files {
 		dm.Add(val)
 	}
-	return nil
+	return m5f.Dir, nil
 }
 
 // Add adds a file struct to the dm
@@ -145,7 +152,7 @@ func DirectoryMapFromDir(directory string) (dm DirectoryMap, err error) {
 	if err != nil {
 		return
 	}
-	err = dm.FromXML(byteValue)
+	_, err = dm.FromXML(byteValue)
 	if err != nil {
 		return dm, fmt.Errorf("FromXML error \"%w\" on %s", err, directory)
 	}
@@ -156,13 +163,6 @@ func DirectoryMapFromDir(directory string) (dm DirectoryMap, err error) {
 	}
 
 	return dm, dm.rangeMutate(fc)
-}
-
-// Len is how many items in the dm
-func (dm DirectoryMap) Len() int {
-	dm.lock.RLock()
-	defer dm.lock.RUnlock()
-	return len(dm.mp)
 }
 
 // Stale returns true if the dm has been modified since writted
@@ -320,7 +320,7 @@ func (dm DirectoryMap) Persist(directory string) error {
 		return err
 	}
 	// Write out a new Xml from the structure
-	ba, err := dm.ToXML()
+	ba, err := dm.ToXML(directory)
 	switch err {
 	case nil:
 	case io.EOF:
@@ -357,4 +357,41 @@ func (dm DirectoryMap) UpdateValues(directory string, d fs.DirEntry) error {
 	}
 	dm.Add(fs)
 	return nil
+}
+func (dm DirectoryMap) Copy() DirectoryEntryJournalableInterface{
+	cp := NewDirectoryMap()
+for k, v := range dm.mp{
+		cp.mp[k]=v
+	}
+	cp.VisitFunc=dm.VisitFunc
+	return cp
+}
+func (dm0 DirectoryMap) Equal(dm DirectoryEntryInterface) bool {
+	dm1 := dm.(*DirectoryMap)
+	dm0.lock.RLock()
+	defer dm0.lock.RUnlock()
+	dm1.lock.RLock()
+	defer dm1.lock.RUnlock()
+	if len(dm0.mp) != len(dm1.mp) {
+		return false
+	}
+	for k, v := range dm0.mp {
+		v1, ok := dm1.mp[k]
+		if !ok {
+			return false
+		}
+		if !v.Equal(v1) {
+			return false
+		}
+	}
+	for k, v := range dm1.mp {
+		v1, ok := dm0.mp[k]
+		if !ok {
+			return false
+		}
+		if !v.Equal(v1) {
+			return false
+		}
+	}
+	return true
 }

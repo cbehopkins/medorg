@@ -15,7 +15,14 @@ type DirectoryVisitorFunc func(dm DirectoryEntryInterface, directory string, fil
 type DirectoryEntryInterface interface {
 	Persist(string) error
 	Visitor(directory, file string, d fs.DirEntry) error
-	ToMd5File() (*Md5File, error) // FIXME I don't like that we need this
+}
+type DirectoryEntryJournalableInterface interface {
+	DirectoryEntryInterface
+	ToXML(dir string) (output []byte, err error)
+	FromXML(input []byte) (dir string, err error)
+	Equal(DirectoryEntryInterface) bool
+	Len() int
+	Copy() DirectoryEntryJournalableInterface
 }
 type EntryMaker func(string) (DirectoryEntryInterface, error)
 
@@ -84,8 +91,8 @@ func (de DirectoryEntry) worker() {
 		case wi := <-de.workItems:
 			go func(dir, file string, d fs.DirEntry) {
 				de.errorChan <- de.dm.Visitor(dir, file, d)
-				de.activeFiles.Done()
 				wi.callback()
+				de.activeFiles.Done()
 			}(wi.dir, wi.file, wi.d)
 		case <-de.closeChan:
 			close(de.workItems)

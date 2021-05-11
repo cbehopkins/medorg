@@ -9,6 +9,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 )
 
@@ -90,7 +91,6 @@ func (bdm *backupDupeMap) aFile(dm DirectoryMap, dir, fn string, d fs.DirEntry) 
 }
 
 // Test whether we can detect duplicates within the
-// FIXME move test to using scanBackupDirectories instead
 func TestDuplicateDetect(t *testing.T) {
 	numberOfFiles := 20
 	numberOfDuplicates := 10
@@ -134,11 +134,14 @@ func TestDuplicateDetect(t *testing.T) {
 	for err := range NewDirTracker(destDir, makerFuncDest) {
 		t.Error("Error received on closing:", err)
 	}
+	var lk sync.Mutex
 	expectedDuplicates := numberOfDuplicates
 	bs := backScanner{
 		lookupFunc: func(path Fpath, ok bool) error {
 			if ok {
+				lk.Lock()
 				expectedDuplicates--
+				lk.Unlock()
 				t.Log(path, "is a duplicate")
 			}
 			return nil
@@ -174,6 +177,7 @@ func TestDuplicateArchivedAtPopulation(t *testing.T) {
 	}
 
 	expectedDuplicates := 10
+	var lk sync.Mutex
 	archiveWalkFunc := func(dm DirectoryMap, dir, fn string, d fs.DirEntry) error {
 		if fn == Md5FileName {
 			return nil
@@ -183,7 +187,9 @@ func TestDuplicateArchivedAtPopulation(t *testing.T) {
 			return fmt.Errorf("%w:%s", errMissingTestFile, fn)
 		}
 		if fs.HasTag(backupLabelName) {
+			lk.Lock()
 			expectedDuplicates--
+			lk.Unlock()
 		}
 		return nil
 	}
@@ -241,7 +247,7 @@ func TestBackupExtract(t *testing.T) {
 	numDuplicates := 1
 	numExtra := 1
 	extraMap := make(map[Fpath]struct{})
-
+	var lk sync.Mutex
 	directoryWalker := func(dm DirectoryMap, dir, fn string, d fs.DirEntry) error {
 		if fn == Md5FileName {
 			return nil
@@ -251,6 +257,8 @@ func TestBackupExtract(t *testing.T) {
 			return errors.New("Missing file")
 		}
 		if fs.HasTag(backupLabelName) {
+			lk.Lock()
+			defer lk.Unlock()
 			if numDuplicates > 0 {
 				numDuplicates--
 				fs.AddTag(altBackupLabelName)
@@ -259,6 +267,8 @@ func TestBackupExtract(t *testing.T) {
 				return nil
 			}
 		} else {
+			lk.Lock()
+			defer lk.Unlock()
 			if numExtra > 0 {
 				numExtra--
 				fs.AddTag(altBackupLabelName)
@@ -309,7 +319,7 @@ func TestBackupExtract(t *testing.T) {
 			}
 		}
 		if primaryFileCount > 0 {
-			t.Error("Primary file logic error")
+			t.Error("Primary file logic error", primaryFileCount)
 		}
 	}
 	if cnt != expectedFilesToBackup {

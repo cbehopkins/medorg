@@ -87,7 +87,8 @@ func modifyFilesInJournal(changesToMake int, dts directoryTestStuff) error {
 		if changesToMake <= 0 {
 			break
 		}
-		changeArray[changesToMake-1] = filename
+		changesToMake--
+		changeArray[changesToMake] = filename
 	}
 	// Modify the filename on anything that's in the change array
 	for _, v := range changeArray {
@@ -103,7 +104,9 @@ func modifyFilesInJournal(changesToMake int, dts directoryTestStuff) error {
 func createInitialJournal(t *testing.T, initialDirectoryStructure *directoryTestStuff) Journal {
 	journal := Journal{}
 	visitFuncInitial0 := func(de DirectoryEntry) error {
-		err := journal.AppendJournalFromDm(de.dm, de.dir)
+		tmp := de.dm.(DirectoryMap)
+		//dm := tst.(DirectoryEntryJournalableInterface)
+		err := journal.AppendJournalFromDm(&tmp, de.dir)
 		if err == errFileExistsInJournal {
 			return fmt.Errorf("initial setup TestJournalDummyWalks %w,%s", err, de.dir)
 		}
@@ -121,16 +124,17 @@ func createInitialJournal(t *testing.T, initialDirectoryStructure *directoryTest
 func TestJournalDummyWalk(t *testing.T) {
 	initialDirectoryStructure := populateDirectoryStuff(2, 5)
 	initialDirectoryStructure.Dirs = []directoryTestStuff{
-		populateDirectoryStuff(1, 5),
-		populateDirectoryStuff(1, 5),
-		populateDirectoryStuff(1, 5),
+		// populateDirectoryStuff(1, 5),
+		// populateDirectoryStuff(1, 5),
+		// populateDirectoryStuff(1, 5),
 	}
 	t.Log("Working with:", initialDirectoryStructure)
 	journal := createInitialJournal(t, &initialDirectoryStructure)
 	t.Log(journal)
 
 	visitFuncRevisit := func(de DirectoryEntry) error {
-		err := journal.AppendJournalFromDm(de.dm, de.dir)
+		tmp := de.dm.(DirectoryMap)
+		err := journal.AppendJournalFromDm(&tmp, de.dir)
 		if err != errFileExistsInJournal {
 			t.Log("Got:", de.dm)
 			return fmt.Errorf("issue on revisit %w,%s", err, de.dir)
@@ -162,7 +166,8 @@ func TestJournalDummyAddFiles(t *testing.T) {
 	// Now let's add a few files
 	// This should be a new directory with 3 files
 	visitFuncInitial1 := func(de DirectoryEntry) error {
-		err := journal.AppendJournalFromDm(de.dm, de.dir)
+		tmp := de.dm.(DirectoryMap)
+		err := journal.AppendJournalFromDm(&tmp, de.dir)
 		if err == errFileExistsInJournal {
 			return fmt.Errorf("initial1 TestJournalBasicXml %w,%s", err, de.dir)
 		}
@@ -175,12 +180,13 @@ func TestJournalDummyAddFiles(t *testing.T) {
 		t.Error("Strange number of directories", numDirsToAdd)
 	}
 }
+
 func TestJournalDummyModifyFiles(t *testing.T) {
 	initialDirectoryStructure := populateDirectoryStuff(2, 5)
 	initialDirectoryStructure.Dirs = []directoryTestStuff{
-		populateDirectoryStuff(1, 5),
-		populateDirectoryStuff(1, 5),
-		populateDirectoryStuff(1, 5),
+		// populateDirectoryStuff(1, 5),
+		// populateDirectoryStuff(1, 5),
+		// populateDirectoryStuff(1, 5),
 	}
 
 	expectedAdditions := 1
@@ -196,7 +202,8 @@ func TestJournalDummyModifyFiles(t *testing.T) {
 	}
 
 	visitFuncAdd0 := func(de DirectoryEntry) error {
-		err := journal.AppendJournalFromDm(de.dm, de.dir)
+		tmp := de.dm.(DirectoryMap)
+		err := journal.AppendJournalFromDm(&tmp, de.dir)
 		if err == errFileExistsInJournal {
 			return nil
 		}
@@ -223,7 +230,8 @@ func deleteNDirectories(n int, t *testing.T, initialDirectoryStructure directory
 
 	// Now we have an entry to delete, submit that to the journal
 	visitFuncDeleter := func(de DirectoryEntry) error {
-		err := journal.AppendJournalFromDm(de.dm, de.dir)
+		tmp := de.dm.(DirectoryMap)
+		err := journal.AppendJournalFromDm(&tmp, de.dir)
 		if err == errFileExistsInJournal {
 			// All files should already exist
 			return nil
@@ -255,7 +263,8 @@ func TestJournalDummyRmDir(t *testing.T) {
 
 	// Now run our original directory structure
 	visitFuncCheck := func(de DirectoryEntry) error {
-		err := journal.AppendJournalFromDm(de.dm, de.dir)
+		tmp := de.dm.(DirectoryMap)
+		err := journal.AppendJournalFromDm(&tmp, de.dir)
 		if err == errFileExistsInJournal {
 			return nil
 		}
@@ -286,10 +295,10 @@ func TestJournalDummyVisitDirs(t *testing.T) {
 	t.Log(journal)
 
 	expectedDirectoryCount := 1 + len(initialDirectoryStructure.Dirs)
-	visitor := func(md5f Md5File) error {
+	visitor := func(de DirectoryEntryJournalableInterface, dir string) error {
 		expectedDirectoryCount--
-		if len(md5f.Files) != 5 {
-			t.Error("Wrong File count for:", md5f)
+		if de.Len() != 5 {
+			t.Error("Wrong File count for:", de)
 		}
 		return nil
 	}

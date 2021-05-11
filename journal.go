@@ -2,12 +2,10 @@ package medorg
 
 import (
 	"bufio"
-	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
 	"strings"
-	"time"
 )
 
 // Journal is a representation of our filesystem in a journaled fashion
@@ -16,7 +14,7 @@ import (
 // file handle and offset
 type Journal struct {
 	// The file list as recorded on the disk journal
-	fl []Md5File
+	fl []DirectoryEntryJournalableInterface
 	// The  location in the file list of the most recent fl entry
 	location map[string]int
 }
@@ -37,20 +35,20 @@ func (jo Journal) selfCheck() error {
 	return nil
 }
 
-func (jo Journal) directoryExists(md5fp *Md5File, dir string) bool {
+func (jo Journal) directoryExists(de DirectoryEntryJournalableInterface, dir string) bool {
 	location, ok := jo.location[dir]
 	if !ok {
 		return false
 	}
 	// If they are the same, then say they are the same
 	// otherwise we will behave as if this entry does not already exist
-	return jo.fl[location].Equal(*md5fp)
+	return jo.fl[location].Equal(de)
 }
 
-func (jo *Journal) appendItem(md5fp *Md5File, dir string) error {
+func (jo *Journal) appendItem(de DirectoryEntryJournalableInterface, dir string) error {
 	// log.Println("Adding Item to journal:", dir, *md5fp)
 	jo.location[dir] = len(jo.fl)
-	jo.fl = append(jo.fl, *md5fp)
+	jo.fl = append(jo.fl, de.Copy()) /// FIXME NOW
 	// FIXME when we implement the file handling for this
 	// do the append to the file, here.
 	// More likely, send it to a buffered channel.
@@ -60,7 +58,7 @@ func (jo *Journal) appendItem(md5fp *Md5File, dir string) error {
 // AppendJournalFromDm adds changed dms to the journal
 // It's important to note that (for now) we journal the full directory contents.
 // Therefore to delete a directory in the journal, make it empty
-func (jo *Journal) AppendJournalFromDm(dm DirectoryEntryInterface, dir string) error {
+func (jo *Journal) AppendJournalFromDm(dm DirectoryEntryJournalableInterface, dir string) error {
 	err := jo.selfCheck()
 	if err != nil {
 		return err
@@ -68,11 +66,9 @@ func (jo *Journal) AppendJournalFromDm(dm DirectoryEntryInterface, dir string) e
 	if jo.location == nil {
 		jo.location = make(map[string]int)
 	}
-	md5fp, err := dm.ToMd5File()
-	if err != nil {
-		return err
-	}
-	if len(md5fp.Files) == 0 {
+
+	// Should we delete the entry?
+	if dm.Len() == 0 {
 		_, ok := jo.location[dir]
 		if ok {
 			delete(jo.location, dir)
@@ -80,10 +76,9 @@ func (jo *Journal) AppendJournalFromDm(dm DirectoryEntryInterface, dir string) e
 		}
 		return nil
 	}
-	md5fp.Dir = dir
-	md5fp.Ts = time.Now().Unix()
-	dirExists := jo.directoryExists(md5fp, dir)
-	err = jo.appendItem(md5fp, dir)
+
+	dirExists := jo.directoryExists(dm, dir)
+	err = jo.appendItem(dm, dir)
 	if err != nil {
 		return err
 	}
@@ -94,14 +89,14 @@ func (jo *Journal) AppendJournalFromDm(dm DirectoryEntryInterface, dir string) e
 	return nil
 }
 
-func (jo Journal) Range(visitor func(Md5File) error) error {
+func (jo Journal) Range(visitor func(DirectoryEntryJournalableInterface, string) error) error {
 	err := jo.selfCheck()
 	if err != nil {
 		return err
 	}
-	for _, location := range jo.location {
-		md5f := jo.fl[location]
-		err := visitor(md5f)
+	for dir, location := range jo.location {
+		de := jo.fl[location]
+		err := visitor(de, dir)
 		if err != nil {
 			return err
 		}
@@ -113,8 +108,8 @@ var errShortWrite = errors.New("short write in journal")
 
 // DumpWriter dumps the whole journal to a writer
 func (jo Journal) DumpWriter(fd io.Writer) error {
-	visitor := func(md5f Md5File) error {
-		xm, err := xml.MarshalIndent(md5f, "", "  ")
+	visitor := func(de DirectoryEntryJournalableInterface, dir string) error {
+		xm, err := de.ToXML(dir)
 		if err != nil {
 			return err
 		}
@@ -123,7 +118,7 @@ func (jo Journal) DumpWriter(fd io.Writer) error {
 			return err
 		}
 		if n != len(xm) {
-			return fmt.Errorf("%w with %s", errShortWrite, md5f.Dir)
+			return fmt.Errorf("%w with %s", errShortWrite, de)
 		}
 		return nil
 	}
@@ -198,12 +193,12 @@ func (jo *Journal) SlurpReader(fd io.Reader) error {
 		jo.location = make(map[string]int)
 	}
 	fc := func(ip string) error {
-		var md5f Md5File
-		err := supressXmlUnmarshallErrors([]byte(ip), &md5f)
+		de := NewDirectoryMap()
+		dir, err := de.FromXML([]byte(ip))
 		if err != nil {
 			return err
 		}
-		jo.appendItem(&md5f, md5f.Dir)
+		jo.appendItem(de, dir)
 		return nil
 	}
 	return slupReadFunc(fd, fc)
@@ -212,17 +207,17 @@ func (jo *Journal) SlurpReader(fd io.Reader) error {
 var errJournalValidLen = errors.New("valid Journal Length not equal")
 var errJournalMissingFile = errors.New("journal is missing file")
 
-func (jo0 Journal) Equals(jo1 Journal, missingFunc func(Md5File) error) error {
+func (jo0 Journal) Equals(jo1 Journal, missingFunc func(DirectoryEntryJournalableInterface, string) error) error {
 	if len(jo0.location) != len(jo1.location) {
 		return errJournalValidLen
 	}
 	refJ := jo1
-	fc := func(md5f Md5File) error {
-		if !refJ.directoryExists(&md5f, md5f.Dir) {
+	fc := func(de DirectoryEntryJournalableInterface, dir string) error {
+		if !refJ.directoryExists(de, dir) {
 			if missingFunc == nil {
-				return fmt.Errorf("%w,%s", errJournalMissingFile, md5f.Dir)
+				return fmt.Errorf("%w,%s", errJournalMissingFile, de)
 			}
-			return missingFunc(md5f)
+			return missingFunc(de, dir)
 		}
 		return nil
 	}

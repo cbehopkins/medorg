@@ -36,7 +36,7 @@ func TestB2B(t *testing.T) {
 	//log.Println(bob)
 	marshelled := bob.String()
 	var fred Md5File
-	err = fred.FromXML([]byte(marshelled))
+	err = supressXmlUnmarshallErrors([]byte(marshelled), &fred)
 	if err != nil {
 		log.Fatal("um error", err)
 	}
