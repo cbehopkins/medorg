@@ -13,9 +13,14 @@ import (
 	"sync"
 )
 
+// ErrKey - an error has been detected in the key of this struct
 var ErrKey = errors.New("KV not match")
 var errStructProblem = errors.New("structure Problem")
+
+// ErrUnimplementedVisitor you have not supplied a Visitor func, and then tried to walk.
 var ErrUnimplementedVisitor = errors.New("unimplemented visitor")
+
+var errSelfCheckProblem = errors.New("self check problem")
 
 // DirectoryMap contains for the directory all the file structs
 type DirectoryMap struct {
@@ -38,6 +43,8 @@ func NewDirectoryMap() *DirectoryMap {
 	}
 	return itm
 }
+
+// Len gth of the directoty map
 func (dm DirectoryMap) Len() int {
 	dm.lock.RLock()
 	defer dm.lock.RUnlock()
@@ -75,7 +82,8 @@ func (dm DirectoryMap) ToXML(dir string) (output []byte, err error) {
 // FromXML
 func (dm *DirectoryMap) FromXML(input []byte) (dir string, err error) {
 	var m5f Md5File
-	err = supressXmlUnmarshallErrors(input, &m5f)
+	// err = supressXmlUnmarshallErrors(input, &m5f)
+	err = xml.Unmarshal(input, &m5f)
 	if err != nil {
 		return "", err
 	}
@@ -172,10 +180,8 @@ func (dm DirectoryMap) Stale() bool {
 	return *dm.stale
 }
 
-var errSelfCheckProblem = errors.New("self check problem")
-
-// SelfCheck the directory map for obvious errors
-func (dm DirectoryMap) SelfCheck(directory string) error {
+// selfCheck the directory map for obvious errors
+func (dm DirectoryMap) selfCheck(directory string) error {
 	fc := func(fn string, fs FileStruct) error {
 		if fs.Directory() != directory {
 			return fmt.Errorf("%w FS has directory of %s for %s/%s", errSelfCheckProblem, fs.Directory(), directory, fn)
@@ -299,7 +305,7 @@ func (dm DirectoryMap) DeleteMissingFiles() error {
 
 // Persist self to disk
 func (dm DirectoryMap) Persist(directory string) error {
-	err := dm.SelfCheck(directory)
+	err := dm.selfCheck(directory)
 	if err != nil {
 		return err
 	}
@@ -358,12 +364,12 @@ func (dm DirectoryMap) UpdateValues(directory string, d fs.DirEntry) error {
 	dm.Add(fs)
 	return nil
 }
-func (dm DirectoryMap) Copy() DirectoryEntryJournalableInterface{
+func (dm DirectoryMap) Copy() DirectoryEntryJournalableInterface {
 	cp := NewDirectoryMap()
-for k, v := range dm.mp{
-		cp.mp[k]=v
+	for k, v := range dm.mp {
+		cp.mp[k] = v
 	}
-	cp.VisitFunc=dm.VisitFunc
+	cp.VisitFunc = dm.VisitFunc
 	return cp
 }
 func (dm0 DirectoryMap) Equal(dm DirectoryEntryInterface) bool {

@@ -152,7 +152,7 @@ func main() {
 	}
 	for _, dir := range directories {
 		if *conflg {
-			con = medorg.NewConcentrator(dir)
+			con = &medorg.Concentrator{BaseDir: dir}
 		}
 		errChan := medorg.NewDirTracker(dir, makerFunc)
 

@@ -74,7 +74,7 @@ func main() {
 	fh, err := os.Open(fn)
 	if !errors.Is(err, os.ErrNotExist) {
 		fmt.Println("Reading in journal")
-		journal.SlurpReader(fh)
+		journal.FromReader(fh)
 		err := fh.Close()
 		if err != nil {
 			fmt.Println("Error closing read in journal:", err)
@@ -95,7 +95,7 @@ func main() {
 		}
 	}
 
-	err = journal.DumpWriter(fh)
+	err = journal.ToWriter(fh)
 	if err != nil {
 		fmt.Println("Error writing Journal:", err)
 		os.Exit(3)

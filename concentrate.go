@@ -2,35 +2,42 @@ package medorg
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 )
 
+// ErrIncorrectFirstDirectory is raised if the firct directory visited
+// is not the base directory you provided under creation
 var ErrIncorrectFirstDirectory = errors.New("incorrect first")
+
+// ErrFirstDirNotSeen is returned when we visit a file before the first directory is visited
 var ErrFirstDirNotSeen = errors.New("not yet seen first concentrate dir")
 
 type Concentrator struct {
-	baseDir string
+	BaseDir string
 	dm      *DirectoryMap
 }
 
-// FIXME add test cases for all this
-func NewConcentrator(dir string) *Concentrator {
-	if dir == "" {
-		return nil
+func (con *Concentrator) initDir() error {
+	if con.BaseDir == "" {
+		con.BaseDir = "."
 	}
-	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		return nil
+	if _, err := os.Stat(con.BaseDir); os.IsNotExist(err) {
+		return fmt.Errorf("%w::Not a valid concentration directory", err)
 	}
-
-	itm := new(Concentrator)
-	itm.baseDir = dir
-	return itm
+	return nil
 }
+
+// DirectoryVisit is something to call on every directory you are interested in
 func (con *Concentrator) DirectoryVisit(dm DirectoryMap, directory string) error {
+	err := con.initDir()
+	if err != nil {
+		return err
+	}
 	if con.dm == nil {
 		// The first directory!
-		if con.baseDir != directory {
+		if con.BaseDir != directory {
 			return ErrIncorrectFirstDirectory
 		}
 		con.dm = &dm
@@ -44,7 +51,7 @@ func (con Concentrator) Visiter(dm DirectoryMap, directory, file string, d fs.Di
 	if con.dm == nil {
 		return ErrFirstDirNotSeen
 	}
-	err := MoveFile(NewFpath(directory, file), NewFpath(con.baseDir, file))
+	err := MoveFile(NewFpath(directory, file), NewFpath(con.BaseDir, file))
 	if err != nil {
 		return err
 	}
@@ -52,7 +59,7 @@ func (con Concentrator) Visiter(dm DirectoryMap, directory, file string, d fs.Di
 	if !ok {
 		return errors.New("missing file in concentrator mover")
 	}
-	fileStruct.directory = con.baseDir
+	fileStruct.directory = con.BaseDir
 	con.dm.Add(fileStruct)
 	return nil
 }

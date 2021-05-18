@@ -20,12 +20,13 @@ type Journal struct {
 }
 
 var errFileExistsInJournal = errors.New("file exists already")
+var errJournalSelfCheckFail = errors.New("journal self check fail")
+var errJournalValidLen = errors.New("valid Journal Length not equal")
+var errJournalMissingFile = errors.New("journal is missing file")
 
 func (jo Journal) String() string {
 	return fmt.Sprint(jo.fl)
 }
-
-var errJournalSelfCheckFail = errors.New("journal self check fail")
 
 // selfCheck runs a number of design rules
 func (jo Journal) selfCheck() error {
@@ -48,7 +49,7 @@ func (jo Journal) directoryExists(de DirectoryEntryJournalableInterface, dir str
 func (jo *Journal) appendItem(de DirectoryEntryJournalableInterface, dir string) error {
 	// log.Println("Adding Item to journal:", dir, *md5fp)
 	jo.location[dir] = len(jo.fl)
-	jo.fl = append(jo.fl, de.Copy()) /// FIXME NOW
+	jo.fl = append(jo.fl, de.Copy())
 	// FIXME when we implement the file handling for this
 	// do the append to the file, here.
 	// More likely, send it to a buffered channel.
@@ -89,6 +90,7 @@ func (jo *Journal) AppendJournalFromDm(dm DirectoryEntryJournalableInterface, di
 	return nil
 }
 
+// Range over the valid items in the journal
 func (jo Journal) Range(visitor func(DirectoryEntryJournalableInterface, string) error) error {
 	err := jo.selfCheck()
 	if err != nil {
@@ -106,8 +108,8 @@ func (jo Journal) Range(visitor func(DirectoryEntryJournalableInterface, string)
 
 var errShortWrite = errors.New("short write in journal")
 
-// DumpWriter dumps the whole journal to a writer
-func (jo Journal) DumpWriter(fd io.Writer) error {
+// ToWriter dumps the whole journal to a writer
+func (jo Journal) ToWriter(fd io.Writer) error {
 	visitor := func(de DirectoryEntryJournalableInterface, dir string) error {
 		xm, err := de.ToXML(dir)
 		if err != nil {
@@ -187,8 +189,8 @@ func slupReadFunc(fd io.Reader, fc func(string) error) error {
 	}
 }
 
-// SlurpReader slurps the whole file in
-func (jo *Journal) SlurpReader(fd io.Reader) error {
+// FromReader slurps the whole file in
+func (jo *Journal) FromReader(fd io.Reader) error {
 	if jo.location == nil {
 		jo.location = make(map[string]int)
 	}
@@ -203,9 +205,6 @@ func (jo *Journal) SlurpReader(fd io.Reader) error {
 	}
 	return slupReadFunc(fd, fc)
 }
-
-var errJournalValidLen = errors.New("valid Journal Length not equal")
-var errJournalMissingFile = errors.New("journal is missing file")
 
 func (jo0 Journal) Equals(jo1 Journal, missingFunc func(DirectoryEntryJournalableInterface, string) error) error {
 	if len(jo0.location) != len(jo1.location) {

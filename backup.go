@@ -11,13 +11,24 @@ import (
 	"syscall"
 )
 
+// MaxBackups ifs the maximum number of drives we will backup a file to
 var MaxBackups = 4
 
+// ErrMissingEntry You are copying a file that there is no directory entry for. Probably need to rerun a visit on the directory
 var ErrMissingEntry = errors.New("attempting to copy a file there seems to be no directory entry for")
-var ErrMissingSrcEntry = errors.New("missing source entry")
-var ErrMissingCopyEntry = errors.New("copying a file without an entry")
+
+// errMissingSrcEntry should only happen if there is an internal logic error
+var errMissingSrcEntry = errors.New("missing source entry")
+
+// errMissingCopyEntry internal error
+var errMissingCopyEntry = errors.New("copying a file without an entry")
+
+// ErrDummyCopy Return this from your copy function to skip the effects of copying on the md5 files
 var ErrDummyCopy = errors.New("not really copying, it's all good though")
+
+// Export of the generic IO error from syscall
 var ErrIOError = syscall.Errno(5) // I don't like this, but don't know a better way
+// Export of no space left on device from syscall
 var ErrNoSpace = syscall.Errno(28)
 
 type backupKey struct {
@@ -29,6 +40,7 @@ type backupDupeMap struct {
 	dupeMap map[backupKey]Fpath
 }
 
+// Add an entry to the map
 func (bdm *backupDupeMap) Add(fs FileStruct) {
 	key := backupKey{fs.Size, fs.Checksum}
 	bdm.Lock()
@@ -46,6 +58,8 @@ func (bdm *backupDupeMap) Len() int {
 	defer bdm.Unlock()
 	return len(bdm.dupeMap)
 }
+
+// Remove an entry from the dumap
 func (bdm *backupDupeMap) Remove(key backupKey) {
 	if bdm.dupeMap == nil {
 		return
@@ -55,7 +69,8 @@ func (bdm *backupDupeMap) Remove(key backupKey) {
 	bdm.Unlock()
 }
 
-func (bdm *backupDupeMap) Lookup(key backupKey) (Fpath, bool) {
+// Get an item from the map
+func (bdm *backupDupeMap) Get(key backupKey) (Fpath, bool) {
 	if bdm.dupeMap == nil {
 		return "", false
 	}
@@ -94,7 +109,7 @@ func (dm DirectoryMap) updateAndGo(dir, fn string) (fs FileStruct, err error) {
 	fs, ok := dm.Get(fn)
 	if Debug && !ok {
 		// If the FS does not exist, then UpdateChecksum is faulty
-		return fs, fmt.Errorf("dst %w: %s/%s", ErrMissingSrcEntry, dir, fn)
+		return fs, fmt.Errorf("dst %w: %s/%s", errMissingSrcEntry, dir, fn)
 	}
 	return
 }
@@ -134,7 +149,7 @@ func (bs backScanner) scanBackupDirectories(destDir, srcDir, volumeName string) 
 			return err
 		}
 		// If it exists in the destination already
-		path, ok := backupDestination.Lookup(fs.Key())
+		path, ok := backupDestination.Get(fs.Key())
 		if bs.lookupFunc != nil {
 			err = bs.lookupFunc(path, ok)
 			if err != nil {
@@ -201,7 +216,7 @@ func extractCopyFiles(targetDir, volumeName string) (fpathListList, error) {
 		}
 		fs, ok := dm.Get(fn)
 		if !ok {
-			return fmt.Errorf("%w: %s/%s", ErrMissingCopyEntry, dir, fn)
+			return fmt.Errorf("%w: %s/%s", errMissingCopyEntry, dir, fn)
 		}
 		if fs.HasTag(volumeName) {
 			return nil

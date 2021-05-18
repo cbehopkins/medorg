@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"log"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -190,8 +191,9 @@ func (af AutoFix) stripRegEx(fn string) (newFn string, modified bool) {
 	return
 }
 func potentialFilename(directory, fn, extension string, i int) (string, bool) {
-	potentialFn := fn + "(" + strconv.Itoa(i) + ")" + extension
-	return potentialFn, FileExist(directory, potentialFn)
+	pfn := fn + "(" + strconv.Itoa(i) + ")" + extension
+	_, err := os.Stat(filepath.Join(directory, pfn))
+	return pfn, !errors.Is(err, os.ErrNotExist)
 }
 
 // CheckRename Check the supplied structure and try and rename it
@@ -288,10 +290,11 @@ func (af AutoFix) replaceDoubles(dd string, fn1 string, modified bool) (string, 
 	return fn1, modified
 }
 
-// ResolveFnClash Resolve filename clashes
+// ResolveFnClash Resolve filename clashes by adding a bracketed numeral
+// The numberal is incremented until we don't clash anymore
 func ResolveFnClash(directory, fn string, extension, orig string) string {
 	pfn := fn + extension
-	if FileExist(directory, pfn) {
+	if _, err := os.Stat(filepath.Join(directory, pfn)); !errors.Is(err, os.ErrNotExist) {
 		exist := true
 		for i := 0; exist; i++ {
 			pfn, exist = potentialFilename(directory, fn, extension, i)

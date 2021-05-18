@@ -22,14 +22,21 @@ type FileStruct struct {
 	Tags       []string `xml:"tags,omitempty"`
 	ArchivedAt []string `xml:"ArchivedAt,omitempty"`
 }
+
+// FileStructArray declares an array of filestructs, explicitly for sorting
 type FileStructArray []FileStruct
 
+// Len for sorting
 func (fsa FileStructArray) Len() int {
 	return len(fsa)
 }
+
+// Swap for sorting
 func (fsa FileStructArray) Swap(i, j int) {
 	fsa[i], fsa[j] = fsa[j], fsa[i]
 }
+
+// Less for sorting
 func (fsa FileStructArray) Less(i, j int) bool {
 	// REVISIT!
 	return strings.Compare(fsa[i].Name, fsa[j].Name) == -1
@@ -56,6 +63,8 @@ func (fs FileStruct) Directory() string {
 func (fs FileStruct) Path() Fpath {
 	return NewFpath(fs.directory, fs.Name)
 }
+
+// Key to use when indexing into map for comparisons
 func (fs FileStruct) Key() backupKey {
 	return backupKey{fs.Size, fs.Checksum}
 }
@@ -68,6 +77,8 @@ func (fs FileStruct) Equal(ca FileStruct) bool {
 	return (fs.Size == ca.Size) && (fs.Checksum == ca.Checksum)
 }
 
+// NewFileStruct returns a populated file struct with
+// the file properties set as read from file
 func NewFileStruct(directory string, fn string) (fs FileStruct, err error) {
 	fp := filepath.Join(directory, fn)
 	stat, err := os.Stat(fp)
@@ -155,6 +166,7 @@ func (fs *FileStruct) UpdateChecksum(forceUpdate bool) error {
 		return nil
 	}
 	fs.Checksum = cks
+	// If we've had to update the checksum, then any existing backups are invalid
 	fs.ArchivedAt = []string{}
 	return nil
 }

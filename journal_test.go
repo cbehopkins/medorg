@@ -356,12 +356,12 @@ func TestJournalXmlIo(t *testing.T) {
 	}
 	journal := createInitialJournal(t, &initialDirectoryStructure)
 	var b bytes.Buffer
-	err := journal.DumpWriter(&b)
+	err := journal.ToWriter(&b)
 	if err != nil {
 		t.Error(err)
 	}
 	journalTo := Journal{}
-	err = journalTo.SlurpReader(&b)
+	err = journalTo.FromReader(&b)
 	if err != nil {
 		t.Error(err)
 	}

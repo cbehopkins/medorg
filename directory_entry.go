@@ -11,11 +11,18 @@ type workItem struct {
 	d        fs.DirEntry
 	callback func()
 }
+
+// DirectoryVisitorFunc implement one of these and it will be called per file
 type DirectoryVisitorFunc func(dm DirectoryEntryInterface, directory string, file string, d fs.DirEntry) error
+
+// DirectoryEntryInterface any directory object needs to support this
 type DirectoryEntryInterface interface {
 	Persist(string) error
 	Visitor(directory, file string, d fs.DirEntry) error
 }
+
+// DirectoryEntryJournalableInterface if you want to store all info
+// to a journal, support this
 type DirectoryEntryJournalableInterface interface {
 	DirectoryEntryInterface
 	ToXML(dir string) (output []byte, err error)
@@ -24,6 +31,8 @@ type DirectoryEntryJournalableInterface interface {
 	Len() int
 	Copy() DirectoryEntryJournalableInterface
 }
+
+// EntryMaker function to make a DirectoryEntry
 type EntryMaker func(string) (DirectoryEntryInterface, error)
 
 // DirectoryEntry represents a single directory

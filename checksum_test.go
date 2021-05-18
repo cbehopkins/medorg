@@ -2,6 +2,7 @@ package medorg
 
 import (
 	"crypto/rand"
+	"encoding/xml"
 	"io/ioutil"
 	"log"
 	"os"
@@ -9,11 +10,6 @@ import (
 	"testing"
 )
 
-func check(err error) {
-	if err != nil {
-		log.Fatal(err)
-	}
-}
 func TestB2B(t *testing.T) {
 	//Back to Back check
 	// uses current directory as an example
@@ -25,7 +21,9 @@ func TestB2B(t *testing.T) {
 
 	log.Println("Processing Directory", dirToProc)
 	files, err := ioutil.ReadDir(dirToProc)
-	check(err)
+	if err != nil {
+		t.Error(err)
+	}
 
 	var bob Md5File
 
@@ -33,16 +31,15 @@ func TestB2B(t *testing.T) {
 		bob.Files = append(bob.Files, FileStruct{Name: file.Name()})
 	}
 
-	//log.Println(bob)
-	marshelled := bob.String()
+	marshelled, err := xml.MarshalIndent(bob, "", "  ")
+	if err != nil {
+		log.Fatal("marshall error", err)
+	}
 	var fred Md5File
-	err = supressXmlUnmarshallErrors([]byte(marshelled), &fred)
+	err = xml.Unmarshal([]byte(marshelled), &fred)
 	if err != nil {
 		log.Fatal("um error", err)
 	}
-	//log.Println(fred)
-
-	//log.Println("All Done")
 }
 func makeFile(directory string) string {
 	// FIXME it would be quicker to calculate the checksum here
@@ -135,11 +132,11 @@ func TestPerlCompat(t *testing.T) {
 	}
 	v, ok := dm.Get(fileToUse)
 	if !ok {
-		log.Fatal(fileToUse, " is gone!", dm)
+		t.Error(fileToUse, " is gone!", dm)
 	}
 	checksum := v.Checksum
 	if checksum == "" {
-		log.Fatal("Missing Checksum from perl version")
+		t.Error("Missing Checksum from perl version")
 	}
 	_ = os.Remove("./" + Md5FileName)
 	dm = *NewDirectoryMap()
@@ -155,13 +152,13 @@ func TestPerlCompat(t *testing.T) {
 	}
 	v, ok = dm.Get(fileToUse)
 	if !ok {
-		log.Fatal(fileToUse, "Bob is gone for a second time!")
+		t.Error(fileToUse, "Bob is gone for a second time!")
 	}
 	newChecksum := v.Checksum
 	if newChecksum == "" {
-		log.Fatal("Missing Checksum from go version")
+		t.Error("Missing Checksum from go version")
 	}
 	if newChecksum != checksum {
-		log.Fatal("checksums don't tally. New:", newChecksum, " Old:", checksum)
+		t.Error("checksums don't tally. New:", newChecksum, " Old:", checksum)
 	}
 }
