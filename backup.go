@@ -159,7 +159,6 @@ func (bs backScanner) scanBackupDirectories(destDir, srcDir, volumeName string) 
 		if ok {
 			// Then mark in the source as already backed up
 			_ = fs.AddTag(volumeName)
-			backupDestination.Remove(fs.Key())
 		}
 		if !ok && fs.HasTag(volumeName) {
 			// FIXME add testcase for this
@@ -317,7 +316,7 @@ func doACopy(
 func BackupRunner(xc *XMLCfg, fc FileCopier, srcDir, destDir string, orphanFunc func(path string) error) error {
 	// Go ahead and run a check_calc style scan of the directories and make sure
 	// they have all their existing md5s up to date
-	backupLabelName, err := getVolumeLabel(xc, destDir)
+	backupLabelName, err := xc.getVolumeLabel(destDir)
 	if err != nil {
 		return err
 	}

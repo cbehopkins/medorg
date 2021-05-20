@@ -15,7 +15,7 @@ func TestVolumeCfgFromDir0(t *testing.T) {
 	defer os.RemoveAll(wkDir)
 
 	xc := XMLCfg{}
-	label, err := getVolumeLabel(&xc, wkDir)
+	label, err := xc.getVolumeLabel(wkDir)
 	if err != nil {
 		t.Error("Error:", err)
 	}
@@ -32,7 +32,7 @@ func TestVolumeCfgFromDir1(t *testing.T) {
 	defer os.RemoveAll(wkDir)
 
 	xc := XMLCfg{}
-	vc, err := VolumeCfgFromDir(&xc, wkDir)
+	vc, err := xc.VolumeCfgFromDir(wkDir)
 	if err != nil {
 		t.Error("Error vcd:", err)
 	}
@@ -44,7 +44,7 @@ func TestVolumeCfgFromDir1(t *testing.T) {
 	createDestDirectoryAsNeeded(filepath.Join(newDir, RandStringBytesMaskImprSrcSB(6)))
 	xc1 := XMLCfg{}
 
-	label1, err := getVolumeLabel(&xc1, newDir)
+	label1, err := xc1.getVolumeLabel(newDir)
 	if err != nil {
 		t.Error("Error1:", err)
 	}

@@ -35,6 +35,8 @@ func NewVolumeCfg(xc *XMLCfg, fn string) (*VolumeCfg, error) {
 	itm.fn = fn
 
 	if os.IsNotExist(err) {
+		fmt.Println("Creating a new label")
+
 		err := itm.GenerateNewVolumeLabel(xc)
 		if err != nil {
 			return nil, err
@@ -56,7 +58,7 @@ func NewVolumeCfg(xc *XMLCfg, fn string) (*VolumeCfg, error) {
 			return nil, fmt.Errorf("unable to unmarshal config NewVolumeCfg file:%s::%w", fn, err)
 		}
 	}
-	fmt.Println("Creating", itm.Label)
+	fmt.Println("Using", itm.Label)
 	// We don't care if the label is there already or not
 	_ = xc.AddLabel(itm.Label)
 	return itm, nil
@@ -85,6 +87,7 @@ const (
 
 var src = rand.NewSource(time.Now().UnixNano())
 
+// RandStringBytesMaskImprSrcSB form a random string of length n
 func RandStringBytesMaskImprSrcSB(n int) string {
 	sb := strings.Builder{}
 	sb.Grow(n)
@@ -109,6 +112,8 @@ func (vc VolumeCfg) ToXML() (output []byte, err error) {
 	output, err = xml.MarshalIndent(vc, "", "  ")
 	return
 }
+
+// Persist the struct to disk
 func (vc VolumeCfg) Persist() error {
 	fn := vc.fn
 	if fn == "" {
@@ -136,6 +141,10 @@ func formVolumeName(dir string) string {
 	return filepath.Join(dir, ".mdbackup.xml")
 }
 func findVolumeConfig(dir string) string {
+	dir, err := filepath.Abs(dir)
+	if err != nil {
+		return ""
+	}
 	info, err := os.Stat(dir)
 	if err != nil {
 		return ""
@@ -170,15 +179,17 @@ func findVolumeConfig(dir string) string {
 	}
 	return filepath.Join(filepath.VolumeName(dir), formVolumeName(d))
 }
-func VolumeCfgFromDir(xc *XMLCfg, dir string) (*VolumeCfg, error) {
+
+// VolumeCfgFromDir get volume config appropriate for the requested directory
+func (xc *XMLCfg) VolumeCfgFromDir(dir string) (*VolumeCfg, error) {
 	fn := findVolumeConfig(dir)
 	vc, err := NewVolumeCfg(xc, fn)
 	return vc, err
-
 }
 
-func getVolumeLabel(xc *XMLCfg, destDir string) (string, error) {
-	vc, err := VolumeCfgFromDir(xc, destDir)
+// FIXME - this is not needed
+func (xc *XMLCfg) getVolumeLabel(destDir string) (string, error) {
+	vc, err := xc.VolumeCfgFromDir(destDir)
 	if err != nil {
 		return "", err
 	}

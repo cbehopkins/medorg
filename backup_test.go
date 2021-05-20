@@ -366,5 +366,97 @@ func TestBackupMain(t *testing.T) {
 	}
 }
 
+// Our source directory has 2 files that are the same, just a different name
+// We only need to copy a single one of them
+// as on restore we'll not care about the name
+// so test that we only copy a single one of them
+func TestBackupSrcHasDuplicateFiles(t *testing.T) {
+	numberOfFiles := 2
+	numberOfDuplicates := 2
+	dirs, err := createTestBackupDirectories(numberOfFiles, numberOfDuplicates)
+	if err != nil {
+		t.Error("Failed to create test Directories", err)
+	}
+	defer func() {
+		for i := range dirs {
+			os.RemoveAll(dirs[i])
+		}
+	}()
+	// One of the files now needs to be copied into both the source directory (under a new name)
+	// and that copy under the same new name
+	files, err := os.ReadDir(dirs[0])
+	if err != nil {
+		t.Error("Failed to read test Directories", err)
+	}
+	srcFp := files[0].Name()
+	dstFp := filepath.Base(srcFp) + "bob"
+	err = CopyFile(NewFpath(dirs[0], srcFp), NewFpath(dirs[0], dstFp))
+	if err != nil {
+		t.Error("Failed to copy test files", err)
+	}
+	err = CopyFile(NewFpath(dirs[0], srcFp), NewFpath(dirs[1], dstFp))
+	if err != nil {
+		t.Error("Failed to copy test files", err)
+	}
+	numberOfDuplicates += 1 // We have just created a duplicate
+	t.Log("Created Test Directories:", dirs)
+	_ = recalcTestDirectory(dirs[0])
+	_ = recalcTestDirectory(dirs[1])
+	var srcTm backupDupeMap
+	var dstTm backupDupeMap
+
+	srcDir := dirs[1]
+	destDir := dirs[0]
+	// First we populate the src dir
+	makerFuncDest := func(dir string) (DirectoryTrackerInterface, error) {
+		mkFk := func(dir string) (DirectoryEntryInterface, error) {
+			dm, err := DirectoryMapFromDir(dir)
+			dm.VisitFunc = dstTm.aFile
+			return dm, err
+		}
+		return NewDirectoryEntry(dir, mkFk)
+	}
+	makerFuncSrc := func(dir string) (DirectoryTrackerInterface, error) {
+		mkFk := func(dir string) (DirectoryEntryInterface, error) {
+			dm, err := DirectoryMapFromDir(dir)
+			dm.VisitFunc = srcTm.aFile
+			return dm, err
+		}
+		return NewDirectoryEntry(dir, mkFk)
+	}
+	for err := range NewDirTracker(srcDir, makerFuncSrc) {
+		t.Error("Error received on closing:", err)
+	}
+	for err := range NewDirTracker(destDir, makerFuncDest) {
+		t.Error("Error received on closing:", err)
+	}
+	var lk sync.Mutex
+	expectedDuplicates := numberOfDuplicates
+	bs := backScanner{
+		lookupFunc: func(path Fpath, ok bool) error {
+			if ok {
+				lk.Lock()
+				expectedDuplicates--
+				lk.Unlock()
+				t.Log(path, "is a duplicate")
+			}
+			return nil
+		},
+	}
+	backupLabelName := "wibble"
+	bs.scanBackupDirectories(srcDir, destDir, backupLabelName)
+	if expectedDuplicates != 0 {
+		t.Error("Expected 0 duplicates left, got:", expectedDuplicates)
+	}
+	copyFilesArray, err := extractCopyFiles(dirs[0], backupLabelName)
+	if err != nil {
+		t.Error(err)
+	}
+	t.Log(copyFilesArray)
+	if len(copyFilesArray) != 0 {
+		t.Error("We seem to have some files to copy:", copyFilesArray)
+	}
+}
+
 // FIXME Add Test that the checksum/filestamp are up-to-date in the new file
 // FIXME add test that files in dest but not in src are reported correctly.

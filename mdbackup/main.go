@@ -16,10 +16,12 @@ import (
 const (
 	ExitOk = iota
 	ExitNoConfig
+	ExitOneDirectoryOnly
 	ExitTwoDirectoriesOnly
 	ExitProgressBar
 	ExitIncompleteBackup
 	ExitSuppliedDirNotFound
+	ExitBadVc
 )
 
 var AF *medorg.AutoFix
@@ -71,6 +73,8 @@ func main() {
 			fmt.Println("Error while saving config file", err)
 		}
 	}()
+	var tagflg = flag.Bool("tag", false, "Locate and print the directory tag, create if needed")
+
 	var scanflg = flag.Bool("scan", false, "Only scan files in src & dst updating labels, don't run the backup")
 	var dummyflg = flag.Bool("dummy", false, "Don't copy, just tell me what you'd do")
 	var delflg = flag.Bool("delete", false, "Delete duplicated Files")
@@ -89,6 +93,20 @@ func main() {
 		}
 	} else {
 		directories = []string{"."}
+	}
+
+	if *tagflg {
+		if len(directories) != 1 {
+			fmt.Println("One directory only please when configuring tags")
+			os.Exit(ExitOneDirectoryOnly)
+		}
+		vc, err := xc.VolumeCfgFromDir(directories[0])
+		if err != nil {
+			fmt.Println("Err::", err)
+			os.Exit(ExitBadVc)
+		}
+		fmt.Println("Config name is", vc.Label)
+		os.Exit(ExitOk)
 	}
 
 	if len(directories) != 2 {
@@ -142,7 +160,7 @@ func main() {
 	}
 	var orphanedFunc func(string) error
 	if *scanflg {
-		copyer = func(src, dst medorg.Fpath) error { return nil }
+		copyer = nil
 	}
 	if *dummyflg {
 		orphanedFunc = func(path string) error {
