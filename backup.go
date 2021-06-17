@@ -332,10 +332,12 @@ func BackupRunner(xc *XMLCfg, fc FileCopier, srcDir, destDir string, orphanFunc 
 		// If we've not supplied a copier, when we clearly don't want to run the copy
 		return nil
 	}
+	log.Println("Looking for files to  copy")
 	copyFilesArray, err := extractCopyFiles(srcDir, backupLabelName)
 	if err != nil {
-		return err
+		return fmt.Errorf("BackupRunner cannot extract files, %w", err)
 	}
+	log.Println("Copy files extracted")
 	// FIXME Now run this through Prioritize
 	log.Println("Now starting Copy")
 	// Now do the copy, updating srcDir's labels as we go
@@ -343,6 +345,10 @@ func BackupRunner(xc *XMLCfg, fc FileCopier, srcDir, destDir string, orphanFunc 
 		for _, file := range copyFiles {
 			err := doACopy(srcDir, destDir, backupLabelName, file, fc)
 			if errors.Is(err, ErrNoSpace) {
+				// FIXME in the ideal world, we'd look at how much space there is left on the volume
+				// and look for a file with a size smaller than that
+				// and copy that.
+				// For now, that optimization is not too bad.
 				log.Println("Destination full")
 				return nil
 			}

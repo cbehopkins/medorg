@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 var testMode bool
@@ -30,11 +31,15 @@ type AutoFix struct {
 	// For all the file we encounter, keep their hash
 	// FIXME elsewhere we use size && hash as the key to uniqueness
 	FileHash       map[string]FileStruct
+	FhLock         *sync.RWMutex
 	SilenceLogging bool
 }
 
 // initFileHash needs to be run before we can use the master checkers
 func (af *AutoFix) initFileHash() {
+	if af.FhLock == nil {
+		af.FhLock = new(sync.RWMutex)
+	}
 	if af.FileHash == nil {
 		af.FileHash = make(map[string]FileStruct)
 	}
@@ -326,7 +331,9 @@ func (af *AutoFix) WkFun(dm DirectoryMap, directory, file string, d fs.DirEntry)
 
 	// Now look to see if we have seen this file's hash before
 	cSum := fs.Checksum
+	af.FhLock.RLock()
 	oldFs, ok := af.FileHash[cSum]
+	af.FhLock.RUnlock()
 	if ok {
 		var mod bool
 		if fs.Equal(oldFs) {
@@ -335,7 +342,9 @@ func (af *AutoFix) WkFun(dm DirectoryMap, directory, file string, d fs.DirEntry)
 		}
 	}
 
+	af.FhLock.Lock()
 	af.FileHash[cSum] = fs
+	af.FhLock.Unlock()
 	if modified {
 		dm.Add(fs)
 	}
