@@ -19,6 +19,7 @@ type DirectoryTrackerInterface interface {
 }
 
 type DirTracker struct {
+	lk        *sync.Mutex
 	dm        map[string]DirectoryTrackerInterface
 	newEntry  func(dir string) (DirectoryTrackerInterface, error)
 	lastPath  string
@@ -43,9 +44,10 @@ const NumTrackerOutstanding = 4
 // That new entry will then have its visitor called for each file in that directory
 // At some later time, we will then close the directory
 // There are no guaranetees about when this will happen
-func NewDirTracker(dir string, newEntry func(string) (DirectoryTrackerInterface, error)) <-chan error {
+func NewDirTracker(dir string, newEntry func(string) (DirectoryTrackerInterface, error)) *DirTracker {
 	numOutsanding := NumTrackerOutstanding // FIXME expose this
 	var dt DirTracker
+	dt.lk = new(sync.Mutex)
 	dt.dm = make(map[string]DirectoryTrackerInterface)
 	dt.newEntry = newEntry
 	dt.tokenChan = makeTokenChan(numOutsanding)
@@ -61,6 +63,9 @@ func NewDirTracker(dir string, newEntry func(string) (DirectoryTrackerInterface,
 		close(dt.errChan)
 		close(dt.tokenChan)
 	}()
+	return &dt
+}
+func (dt *DirTracker) ErrChan() <-chan error {
 	return dt.errChan
 }
 
@@ -96,13 +101,25 @@ func (dt DirTracker) getDirectoryEntry(path string) DirectoryTrackerInterface {
 	return de
 }
 
+func (dt DirTracker) getLastPath() string {
+	dt.lk.Lock()
+	defer dt.lk.Unlock()
+	return dt.lastPath
+}
+
 func (dt *DirTracker) pathCloser(path string, closerFunc func(string)) {
 	// The job of this is to work out if we have gone out of scope
 	// i.e. close /fred/bob if we have received /fred/steve
 	// but do not close /fred or /fred/bob when we receive /fred/bob/steve
 	// But also, not doing anything is fine!
-	defer func() { dt.lastPath = path }()
-	if dt.lastPath == "" {
+
+	defer func() {
+		dt.lk.Lock()
+		dt.lastPath = path
+		dt.lk.Unlock()
+	}()
+
+	if dt.getLastPath() == "" {
 		return
 	}
 	if closerFunc == nil {
@@ -115,7 +132,7 @@ func (dt *DirTracker) pathCloser(path string, closerFunc func(string)) {
 	}
 	// FIXME make it possbile to select this/another/default to this
 	shouldClose := func(pt string) bool {
-		isChild, err := isChildPath(pt, dt.lastPath)
+		isChild, err := isChildPath(pt, dt.getLastPath())
 		if err != nil {
 			// FIXME
 			return false
@@ -124,8 +141,8 @@ func (dt *DirTracker) pathCloser(path string, closerFunc func(string)) {
 		return !isChild
 	}
 	if shouldClose(path) {
-		closerFunc(dt.lastPath)
-		delete(dt.dm, dt.lastPath)
+		closerFunc(dt.getLastPath())
+		delete(dt.dm, dt.getLastPath())
 	}
 }
 
@@ -210,13 +227,13 @@ type dirTrackerJob struct {
 // 	return errChan
 // }
 
-func runSerialDirTrackerJob(jobs []dirTrackerJob) <-chan error {
+func runSerialDirTrackerJob(jobs []dirTrackerJob, registerChanger func(*DirTracker)) <-chan error {
 	errChan := make(chan error)
 	var wg sync.WaitGroup
 	wg.Add(len(jobs))
 	go func() {
 		for _, job := range jobs {
-			for err := range NewDirTracker(job.dir, job.mf) {
+			for err := range NewDirTracker(job.dir, job.mf).ErrChan() {
 				if err != nil {
 					errChan <- err
 				}

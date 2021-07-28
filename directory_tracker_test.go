@@ -14,6 +14,7 @@ import (
 
 func TestPathCloser(t *testing.T) {
 	var dt DirTracker
+	dt.lk = new(sync.Mutex)
 	dt.lastPath = "/bob"
 	callCount := 0
 	myCloser := func(path string) {
@@ -23,7 +24,7 @@ func TestPathCloser(t *testing.T) {
 		dt.pathCloser(path, myCloser)
 
 		if callCount != cnt {
-			t.Error("Failed on,", path, cnt, callCount, dt.lastPath)
+			t.Error("Failed on,", path, cnt, callCount, dt.getLastPath())
 		}
 	}
 
@@ -112,7 +113,7 @@ func TestDirectoryTrackerAgainstMock(t *testing.T) {
 			makerFunc := func(dir string) (DirectoryTrackerInterface, error) {
 				return newMockDtType(), nil
 			}
-			errChan := NewDirTracker(root, makerFunc)
+			errChan := NewDirTracker(root, makerFunc).ErrChan()
 			for err := range errChan {
 				t.Error(err)
 			}
@@ -183,7 +184,7 @@ func TestDirectoryTrackerSpawning(t *testing.T) {
 				mdt.visiter = visiter
 				return mdt, nil
 			}
-			errChan := NewDirTracker(root, makerFunc)
+			errChan := NewDirTracker(root, makerFunc).ErrChan()
 			for err := range errChan {
 				t.Error(err)
 			}

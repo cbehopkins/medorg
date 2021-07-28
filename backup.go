@@ -116,7 +116,14 @@ func (dm DirectoryMap) updateAndGo(dir, fn string) (fs FileStruct, err error) {
 
 // scanBackupDirectories will mark srcDir's ArchiveAt
 // tag, with any files that are already found in the destination
-func (bs backScanner) scanBackupDirectories(destDir, srcDir, volumeName string) error {
+func (bs backScanner) scanBackupDirectories(destDir, srcDir, volumeName string, logFunc func(msg string),
+	registerFunc func(*DirTracker),
+) error {
+	if logFunc == nil {
+		logFunc = func(msg string) {
+			log.Println(msg)
+		}
+	}
 	calcCnt := 2
 	tokenBuffer := makeTokenChan(calcCnt)
 	defer close(tokenBuffer)
@@ -125,6 +132,7 @@ func (bs backScanner) scanBackupDirectories(destDir, srcDir, volumeName string) 
 	var backupSource backupDupeMap
 
 	modifyFuncDestinationDm := func(dm DirectoryMap, dir, fn string, d fs.DirEntry) error {
+		logFunc("Examining Destination")
 		if fn == Md5FileName {
 			return nil
 		}
@@ -139,6 +147,7 @@ func (bs backScanner) scanBackupDirectories(destDir, srcDir, volumeName string) 
 		return nil
 	}
 	modifyFuncSourceDm := func(dm DirectoryMap, dir, fn string, d fs.DirEntry) error {
+		logFunc("Examining Source")
 		if fn == Md5FileName {
 			return nil
 		}
@@ -182,7 +191,7 @@ func (bs backScanner) scanBackupDirectories(destDir, srcDir, volumeName string) 
 	errChan := runSerialDirTrackerJob([]dirTrackerJob{
 		{destDir, makerFuncDest.backMake},
 		{srcDir, makerFuncSrc.backMake},
-	})
+	}, nil)
 
 	for err := range errChan {
 		if err != nil {
@@ -239,7 +248,7 @@ func extractCopyFiles(targetDir, volumeName string) (fpathListList, error) {
 		}
 		return NewDirectoryEntry(dir, mkFk)
 	}
-	errChan := NewDirTracker(targetDir, makerFunc)
+	errChan := NewDirTracker(targetDir, makerFunc).ErrChan()
 	for err := range errChan {
 		for range errChan {
 		}
@@ -313,33 +322,44 @@ func doACopy(
 	return nil
 }
 
-func BackupRunner(xc *XMLCfg, fc FileCopier, srcDir, destDir string, orphanFunc func(path string) error) error {
+func BackupRunner(xc *XMLCfg, fc FileCopier, srcDir, destDir string,
+	orphanFunc func(path string) error,
+	logFunc func(msg string),
+	registerFunc func(*DirTracker),
+) error {
+
+	if logFunc == nil {
+		logFunc = func(msg string) {
+			log.Println(msg)
+		}
+	}
+
 	// Go ahead and run a check_calc style scan of the directories and make sure
 	// they have all their existing md5s up to date
 	backupLabelName, err := xc.getVolumeLabel(destDir)
 	if err != nil {
 		return err
 	}
-	log.Println("Determined label as:", backupLabelName)
+	logFunc(fmt.Sprint("Determined label as:", backupLabelName, "now scanning directories"))
 	// First of all get the srcDir updated with files that are already in destDir
 	var bs backScanner
-	err = bs.scanBackupDirectories(destDir, srcDir, backupLabelName)
+	err = bs.scanBackupDirectories(destDir, srcDir, backupLabelName, logFunc, registerFunc)
 	if err != nil {
 		return err
 	}
 	if fc == nil {
-		log.Println("Scan only. Going no further")
+		logFunc("Scan only. Going no further")
 		// If we've not supplied a copier, when we clearly don't want to run the copy
 		return nil
 	}
-	log.Println("Looking for files to  copy")
+	logFunc("Looking for files to  copy")
 	copyFilesArray, err := extractCopyFiles(srcDir, backupLabelName)
 	if err != nil {
 		return fmt.Errorf("BackupRunner cannot extract files, %w", err)
 	}
-	log.Println("Copy files extracted")
+	logFunc("Copy files extracted")
 	// FIXME Now run this through Prioritize
-	log.Println("Now starting Copy")
+	logFunc("Now starting Copy")
 	// Now do the copy, updating srcDir's labels as we go
 	for _, copyFiles := range copyFilesArray {
 		for _, file := range copyFiles {
@@ -349,7 +369,7 @@ func BackupRunner(xc *XMLCfg, fc FileCopier, srcDir, destDir string, orphanFunc 
 				// and look for a file with a size smaller than that
 				// and copy that.
 				// For now, that optimization is not too bad.
-				log.Println("Destination full")
+				logFunc("Destination full")
 				return nil
 			}
 			if err != nil {
@@ -357,7 +377,7 @@ func BackupRunner(xc *XMLCfg, fc FileCopier, srcDir, destDir string, orphanFunc 
 			}
 		}
 	}
-	log.Println("Finished Copy")
+	logFunc("Finished Copy")
 
 	return nil
 }

@@ -6,11 +6,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/cbehopkins/medorg"
-	"github.com/cheggaaa/pb/v3"
+	pb "github.com/cbehopkins/pb/v3"
 )
 
 const (
@@ -95,6 +96,19 @@ func main() {
 		directories = []string{"."}
 	}
 
+	messageBar := new(pb.ProgressBar)
+	pool := pb.NewPool(messageBar)
+	err := pool.Start()
+	if err != nil {
+		fmt.Println("Err::", err)
+		os.Exit(ExitBadVc)
+	}
+
+	defer pool.Stop()
+	defer messageBar.Finish()
+	messageBar.SetTemplateString(`{{string . "backup status"}}`)
+	messageBar.Set("backup status", "Initialzing discombobulator")
+
 	if *tagflg {
 		if len(directories) != 1 {
 			fmt.Println("One directory only please when configuring tags")
@@ -114,41 +128,31 @@ func main() {
 		os.Exit(ExitTwoDirectoriesOnly)
 	}
 
-	var lk sync.Mutex
-	bar := pb.New(0)
-
-	defer func() {
-		if bar.IsStarted() {
-			lk.Lock()
-			bar.Finish()
-			lk.Unlock()
-		}
-	}()
 	var wg sync.WaitGroup
 	copyer := func(src, dst medorg.Fpath) error {
 		if *dummyflg {
 			fmt.Println("Copy from:", src, " to ", dst)
 			return medorg.ErrDummyCopy
 		}
-
+		myBar := new(pb.ProgressBar)
+		myBar.Set("prefix", fmt.Sprint(string(src), ":"))
+		myBar.Set(pb.Bytes, true)
 		srcSize := sizeOf(string(src))
+		myBar.SetTotal(int64(srcSize))
+
+		pool.Add(myBar)
+		myBar.Start()
+		defer pool.Remove(myBar)
 		closeChan := make(chan struct{})
 		wg.Add(1)
 		go func() {
-			lk.Lock()
-			defer lk.Unlock()
-			defer wg.Done()
-			if !bar.IsStarted() {
-				bar.Start()
-			}
-
-			bar.SetTotal(int64(srcSize))
 			for {
 				select {
 				case <-time.After(2 * time.Second):
 					dstSize := sizeOf(string(dst))
-					bar.SetCurrent(int64(dstSize))
+					myBar.SetCurrent(int64(dstSize))
 				case <-closeChan:
+					myBar.Finish()
 					return
 				}
 			}
@@ -176,14 +180,35 @@ func main() {
 			return nil
 		}
 	}
-	fmt.Println("Starting Backup Run")
-	err := medorg.BackupRunner(xc, copyer, directories[0], directories[1], orphanedFunc)
-	fmt.Println("Completed Backup Run")
+	messageBar.Set("backup status", "Starting Backup Run")
+	logBar := new(pb.ProgressBar)
+	defer logBar.Finish()
+	logBar.SetTemplateString(`{{string . "msg"}}`)
+	pool.Add(logBar)
+	dirBar := new(pb.ProgressBar)
+	defer dirBar.Finish()
+	dirBar.SetTemplateString(`{{string . "msg"}}`)
+	pool.Add(dirBar)
+	blanker := func(msg string, bar *pb.ProgressBar) string {
+		toAdd := bar.Width() - len(msg)
+		if toAdd < 0 {
+			toAdd = 0
+		}
+		return fmt.Sprint(msg, strings.Repeat(" ", toAdd))
+	}
+	logFunc := func(msg string) {
+		logBar.Set("msg", blanker(msg, logBar))
+	}
+	traverseFunc := func(path string) {
+		dirBar.Set("msg", blanker(path, dirBar))
+	}
+	err = medorg.BackupRunner(xc, copyer, directories[0], directories[1], orphanedFunc, logFunc, traverseFunc)
+	messageBar.Set("backup status", "Completed Backup Run")
 
 	if err != nil {
-		fmt.Println("Unable to complete backup:", err)
+		messageBar.Set("backup status", fmt.Sprint("Unable to complete backup:", err))
 		os.Exit(ExitIncompleteBackup)
 	}
 	wg.Wait()
-	fmt.Println("Completed Copying")
+	messageBar.Set("backup status", "Completed Copying")
 }

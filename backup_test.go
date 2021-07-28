@@ -69,7 +69,7 @@ func recalcTestDirectory(dir string) error {
 		}
 		return NewDirectoryEntry(dir, mkFk)
 	}
-	for err := range NewDirTracker(dir, makerFunc) {
+	for err := range NewDirTracker(dir, makerFunc).ErrChan() {
 		return fmt.Errorf("Error received on closing:%w", err)
 	}
 	return nil
@@ -128,10 +128,12 @@ func TestDuplicateDetect(t *testing.T) {
 		}
 		return NewDirectoryEntry(dir, mkFk)
 	}
-	for err := range NewDirTracker(srcDir, makerFuncSrc) {
+	net := NewDirTracker(srcDir, makerFuncSrc)
+	ec := net.ErrChan()
+	for err := range ec {
 		t.Error("Error received on closing:", err)
 	}
-	for err := range NewDirTracker(destDir, makerFuncDest) {
+	for err := range NewDirTracker(destDir, makerFuncDest).ErrChan() {
 		t.Error("Error received on closing:", err)
 	}
 	var lk sync.Mutex
@@ -147,7 +149,7 @@ func TestDuplicateDetect(t *testing.T) {
 			return nil
 		},
 	}
-	bs.scanBackupDirectories(srcDir, destDir, "wibble")
+	bs.scanBackupDirectories(srcDir, destDir, "wibble", nil, nil)
 	if expectedDuplicates != 0 {
 		t.Error("Expected 0 duplicates left, got:", expectedDuplicates)
 	}
@@ -171,7 +173,7 @@ func TestDuplicateArchivedAtPopulation(t *testing.T) {
 	backupLabelName := "tstBackup"
 	t.Log("Created Test Directories:", dirs)
 	var bs backScanner
-	err = bs.scanBackupDirectories(dirs[1], dirs[0], backupLabelName)
+	err = bs.scanBackupDirectories(dirs[1], dirs[0], backupLabelName, nil, nil)
 	if err != nil {
 		t.Error(err)
 	}
@@ -202,7 +204,7 @@ func TestDuplicateArchivedAtPopulation(t *testing.T) {
 		}
 		return NewDirectoryEntry(dir, mkFk)
 	}
-	for err := range NewDirTracker(dirs[0], makerFunc) {
+	for err := range NewDirTracker(dirs[0], makerFunc).ErrChan() {
 		t.Error("Error received on closing:", err)
 	}
 
@@ -238,7 +240,7 @@ func TestBackupExtract(t *testing.T) {
 
 	// FIXME error handling
 	var bs backScanner
-	_ = bs.scanBackupDirectories(dirs[1], dirs[0], backupLabelName)
+	_ = bs.scanBackupDirectories(dirs[1], dirs[0], backupLabelName, nil, nil)
 
 	// Now hack it about so that we pretend  n of the files
 	// are additionally backed up to an alternate location
@@ -288,7 +290,7 @@ func TestBackupExtract(t *testing.T) {
 		}
 		return NewDirectoryEntry(dir, mkFk)
 	}
-	for err := range NewDirTracker(dirs[0], makerFunc) {
+	for err := range NewDirTracker(dirs[0], makerFunc).ErrChan() {
 		t.Error("Error received on closing:", err)
 	}
 
@@ -357,7 +359,7 @@ func TestBackupMain(t *testing.T) {
 		callCount++
 		return nil
 	}
-	err = BackupRunner(&xc, fc, dirs[0], dirs[1], nil)
+	err = BackupRunner(&xc, fc, dirs[0], dirs[1], nil, nil, nil)
 	if err != nil {
 		t.Error(err)
 	}
@@ -424,10 +426,10 @@ func TestBackupSrcHasDuplicateFiles(t *testing.T) {
 		}
 		return NewDirectoryEntry(dir, mkFk)
 	}
-	for err := range NewDirTracker(srcDir, makerFuncSrc) {
+	for err := range NewDirTracker(srcDir, makerFuncSrc).ErrChan() {
 		t.Error("Error received on closing:", err)
 	}
-	for err := range NewDirTracker(destDir, makerFuncDest) {
+	for err := range NewDirTracker(destDir, makerFuncDest).ErrChan() {
 		t.Error("Error received on closing:", err)
 	}
 	var lk sync.Mutex
@@ -444,7 +446,7 @@ func TestBackupSrcHasDuplicateFiles(t *testing.T) {
 		},
 	}
 	backupLabelName := "wibble"
-	bs.scanBackupDirectories(srcDir, destDir, backupLabelName)
+	bs.scanBackupDirectories(srcDir, destDir, backupLabelName, nil, nil)
 	if expectedDuplicates != 0 {
 		t.Error("Expected 0 duplicates left, got:", expectedDuplicates)
 	}
