@@ -82,7 +82,6 @@ func (dm DirectoryMap) ToXML(dir string) (output []byte, err error) {
 // FromXML
 func (dm *DirectoryMap) FromXML(input []byte) (dir string, err error) {
 	var m5f Md5File
-	// err = supressXmlUnmarshallErrors(input, &m5f)
 	err = xml.Unmarshal(input, &m5f)
 	if err != nil {
 		return "", err

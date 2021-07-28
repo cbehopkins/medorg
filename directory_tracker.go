@@ -7,7 +7,10 @@ import (
 	"log"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 )
+
+var errorMissingDe = errors.New("missing de when evaluating directory")
 
 type DirectoryTrackerInterface interface {
 	ErrChan() <-chan error
@@ -19,13 +22,17 @@ type DirectoryTrackerInterface interface {
 }
 
 type DirTracker struct {
-	lk        *sync.Mutex
-	dm        map[string]DirectoryTrackerInterface
-	newEntry  func(dir string) (DirectoryTrackerInterface, error)
-	lastPath  string
-	tokenChan chan struct{}
-	wg        *sync.WaitGroup
-	errChan   chan error
+	lk                    *sync.Mutex
+	dm                    map[string]DirectoryTrackerInterface
+	newEntry              func(dir string) (DirectoryTrackerInterface, error)
+	lastPath              string
+	tokenChan             chan struct{}
+	wg                    *sync.WaitGroup
+	errChan               chan error
+	directoryCountTotal   int64
+	directoryCountVisited int64
+
+	finished bool
 }
 
 func makeTokenChan(numOutsanding int) chan struct{} {
@@ -36,7 +43,7 @@ func makeTokenChan(numOutsanding int) chan struct{} {
 	return tokenChan
 }
 
-const NumTrackerOutstanding = 4
+const NumTrackerOutstanding = 1
 
 // NewDirTracker does what it says
 // a dir tracker will walk the supplied directory
@@ -62,25 +69,64 @@ func NewDirTracker(dir string, newEntry func(string) (DirectoryTrackerInterface,
 		dt.wg.Wait()
 		close(dt.errChan)
 		close(dt.tokenChan)
+		if dt.Total() != dt.Value() {
+			panic("Lengths don't match")
+		}
 	}()
+	go dt.populateDircount(dir)
 	return &dt
 }
 func (dt *DirTracker) ErrChan() <-chan error {
 	return dt.errChan
 }
+func (dt *DirTracker) populateDircount(dir string) {
+	walker := func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if isHiddenDirectory(path) {
+				return filepath.SkipDir
+			}
+			atomic.AddInt64(&dt.directoryCountTotal, 1)
+		}
+		_, file := filepath.Split(path)
+		if file == ".mdSkipDir" {
+			return filepath.SkipDir
+		}
+		return nil
+	}
+
+	err := filepath.WalkDir(dir, walker)
+	if err != nil {
+		dt.directoryCountTotal = -1
+		return
+	}
+}
+func (dt *DirTracker) Total() int64 {
+	return atomic.LoadInt64(&dt.directoryCountTotal)
+}
+func (dt *DirTracker) Value() int64 {
+	return atomic.LoadInt64(&dt.directoryCountVisited)
+}
+func (dt *DirTracker) Finished() bool {
+	dt.lk.Lock()
+	defer dt.lk.Unlock()
+	return dt.finished
+}
 
 // Should we export this?
 // so that clients can not have to recreate them
-func (dt DirTracker) getDirectoryEntry(path string) DirectoryTrackerInterface {
+func (dt *DirTracker) getDirectoryEntry(path string) (DirectoryTrackerInterface, error) {
 	de, ok := dt.dm[path]
-	if ok {
-		return de
+	if ok && de != nil {
+		return de, nil
 	}
 	// Call out to the external function to return a new entry
 	de, err := dt.newEntry(path)
 	// FIXME error handling
 	if de == nil || err != nil {
-		return nil
+		return nil, err
 	}
 	go func() {
 		err := de.Start()
@@ -98,7 +144,7 @@ func (dt DirTracker) getDirectoryEntry(path string) DirectoryTrackerInterface {
 		}
 		dt.wg.Done()
 	}()
-	return de
+	return de, nil
 }
 
 func (dt DirTracker) getLastPath() string {
@@ -151,14 +197,18 @@ func (dt *DirTracker) directoryWalker(path string, d fs.DirEntry, err error) err
 		return err
 	}
 	if d.IsDir() {
+
 		if isHiddenDirectory(path) {
 			return filepath.SkipDir
 		}
+		atomic.AddInt64(&dt.directoryCountVisited, 1)
 		dt.pathCloser(path, nil)
-		// FIXME test the path exists
-		de := dt.getDirectoryEntry(path)
+		de, err := dt.getDirectoryEntry(path)
+		if err != nil {
+			return fmt.Errorf("%w::%s", err, path)
+		}
 		if de == nil {
-			return errors.New("missing de when evaluating directory")
+			return fmt.Errorf("%w::%s", errorMissingDe, path)
 		}
 		de, ok := dt.dm[path]
 		if !ok {
@@ -168,7 +218,7 @@ func (dt *DirTracker) directoryWalker(path string, d fs.DirEntry, err error) err
 	}
 	dir, file := filepath.Split(path)
 	if file == ".mdSkipDir" {
-		fmt.Println("Skipping:", dir)
+		// fmt.Println("Skipping:", dir)
 		return filepath.SkipDir
 	}
 	if dir == "" {
@@ -185,20 +235,25 @@ func (dt *DirTracker) directoryWalker(path string, d fs.DirEntry, err error) err
 		dt.tokenChan <- struct{}{}
 	}
 
-	de := dt.getDirectoryEntry(dir)
+	de, err := dt.getDirectoryEntry(dir)
+	if err != nil {
+		return fmt.Errorf("%w::%s", err, path)
+	}
 	if de == nil {
-		return errors.New("missing directory when evaluating path")
+		return fmt.Errorf("%w::%s", errorMissingDe, path)
 	}
 	de.VisitFile(dir, file, d, callback)
 	return nil
 }
 
-func (dt DirTracker) close(dir string) {
+func (dt *DirTracker) close(dir string) {
 	for key, val := range dt.dm {
 		delete(dt.dm, key)
 		val.Close()
 	}
-	log.Println("All closed in ", dir) // FIXME can we report this another way than logging?
+	dt.lk.Lock()
+	dt.finished = true
+	dt.lk.Unlock()
 }
 
 type dirTrackerJob struct {
@@ -233,7 +288,11 @@ func runSerialDirTrackerJob(jobs []dirTrackerJob, registerChanger func(*DirTrack
 	wg.Add(len(jobs))
 	go func() {
 		for _, job := range jobs {
-			for err := range NewDirTracker(job.dir, job.mf).ErrChan() {
+			ndt := NewDirTracker(job.dir, job.mf)
+			if registerChanger != nil {
+				registerChanger(ndt)
+			}
+			for err := range ndt.ErrChan() {
 				if err != nil {
 					errChan <- err
 				}

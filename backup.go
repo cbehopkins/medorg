@@ -86,9 +86,10 @@ type backupMaker struct {
 
 func (bm backupMaker) backMake(dir string) (DirectoryTrackerInterface, error) {
 	mkFk := func(dir string) (DirectoryEntryInterface, error) {
-		dm, err := DirectoryMapFromDir(dir)
+		// Not an issue if we get errors - we'll just have a blank dm and rebuild
+		dm, _ := DirectoryMapFromDir(dir)
 		dm.VisitFunc = bm.visitFunc
-		return dm, err
+		return dm, nil
 	}
 	return NewDirectoryEntry(dir, mkFk)
 }
@@ -141,6 +142,7 @@ func (bs backScanner) scanBackupDirectories(destDir, srcDir, volumeName string, 
 		tokenBuffer <- struct{}{}
 
 		if err != nil {
+			panic(err)
 			return err
 		}
 		backupDestination.Add(fs)
@@ -187,11 +189,10 @@ func (bs backScanner) scanBackupDirectories(destDir, srcDir, volumeName string, 
 	makerFuncSrc := backupMaker{
 		visitFunc: modifyFuncSourceDm,
 	}
-
 	errChan := runSerialDirTrackerJob([]dirTrackerJob{
 		{destDir, makerFuncDest.backMake},
 		{srcDir, makerFuncSrc.backMake},
-	}, nil)
+	}, registerFunc)
 
 	for err := range errChan {
 		if err != nil {
@@ -215,7 +216,7 @@ func (bs backScanner) scanBackupDirectories(destDir, srcDir, volumeName string, 
 // extractCopyFiles will look for files that are not backed up
 // i.e. walk through src file system looking for files
 // That don't have the volume name as an archived at
-func extractCopyFiles(targetDir, volumeName string) (fpathListList, error) {
+func extractCopyFiles(targetDir, volumeName string, registerFunc func(*DirTracker)) (fpathListList, error) {
 	var lk sync.Mutex
 	remainingFiles := fpathListList{}
 	visitFunc := func(dm DirectoryMap, dir, fn string, d fs.DirEntry) error {
@@ -248,7 +249,11 @@ func extractCopyFiles(targetDir, volumeName string) (fpathListList, error) {
 		}
 		return NewDirectoryEntry(dir, mkFk)
 	}
-	errChan := NewDirTracker(targetDir, makerFunc).ErrChan()
+	ndt := NewDirTracker(targetDir, makerFunc)
+	if registerFunc != nil {
+		registerFunc(ndt)
+	}
+	errChan := ndt.ErrChan()
 	for err := range errChan {
 		for range errChan {
 		}
@@ -353,7 +358,7 @@ func BackupRunner(xc *XMLCfg, fc FileCopier, srcDir, destDir string,
 		return nil
 	}
 	logFunc("Looking for files to  copy")
-	copyFilesArray, err := extractCopyFiles(srcDir, backupLabelName)
+	copyFilesArray, err := extractCopyFiles(srcDir, backupLabelName, registerFunc)
 	if err != nil {
 		return fmt.Errorf("BackupRunner cannot extract files, %w", err)
 	}

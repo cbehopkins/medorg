@@ -154,7 +154,7 @@ func main() {
 		if *conflg {
 			con = &medorg.Concentrator{BaseDir: dir}
 		}
-		errChan := medorg.NewDirTracker(dir, makerFunc)
+		errChan := medorg.NewDirTracker(dir, makerFunc).ErrChan()
 
 		for err := range errChan {
 			fmt.Println("Error received while walking:", dir, err)

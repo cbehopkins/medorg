@@ -53,6 +53,8 @@ func sizeOf(fn string) int {
 }
 
 func main() {
+	retcode := 0
+	defer func() { os.Exit(retcode) }()
 	var directories []string
 	var xc *medorg.XMLCfg
 	if xmcf := medorg.XmConfig(); xmcf != "" {
@@ -65,7 +67,8 @@ func main() {
 	}
 	if xc == nil {
 		fmt.Println("Unable to get config")
-		os.Exit(ExitNoConfig)
+		retcode = ExitNoConfig
+		return
 	}
 	defer func() {
 		fmt.Println("Saving out config")
@@ -86,7 +89,8 @@ func main() {
 			_, err := os.Stat(fl)
 			if os.IsNotExist(err) {
 				fmt.Println(fl, "does not exist!")
-				os.Exit(ExitSuppliedDirNotFound)
+				retcode = ExitSuppliedDirNotFound
+				return
 			}
 			if isDir(fl) {
 				directories = append(directories, fl)
@@ -101,7 +105,8 @@ func main() {
 	err := pool.Start()
 	if err != nil {
 		fmt.Println("Err::", err)
-		os.Exit(ExitBadVc)
+		retcode = ExitBadVc
+		return
 	}
 
 	defer pool.Stop()
@@ -109,23 +114,35 @@ func main() {
 	messageBar.SetTemplateString(`{{string . "backup status"}}`)
 	messageBar.Set("backup status", "Initialzing discombobulator")
 
+	logBar := new(pb.ProgressBar)
+	defer logBar.Finish()
+	logBar.SetTemplateString(`{{string . "msg"}}`)
+	pool.Add(logBar)
+	dirBar := new(pb.ProgressBar)
+	defer dirBar.Finish()
+	dirBar.SetTemplateString(`{{string . "msg"}}`)
+	pool.Add(dirBar)
+
 	if *tagflg {
 		if len(directories) != 1 {
-			fmt.Println("One directory only please when configuring tags")
-			os.Exit(ExitOneDirectoryOnly)
+			dirBar.Set("msg", "One directory only please when configuring tags")
+			retcode = ExitOneDirectoryOnly
+			return
 		}
 		vc, err := xc.VolumeCfgFromDir(directories[0])
 		if err != nil {
-			fmt.Println("Err::", err)
-			os.Exit(ExitBadVc)
+			dirBar.Set("msg", fmt.Sprint("Err::", err))
+			retcode = ExitBadVc
+			return
 		}
-		fmt.Println("Config name is", vc.Label)
-		os.Exit(ExitOk)
+		dirBar.Set("msg", fmt.Sprint("Config name is", vc.Label))
+		return
 	}
 
 	if len(directories) != 2 {
-		fmt.Println("Error, expected 2 directories!", directories)
-		os.Exit(ExitTwoDirectoriesOnly)
+		dirBar.Set("msg", fmt.Sprint("Error, expected 2 directories!", directories))
+		retcode = ExitTwoDirectoriesOnly
+		return
 	}
 
 	var wg sync.WaitGroup
@@ -153,6 +170,7 @@ func main() {
 					myBar.SetCurrent(int64(dstSize))
 				case <-closeChan:
 					myBar.Finish()
+					wg.Done()
 					return
 				}
 			}
@@ -181,14 +199,7 @@ func main() {
 		}
 	}
 	messageBar.Set("backup status", "Starting Backup Run")
-	logBar := new(pb.ProgressBar)
-	defer logBar.Finish()
-	logBar.SetTemplateString(`{{string . "msg"}}`)
-	pool.Add(logBar)
-	dirBar := new(pb.ProgressBar)
-	defer dirBar.Finish()
-	dirBar.SetTemplateString(`{{string . "msg"}}`)
-	pool.Add(dirBar)
+
 	blanker := func(msg string, bar *pb.ProgressBar) string {
 		toAdd := bar.Width() - len(msg)
 		if toAdd < 0 {
@@ -199,16 +210,43 @@ func main() {
 	logFunc := func(msg string) {
 		logBar.Set("msg", blanker(msg, logBar))
 	}
-	traverseFunc := func(path string) {
-		dirBar.Set("msg", blanker(path, dirBar))
+	var dtWg sync.WaitGroup
+	registerFunc := func(dt *medorg.DirTracker) {
+		removeFunc := func(pb *pb.ProgressBar) {
+			if pool.Len() != 4 {
+				messageBar.Set("backup status", fmt.Sprint("Odd, theer should be 4 bars at the remove::", pool.Len()))
+			}
+			err := pool.Remove(pb)
+			if err != nil {
+				messageBar.Set("backup status", fmt.Sprint("Failed to remove bar::", err))
+			}
+			if pool.Len() != 3 {
+				messageBar.Set("backup status", fmt.Sprint("Odd, theer should be 3 bars at the remove::", pool.Len()))
+			}
+			dtWg.Done()
+		}
+		var bar *pb.ProgressBar
+		bar = pb.RegisterProgressable(dt, removeFunc)
+		if pool.Len() != 3 {
+			messageBar.Set("backup status", fmt.Sprint("Odd, theer should be 3 bars at the start::", pool.Len()))
+		}
+		pool.Add(bar)
+		if pool.Len() != 4 {
+			messageBar.Set("backup status", fmt.Sprint("Odd, theer should be 4 bars at the start::", pool.Len()))
+		}
+		dtWg.Add(1)
 	}
-	err = medorg.BackupRunner(xc, copyer, directories[0], directories[1], orphanedFunc, logFunc, traverseFunc)
+	err = medorg.BackupRunner(xc, copyer, directories[0], directories[1], orphanedFunc, logFunc, registerFunc)
 	messageBar.Set("backup status", "Completed Backup Run")
 
 	if err != nil {
 		messageBar.Set("backup status", fmt.Sprint("Unable to complete backup:", err))
-		os.Exit(ExitIncompleteBackup)
+		retcode = ExitIncompleteBackup
+		return
 	}
+	messageBar.Set("backup status", "Waiting for complete")
 	wg.Wait()
-	messageBar.Set("backup status", "Completed Copying")
+	messageBar.Set("backup status", "Waiting for dir tracker progress")
+	dtWg.Wait()
+
 }

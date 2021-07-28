@@ -35,8 +35,6 @@ func NewVolumeCfg(xc *XMLCfg, fn string) (*VolumeCfg, error) {
 	itm.fn = fn
 
 	if os.IsNotExist(err) {
-		fmt.Println("Creating a new label")
-
 		err := itm.GenerateNewVolumeLabel(xc)
 		if err != nil {
 			return nil, err
@@ -58,7 +56,6 @@ func NewVolumeCfg(xc *XMLCfg, fn string) (*VolumeCfg, error) {
 			return nil, fmt.Errorf("unable to unmarshal config NewVolumeCfg file:%s::%w", fn, err)
 		}
 	}
-	fmt.Println("Using", itm.Label)
 	// We don't care if the label is there already or not
 	_ = xc.AddLabel(itm.Label)
 	return itm, nil
