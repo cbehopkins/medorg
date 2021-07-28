@@ -213,27 +213,15 @@ func main() {
 	var dtWg sync.WaitGroup
 	registerFunc := func(dt *medorg.DirTracker) {
 		removeFunc := func(pb *pb.ProgressBar) {
-			if pool.Len() != 4 {
-				messageBar.Set("backup status", fmt.Sprint("Odd, theer should be 4 bars at the remove::", pool.Len()))
-			}
 			err := pool.Remove(pb)
 			if err != nil {
 				messageBar.Set("backup status", fmt.Sprint("Failed to remove bar::", err))
-			}
-			if pool.Len() != 3 {
-				messageBar.Set("backup status", fmt.Sprint("Odd, theer should be 3 bars at the remove::", pool.Len()))
 			}
 			dtWg.Done()
 		}
 		var bar *pb.ProgressBar
 		bar = pb.RegisterProgressable(dt, removeFunc)
-		if pool.Len() != 3 {
-			messageBar.Set("backup status", fmt.Sprint("Odd, theer should be 3 bars at the start::", pool.Len()))
-		}
 		pool.Add(bar)
-		if pool.Len() != 4 {
-			messageBar.Set("backup status", fmt.Sprint("Odd, theer should be 4 bars at the start::", pool.Len()))
-		}
 		dtWg.Add(1)
 	}
 	err = medorg.BackupRunner(xc, copyer, directories[0], directories[1], orphanedFunc, logFunc, registerFunc)

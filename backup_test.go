@@ -294,7 +294,7 @@ func TestBackupExtract(t *testing.T) {
 		t.Error("Error received on closing:", err)
 	}
 
-	copyFilesArray, err := extractCopyFiles(dirs[0], backupLabelName)
+	copyFilesArray, err := extractCopyFiles(dirs[0], backupLabelName, nil)
 	if err != nil {
 		t.Error(err)
 	}
@@ -450,7 +450,7 @@ func TestBackupSrcHasDuplicateFiles(t *testing.T) {
 	if expectedDuplicates != 0 {
 		t.Error("Expected 0 duplicates left, got:", expectedDuplicates)
 	}
-	copyFilesArray, err := extractCopyFiles(dirs[0], backupLabelName)
+	copyFilesArray, err := extractCopyFiles(dirs[0], backupLabelName, nil)
 	if err != nil {
 		t.Error(err)
 	}
