@@ -359,7 +359,7 @@ func TestBackupMain(t *testing.T) {
 		callCount++
 		return nil
 	}
-	err = BackupRunner(&xc, fc, dirs[0], dirs[1], nil, nil, nil)
+	err = BackupRunner(&xc, 2, fc, dirs[0], dirs[1], nil, nil, nil)
 	if err != nil {
 		t.Error(err)
 	}

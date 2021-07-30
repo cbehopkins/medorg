@@ -122,7 +122,6 @@ func (bs backScanner) scanBackupDirectories(destDir, srcDir, volumeName string, 
 ) error {
 	if logFunc == nil {
 		logFunc = func(msg string) {
-			log.Println(msg)
 		}
 	}
 	calcCnt := 2
@@ -142,7 +141,6 @@ func (bs backScanner) scanBackupDirectories(destDir, srcDir, volumeName string, 
 		tokenBuffer <- struct{}{}
 
 		if err != nil {
-			panic(err)
 			return err
 		}
 		backupDestination.Add(fs)
@@ -327,7 +325,11 @@ func doACopy(
 	return nil
 }
 
-func BackupRunner(xc *XMLCfg, fc FileCopier, srcDir, destDir string,
+func BackupRunner(
+	xc *XMLCfg,
+	maxNumBackups int,
+	fc FileCopier,
+	srcDir, destDir string,
 	orphanFunc func(path string) error,
 	logFunc func(msg string),
 	registerFunc func(*DirTracker),
@@ -338,14 +340,14 @@ func BackupRunner(xc *XMLCfg, fc FileCopier, srcDir, destDir string,
 			log.Println(msg)
 		}
 	}
-
-	// Go ahead and run a check_calc style scan of the directories and make sure
-	// they have all their existing md5s up to date
 	backupLabelName, err := xc.getVolumeLabel(destDir)
 	if err != nil {
 		return err
 	}
 	logFunc(fmt.Sprint("Determined label as:", backupLabelName, "now scanning directories"))
+
+	// Go ahead and run a check_calc style scan of the directories and make sure
+	// they have all their existing md5s up to date
 	// First of all get the srcDir updated with files that are already in destDir
 	var bs backScanner
 	err = bs.scanBackupDirectories(destDir, srcDir, backupLabelName, logFunc, registerFunc)
@@ -362,11 +364,15 @@ func BackupRunner(xc *XMLCfg, fc FileCopier, srcDir, destDir string,
 	if err != nil {
 		return fmt.Errorf("BackupRunner cannot extract files, %w", err)
 	}
-	logFunc("Copy files extracted")
+
 	// FIXME Now run this through Prioritize
 	logFunc("Now starting Copy")
 	// Now do the copy, updating srcDir's labels as we go
-	for _, copyFiles := range copyFilesArray {
+	for numBackups, copyFiles := range copyFilesArray {
+		if numBackups >= maxNumBackups {
+			logFunc(fmt.Sprint("Not backing up to more than", maxNumBackups, "places"))
+			return nil
+		}
 		for _, file := range copyFiles {
 			err := doACopy(srcDir, destDir, backupLabelName, file, fc)
 			if errors.Is(err, ErrNoSpace) {
@@ -383,6 +389,5 @@ func BackupRunner(xc *XMLCfg, fc FileCopier, srcDir, destDir string,
 		}
 	}
 	logFunc("Finished Copy")
-
 	return nil
 }

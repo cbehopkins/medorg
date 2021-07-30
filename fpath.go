@@ -36,19 +36,6 @@ func (fpll *fpathListList) Add(index int, fp Fpath) {
 
 	(*fpll)[index].Add(fp)
 }
-func isChildPath(ref, candidate string) (bool, error) {
-
-	rp, err := filepath.Abs(ref)
-	if err != nil {
-		return false, err
-	}
-	can, err := filepath.Abs(candidate)
-	if err != nil {
-		return false, err
-	}
-
-	return strings.Contains(rp, can), nil
-}
 
 func isHiddenDirectory(path string) bool {
 	if path == "." || path == ".." {

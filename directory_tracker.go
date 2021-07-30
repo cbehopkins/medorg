@@ -21,18 +21,28 @@ type DirectoryTrackerInterface interface {
 	VisitFile(dir, file string, d fs.DirEntry, callback func())
 }
 
+type finishedB uint32
+
+func (f *finishedB) Get() bool {
+	return atomic.LoadUint32((*uint32)(f)) > 0
+}
+func (f *finishedB) Set() {
+	atomic.StoreUint32((*uint32)(f), 1)
+}
+
 type DirTracker struct {
-	lk                    *sync.Mutex
-	dm                    map[string]DirectoryTrackerInterface
-	newEntry              func(dir string) (DirectoryTrackerInterface, error)
-	lastPath              string
-	tokenChan             chan struct{}
-	wg                    *sync.WaitGroup
-	errChan               chan error
 	directoryCountTotal   int64
 	directoryCountVisited int64
+	// We do not lock the dm map as we only access it in a single threaded manner
+	// i.e. only the directory walker or things it calls have access
+	dm        map[string]DirectoryTrackerInterface
+	newEntry  func(dir string) (DirectoryTrackerInterface, error)
+	lastPath  lastPath
+	tokenChan chan struct{}
+	wg        *sync.WaitGroup
+	errChan   chan error
 
-	finished bool
+	finished finishedB
 }
 
 func makeTokenChan(numOutsanding int) chan struct{} {
@@ -43,7 +53,7 @@ func makeTokenChan(numOutsanding int) chan struct{} {
 	return tokenChan
 }
 
-const NumTrackerOutstanding = 1
+const NumTrackerOutstanding = 4
 
 // NewDirTracker does what it says
 // a dir tracker will walk the supplied directory
@@ -54,7 +64,6 @@ const NumTrackerOutstanding = 1
 func NewDirTracker(dir string, newEntry func(string) (DirectoryTrackerInterface, error)) *DirTracker {
 	numOutsanding := NumTrackerOutstanding // FIXME expose this
 	var dt DirTracker
-	dt.lk = new(sync.Mutex)
 	dt.dm = make(map[string]DirectoryTrackerInterface)
 	dt.newEntry = newEntry
 	dt.tokenChan = makeTokenChan(numOutsanding)
@@ -65,144 +74,119 @@ func NewDirTracker(dir string, newEntry func(string) (DirectoryTrackerInterface,
 		if err != nil {
 			dt.errChan <- err
 		}
-		dt.close(dir)
+		for key, val := range dt.dm {
+			delete(dt.dm, key)
+			val.Close()
+		}
 		dt.wg.Wait()
+		dt.finished.Set()
 		close(dt.errChan)
 		close(dt.tokenChan)
-		if dt.Total() != dt.Value() {
-			panic("Lengths don't match")
-		}
 	}()
 	go dt.populateDircount(dir)
 	return &dt
 }
+
+// ErrChan - returns any errors we encounter
+// We retuyrn as a channel as we don't stop on *most* errors
 func (dt *DirTracker) ErrChan() <-chan error {
 	return dt.errChan
 }
-func (dt *DirTracker) populateDircount(dir string) {
-	walker := func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			if isHiddenDirectory(path) {
-				return filepath.SkipDir
-			}
-			atomic.AddInt64(&dt.directoryCountTotal, 1)
-		}
-		_, file := filepath.Split(path)
-		if file == ".mdSkipDir" {
-			return filepath.SkipDir
-		}
-		return nil
-	}
 
-	err := filepath.WalkDir(dir, walker)
-	if err != nil {
-		dt.directoryCountTotal = -1
-		return
-	}
-}
+// Total tracks how many items there are to visit
 func (dt *DirTracker) Total() int64 {
 	return atomic.LoadInt64(&dt.directoryCountTotal)
 }
+
+// Value is how far we are though visiting
 func (dt *DirTracker) Value() int64 {
 	return atomic.LoadInt64(&dt.directoryCountVisited)
 }
+
+// Finished - have we finished yet?
 func (dt *DirTracker) Finished() bool {
-	dt.lk.Lock()
-	defer dt.lk.Unlock()
-	return dt.finished
+	return dt.finished.Get()
+}
+func (dt *DirTracker) runChild(de DirectoryTrackerInterface) {
+	// Start is allowed to consume significant time
+	// In fact it may directly be the main runner
+	err := de.Start()
+	if err != nil {
+		dt.errChan <- err
+	}
+	dt.wg.Done()
+}
+func (dt *DirTracker) serviceChild(de DirectoryTrackerInterface) {
+	for err := range de.ErrChan() {
+		if err != nil {
+			dt.errChan <- err
+		}
+	}
+	dt.wg.Done()
 }
 
 // Should we export this?
 // so that clients can not have to recreate them
 func (dt *DirTracker) getDirectoryEntry(path string) (DirectoryTrackerInterface, error) {
+	// Fast path - does it already exist? If so, use it!
 	de, ok := dt.dm[path]
 	if ok && de != nil {
 		return de, nil
 	}
+
 	// Call out to the external function to return a new entry
 	de, err := dt.newEntry(path)
-	// FIXME error handling
 	if de == nil || err != nil {
 		return nil, err
 	}
-	go func() {
-		err := de.Start()
-		if err != nil {
-			dt.errChan <- err
-		}
-	}()
+
 	dt.dm[path] = de
-	dt.wg.Add(1)
-	go func() {
-		for err := range de.ErrChan() {
-			if err != nil {
-				dt.errChan <- err
-			}
-		}
-		dt.wg.Done()
-	}()
+	dt.wg.Add(2)
+	go dt.runChild(de)
+	go dt.serviceChild(de)
 	return de, nil
 }
 
-func (dt DirTracker) getLastPath() string {
-	dt.lk.Lock()
-	defer dt.lk.Unlock()
-	return dt.lastPath
-}
-
-func (dt *DirTracker) pathCloser(path string, closerFunc func(string)) {
-	// The job of this is to work out if we have gone out of scope
-	// i.e. close /fred/bob if we have received /fred/steve
-	// but do not close /fred or /fred/bob when we receive /fred/bob/steve
-	// But also, not doing anything is fine!
-
-	defer func() {
-		dt.lk.Lock()
-		dt.lastPath = path
-		dt.lk.Unlock()
-	}()
-
-	if dt.getLastPath() == "" {
+func (dt *DirTracker) populateDircount(dir string) {
+	err := filepath.WalkDir(dir, dt.directoryWalkerPopulateDircount)
+	if err != nil {
+		dt.directoryCountTotal = -1
 		return
 	}
-	if closerFunc == nil {
-		closerFunc = func(pt string) {
-			de, ok := dt.dm[pt]
-			if ok {
-				de.Close()
-			}
-		}
-	}
-	// FIXME make it possbile to select this/another/default to this
-	shouldClose := func(pt string) bool {
-		isChild, err := isChildPath(pt, dt.getLastPath())
-		if err != nil {
-			// FIXME
-			return false
-		}
-
-		return !isChild
-	}
-	if shouldClose(path) {
-		closerFunc(dt.getLastPath())
-		delete(dt.dm, dt.getLastPath())
-	}
 }
-
+func (dt *DirTracker) directoryWalkerPopulateDircount(path string, d fs.DirEntry, err error) error {
+	if err != nil {
+		return err
+	}
+	if d.IsDir() {
+		if isHiddenDirectory(path) {
+			return filepath.SkipDir
+		}
+		atomic.AddInt64(&dt.directoryCountTotal, 1)
+	}
+	_, file := filepath.Split(path)
+	if file == ".mdSkipDir" {
+		return filepath.SkipDir
+	}
+	return nil
+}
 func (dt *DirTracker) directoryWalker(path string, d fs.DirEntry, err error) error {
 	if err != nil {
 		return err
 	}
 	if d.IsDir() {
-
 		if isHiddenDirectory(path) {
 			return filepath.SkipDir
 		}
 		atomic.AddInt64(&dt.directoryCountVisited, 1)
-		dt.pathCloser(path, nil)
+		closerFunc := func(pt string) {
+			de, ok := dt.dm[pt]
+			if ok {
+				de.Close()
+			}
+			delete(dt.dm, pt)
+		}
+		dt.lastPath.Closer(path, closerFunc)
 		de, err := dt.getDirectoryEntry(path)
 		if err != nil {
 			return fmt.Errorf("%w::%s", err, path)
@@ -218,7 +202,7 @@ func (dt *DirTracker) directoryWalker(path string, d fs.DirEntry, err error) err
 	}
 	dir, file := filepath.Split(path)
 	if file == ".mdSkipDir" {
-		// fmt.Println("Skipping:", dir)
+		log.Println("Skipping:", dir)
 		return filepath.SkipDir
 	}
 	if dir == "" {
@@ -246,22 +230,12 @@ func (dt *DirTracker) directoryWalker(path string, d fs.DirEntry, err error) err
 	return nil
 }
 
-func (dt *DirTracker) close(dir string) {
-	for key, val := range dt.dm {
-		delete(dt.dm, key)
-		val.Close()
-	}
-	dt.lk.Lock()
-	dt.finished = true
-	dt.lk.Unlock()
-}
-
 type dirTrackerJob struct {
 	dir string
 	mf  func(string) (DirectoryTrackerInterface, error)
 }
 
-// func runParallelDirTrackerJob(jobs []dirTrackerJob) <-chan error {
+// func runParallelDirTrackerJob(jobs []dirTrackerJob, registerChanger func(*DirTracker) <-chan error {
 // 	errChan := make(chan error)
 // 	var wg sync.WaitGroup
 // 	wg.Add(len(jobs))
@@ -284,8 +258,6 @@ type dirTrackerJob struct {
 
 func runSerialDirTrackerJob(jobs []dirTrackerJob, registerChanger func(*DirTracker)) <-chan error {
 	errChan := make(chan error)
-	var wg sync.WaitGroup
-	wg.Add(len(jobs))
 	go func() {
 		for _, job := range jobs {
 			ndt := NewDirTracker(job.dir, job.mf)
@@ -297,11 +269,7 @@ func runSerialDirTrackerJob(jobs []dirTrackerJob, registerChanger func(*DirTrack
 					errChan <- err
 				}
 			}
-			wg.Done()
 		}
-	}()
-	go func() {
-		wg.Wait()
 		close(errChan)
 	}()
 	return errChan

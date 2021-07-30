@@ -12,41 +12,17 @@ import (
 	"time"
 )
 
-func TestPathCloser(t *testing.T) {
-	var dt DirTracker
-	dt.lk = new(sync.Mutex)
-	dt.lastPath = "/bob"
-	callCount := 0
-	myCloser := func(path string) {
-		callCount++
-	}
-	checkRun := func(path string, cnt int) {
-		dt.pathCloser(path, myCloser)
-
-		if callCount != cnt {
-			t.Error("Failed on,", path, cnt, callCount, dt.getLastPath())
-		}
-	}
-
-	checkRun("/bob/fred", 0)
-	checkRun("/bob/fred/bob", 0)
-	checkRun("/bob/fred", 1)
-	checkRun("/bob/fred/steve", 1)
-	checkRun("/bob/fred/susan", 2)
-	checkRun("/bob/fred", 3)
-
-}
-
 type mockDtType struct {
 	errChan chan error
 	lock    *sync.RWMutex
-	closed  bool
+	closed  *bool
 	visiter func(string, string)
 }
 
 func newMockDtType() (mdt mockDtType) {
 	mdt.errChan = make(chan error)
 	mdt.lock = new(sync.RWMutex)
+	mdt.closed = new(bool)
 	return
 }
 
@@ -58,7 +34,7 @@ func (mdt mockDtType) Start() error {
 }
 func (mdt mockDtType) Close() {
 	mdt.lock.Lock()
-	mdt.closed = true
+	*mdt.closed = true
 	mdt.lock.Unlock()
 	close(mdt.errChan)
 }
@@ -68,7 +44,7 @@ var errTestChanClosed = errors.New("visit called to a closed structure")
 func (mdt mockDtType) VisitFile(dir, file string, d fs.DirEntry, callback func()) {
 
 	mdt.lock.Lock()
-	if mdt.closed {
+	if *mdt.closed {
 		mdt.errChan <- fmt.Errorf("%w at %s/%s", errTestChanClosed, dir, file)
 	}
 	mdt.lock.Unlock()

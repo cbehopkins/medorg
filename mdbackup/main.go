@@ -4,9 +4,9 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -51,8 +51,47 @@ func sizeOf(fn string) int {
 	}
 	return int(fs)
 }
+func poolCopier(src, dst medorg.Fpath, pool *pb.Pool, wg *sync.WaitGroup) error {
+	myBar := new(pb.ProgressBar)
+	myBar.Set("prefix", fmt.Sprint(string(src), ":"))
+	myBar.Set(pb.Bytes, true)
+	srcSize := sizeOf(string(src))
+	myBar.SetTotal(int64(srcSize))
 
+	pool.Add(myBar)
+	myBar.Start()
+	defer pool.Remove(myBar)
+	closeChan := make(chan struct{})
+	wg.Add(1)
+	go func() {
+		for {
+			select {
+			case <-time.After(2 * time.Second):
+				dstSize := sizeOf(string(dst))
+				myBar.SetCurrent(int64(dstSize))
+			case <-closeChan:
+				myBar.Finish()
+				wg.Done()
+				return
+			}
+		}
+	}()
+
+	err := medorg.CopyFile(src, dst)
+	close(closeChan)
+	return err
+}
 func main() {
+
+	f, err := os.OpenFile("mdbackup.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	if err != nil {
+		log.Fatalf("error opening file: %v", err)
+	}
+	defer f.Close()
+
+	log.SetOutput(f)
+	log.Println("This is a test log entry")
+
 	retcode := 0
 	defer func() { os.Exit(retcode) }()
 	var directories []string
@@ -78,7 +117,6 @@ func main() {
 		}
 	}()
 	var tagflg = flag.Bool("tag", false, "Locate and print the directory tag, create if needed")
-
 	var scanflg = flag.Bool("scan", false, "Only scan files in src & dst updating labels, don't run the backup")
 	var dummyflg = flag.Bool("dummy", false, "Don't copy, just tell me what you'd do")
 	var delflg = flag.Bool("delete", false, "Delete duplicated Files")
@@ -102,7 +140,7 @@ func main() {
 
 	messageBar := new(pb.ProgressBar)
 	pool := pb.NewPool(messageBar)
-	err := pool.Start()
+	err = pool.Start()
 	if err != nil {
 		fmt.Println("Err::", err)
 		retcode = ExitBadVc
@@ -111,130 +149,103 @@ func main() {
 
 	defer pool.Stop()
 	defer messageBar.Finish()
-	messageBar.SetTemplateString(`{{string . "backup status"}}`)
-	messageBar.Set("backup status", "Initialzing discombobulator")
+	messageBar.SetTemplateString(`{{string . "msg"}}`)
+	messageBar.Set("msg", "Initialzing discombobulator")
 
 	logBar := new(pb.ProgressBar)
 	defer logBar.Finish()
 	logBar.SetTemplateString(`{{string . "msg"}}`)
 	pool.Add(logBar)
-	dirBar := new(pb.ProgressBar)
-	defer dirBar.Finish()
-	dirBar.SetTemplateString(`{{string . "msg"}}`)
-	pool.Add(dirBar)
 
 	if *tagflg {
 		if len(directories) != 1 {
-			dirBar.Set("msg", "One directory only please when configuring tags")
+			fmt.Println("One directory only please when configuring tags")
 			retcode = ExitOneDirectoryOnly
 			return
 		}
 		vc, err := xc.VolumeCfgFromDir(directories[0])
 		if err != nil {
-			dirBar.Set("msg", fmt.Sprint("Err::", err))
+			fmt.Println("Err::", err)
 			retcode = ExitBadVc
 			return
 		}
-		dirBar.Set("msg", fmt.Sprint("Config name is", vc.Label))
+		fmt.Println("Config name is", vc.Label)
 		return
 	}
 
 	if len(directories) != 2 {
-		dirBar.Set("msg", fmt.Sprint("Error, expected 2 directories!", directories))
+		fmt.Println("Error, expected 2 directories!", directories)
 		retcode = ExitTwoDirectoriesOnly
 		return
 	}
 
+	// Setup the function that copies files
 	var wg sync.WaitGroup
-	copyer := func(src, dst medorg.Fpath) error {
-		if *dummyflg {
-			fmt.Println("Copy from:", src, " to ", dst)
+	var copyer func(src, dst medorg.Fpath) error
+	if *dummyflg {
+		copyer = func(src, dst medorg.Fpath) error {
+			log.Println("Copy from:", src, " to ", dst)
 			return medorg.ErrDummyCopy
 		}
-		myBar := new(pb.ProgressBar)
-		myBar.Set("prefix", fmt.Sprint(string(src), ":"))
-		myBar.Set(pb.Bytes, true)
-		srcSize := sizeOf(string(src))
-		myBar.SetTotal(int64(srcSize))
-
-		pool.Add(myBar)
-		myBar.Start()
-		defer pool.Remove(myBar)
-		closeChan := make(chan struct{})
-		wg.Add(1)
-		go func() {
-			for {
-				select {
-				case <-time.After(2 * time.Second):
-					dstSize := sizeOf(string(dst))
-					myBar.SetCurrent(int64(dstSize))
-				case <-closeChan:
-					myBar.Finish()
-					wg.Done()
-					return
-				}
-			}
-		}()
-
-		err := medorg.CopyFile(src, dst)
-		close(closeChan)
-		return err
+	} else {
+		copyer = func(src, dst medorg.Fpath) error {
+			return poolCopier(src, dst, pool, &wg)
+		}
 	}
-	var orphanedFunc func(string) error
 	if *scanflg {
 		copyer = nil
 	}
+
+	// Setup the function that deals with orphaned files
+	// i.e. files that are on the backup, but not the source
+	var orphanedFunc func(string) error
 	if *dummyflg {
 		orphanedFunc = func(path string) error {
-			fmt.Println(path, "orphaned")
+			log.Println(path, "orphaned")
 			return nil
 		}
 	} else if *delflg {
 		orphanedFunc = func(path string) error {
-			fmt.Println(path, "orphaned")
+			log.Println(path, "orphaned")
 			if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
 				_ = os.Remove(path)
 			}
 			return nil
 		}
 	}
-	messageBar.Set("backup status", "Starting Backup Run")
 
-	blanker := func(msg string, bar *pb.ProgressBar) string {
-		toAdd := bar.Width() - len(msg)
-		if toAdd < 0 {
-			toAdd = 0
-		}
-		return fmt.Sprint(msg, strings.Repeat(" ", toAdd))
-	}
 	logFunc := func(msg string) {
-		logBar.Set("msg", blanker(msg, logBar))
+		logBar.Set("msg", msg)
+		log.Println(msg)
 	}
-	var dtWg sync.WaitGroup
+
+	// This little bit of code means we get a progress bar on
+	// the backup runner scanning through directory trees
+	// This can take quite some time as it has to load and possibly generate
+	// the xml descriptions for the files (md5 hash calculation)
 	registerFunc := func(dt *medorg.DirTracker) {
 		removeFunc := func(pb *pb.ProgressBar) {
 			err := pool.Remove(pb)
 			if err != nil {
-				messageBar.Set("backup status", fmt.Sprint("Failed to remove bar::", err))
+				messageBar.Set("msg", fmt.Sprint("Failed to remove bar::", err))
 			}
-			dtWg.Done()
+			wg.Done()
 		}
-		var bar *pb.ProgressBar
-		bar = pb.RegisterProgressable(dt, removeFunc)
+
+		bar := pb.RegisterProgressable(dt, removeFunc)
 		pool.Add(bar)
-		dtWg.Add(1)
+		wg.Add(1)
 	}
-	err = medorg.BackupRunner(xc, copyer, directories[0], directories[1], orphanedFunc, logFunc, registerFunc)
-	messageBar.Set("backup status", "Completed Backup Run")
+
+	messageBar.Set("msg", "Starting Backup Run")
+	err = medorg.BackupRunner(xc, 2, copyer, directories[0], directories[1], orphanedFunc, logFunc, registerFunc)
+	messageBar.Set("msg", "Completed Backup Run")
 
 	if err != nil {
-		messageBar.Set("backup status", fmt.Sprint("Unable to complete backup:", err))
+		messageBar.Set("msg", fmt.Sprint("Unable to complete backup:", err))
 		retcode = ExitIncompleteBackup
 		return
 	}
-	messageBar.Set("backup status", "Waiting for complete")
+	messageBar.Set("msg", "Waiting for complete")
 	wg.Wait()
-	messageBar.Set("backup status", "Waiting for dir tracker progress")
-	dtWg.Wait()
-
 }
