@@ -54,6 +54,8 @@ func (mdt mockDtType) VisitFile(dir, file string, d fs.DirEntry, callback func()
 	}
 	callback()
 }
+func (dt mockDtType) Revisit(dir string, fileVisitor func(dm DirectoryEntryInterface, dir, fn string, fileStruct FileStruct) error) {
+}
 
 func TestDirectoryTrackerAgainstMock(t *testing.T) {
 

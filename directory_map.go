@@ -402,3 +402,9 @@ func (dm0 DirectoryMap) Equal(dm DirectoryEntryInterface) bool {
 	}
 	return true
 }
+func (dm DirectoryMap) Revisit(dir string, visitor func(dm DirectoryEntryInterface, directory string, file string, fileStruct FileStruct) error) {
+	for path, fileStruct := range dm.mp {
+		_ = visitor(dm, dir, path, fileStruct)
+	}
+	return
+}

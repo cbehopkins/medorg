@@ -19,6 +19,7 @@ type DirectoryTrackerInterface interface {
 	// You must call the callback after you have finished whatever you are doing that might be
 	// resource intensive.
 	VisitFile(dir, file string, d fs.DirEntry, callback func())
+	Revisit(dir string, visitor func(dm DirectoryEntryInterface, directory string, file string, fileStruct FileStruct) error)
 }
 
 type finishedB uint32
@@ -76,8 +77,7 @@ func NewDirTracker(dir string, newEntry func(string) (DirectoryTrackerInterface,
 		if err != nil {
 			dt.errChan <- err
 		}
-		for key, val := range dt.dm {
-			delete(dt.dm, key)
+		for _, val := range dt.dm {
 			val.Close()
 		}
 		dt.wg.Wait()
@@ -182,11 +182,12 @@ func (dt *DirTracker) directoryWalker(path string, d fs.DirEntry, err error) err
 		}
 		atomic.AddInt64(&dt.directoryCountVisited, 1)
 		closerFunc := func(pt string) {
-			de, ok := dt.dm[pt]
-			if ok {
-				de.Close()
-			}
-			delete(dt.dm, pt)
+			// FIXME wewill want this back when we are not revisiting
+			// de, ok := dt.dm[pt]
+			// if ok {
+			// 	de.Close()
+			// }
+			// delete(dt.dm, pt)
 		}
 		dt.lastPath.Closer(path, closerFunc)
 		de, err := dt.getDirectoryEntry(path)
@@ -228,12 +229,12 @@ func (dt *DirTracker) directoryWalker(path string, d fs.DirEntry, err error) err
 	return nil
 }
 
-// func (dt *DirTracker) Revisit(dirVisitor func(dir string) error, fileVisitor func(dm DirectoryMap, dir, fn string, d fs.DirEntry, fileStruct FileStruct, fileInfo fs.FileInfo) error) {
-// 	for path, de := range dt.dm {
-// 		dirVisitor(path)
-// 		de.Revisit(fileVisitor)
-// 	}
-// }
+func (dt *DirTracker) Revisit(dir string, dirVisitor func(dir string) error, fileVisitor func(dm DirectoryEntryInterface, dir, fn string, fileStruct FileStruct) error) {
+	for path, de := range dt.dm {
+		dirVisitor(path)
+		de.Revisit(path, fileVisitor)
+	}
+}
 
 type dirTrackerJob struct {
 	dir string

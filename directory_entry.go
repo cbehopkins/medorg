@@ -19,6 +19,7 @@ type DirectoryVisitorFunc func(dm DirectoryEntryInterface, directory string, fil
 type DirectoryEntryInterface interface {
 	Persist(string) error
 	Visitor(directory, file string, d fs.DirEntry) error
+	Revisit(dir string, visitor func(dm DirectoryEntryInterface, directory string, file string, fileStruct FileStruct) error)
 }
 
 // DirectoryEntryJournalableInterface if you want to store all info
@@ -110,4 +111,7 @@ func (de DirectoryEntry) worker() {
 			return
 		}
 	}
+}
+func (de DirectoryEntry) Revisit(dir string, visitor func(dm DirectoryEntryInterface, directory string, file string, fileStruct FileStruct) error) {
+	de.dm.Revisit(dir, visitor)
 }

@@ -3,6 +3,7 @@ package medorg
 import (
 	"fmt"
 	"io/fs"
+	"log"
 	"os"
 	"sync/atomic"
 	"testing"
@@ -75,7 +76,7 @@ func TestVisitFilesInDirectory1(t *testing.T) {
 		{cfg: []int{3, 3, 4}},
 		{cfg: []int{4, 2, 8}},
 		{cfg: []int{10, 2, 1}},
-		// {cfg: []int{100, 0, 1}},
+		{cfg: []int{100, 0, 1}},
 		// {cfg: []int{100, 1, 1}},
 		// {cfg: []int{1000, 0, 1}},
 		// {cfg: []int{10000, 0, 1}},
@@ -98,8 +99,11 @@ func TestVisitFilesInDirectory1(t *testing.T) {
 			var visitedFiles uint32
 			expectedVisitCount := moveDetectDirCreationCount(ts[0], ts[1], ts[2])
 
-			registerFunc := func(dt *DirTracker) {}
+			registerFunc := func(dt *DirTracker) {
+				log.Println("Visiting Dit")
+			}
 			someVisitFunc := func(dm DirectoryMap, dir, fn string, d fs.DirEntry, fileStruct FileStruct, fileInfo fs.FileInfo) error {
+				log.Println("Visit 0", dir, fn)
 				atomic.AddUint32(&visitedFiles, 1)
 				return nil
 			}
@@ -114,19 +118,24 @@ func TestVisitFilesInDirectory1(t *testing.T) {
 				t.Error("error:", expectedVisitCount, act)
 			}
 
-			// var reVisitCount uint32
-			// someVisitFunc := func(dm DirectoryMap, dir, fn string, d fs.DirEntry, fileStruct FileStruct, fileInfo fs.FileInfo) error {
-			// 	atomic.AddUint32(&reVisitCount, 1)
-			// 	return nil
-			// }
-			// for _, dt := range dta {
-			// 	dt.Revisit(nil, someVisitFunc)
-			// }
+			var reVisitCount uint32
+			fileVisitFunc := func(dm DirectoryEntryInterface, dir, fn string, fileStruct FileStruct) error {
+				log.Println("Visit 1", dir, fn)
+				atomic.AddUint32(&reVisitCount, 1)
+				return nil
+			}
+			directoryVisitor := func(dir string) error {
+				log.Println("Visiting Dir:", dir)
+				return nil
+			}
+			for _, dt := range dta {
+				dt.Revisit(root, directoryVisitor, fileVisitFunc)
+			}
 
-			// act = atomic.LoadUint32(&reVisitCount)
-			// if expectedVisitCount != int(act) {
-			// 	t.Error("error:", expectedVisitCount, act)
-			// }
+			act = atomic.LoadUint32(&reVisitCount)
+			if expectedVisitCount != int(act) {
+				t.Error("error:", expectedVisitCount, act)
+			}
 		})
 	}
 }
