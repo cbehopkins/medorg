@@ -29,7 +29,7 @@ type DirectoryMap struct {
 	// We want to copy the DirectoryMap elsewhere
 	lock *sync.RWMutex
 
-	VisitFunc func(DirectoryMap, string, string, fs.DirEntry) error
+	VisitFunc func(dm DirectoryMap, directory, file string, d fs.DirEntry) error
 }
 
 // NewDirectoryMap creates a new dm
@@ -160,6 +160,8 @@ func DirectoryMapFromDir(directory string) (dm DirectoryMap, err error) {
 		return
 	}
 	_, err = dm.FromXML(byteValue)
+	err = supressXmlUnmarshallErrors(err)
+
 	if err != nil {
 		return dm, fmt.Errorf("FromXML error \"%w\" on %s", err, directory)
 	}

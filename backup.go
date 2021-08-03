@@ -11,9 +11,6 @@ import (
 	"syscall"
 )
 
-// MaxBackups ifs the maximum number of drives we will backup a file to
-var MaxBackups = 4
-
 // ErrMissingEntry You are copying a file that there is no directory entry for. Probably need to rerun a visit on the directory
 var ErrMissingEntry = errors.New("attempting to copy a file there seems to be no directory entry for")
 
@@ -86,6 +83,7 @@ type backupMaker struct {
 
 func (bm backupMaker) backMake(dir string) (DirectoryTrackerInterface, error) {
 	mkFk := func(dir string) (DirectoryEntryInterface, error) {
+		log.Println("Examining::", dir)
 		// Not an issue if we get errors - we'll just have a blank dm and rebuild
 		dm, _ := DirectoryMapFromDir(dir)
 		dm.VisitFunc = bm.visitFunc
@@ -147,7 +145,6 @@ func (bs backScanner) scanBackupDirectories(destDir, srcDir, volumeName string, 
 		return nil
 	}
 	modifyFuncSourceDm := func(dm DirectoryMap, dir, fn string, d fs.DirEntry) error {
-		logFunc("Examining Source")
 		if fn == Md5FileName {
 			return nil
 		}
@@ -214,7 +211,7 @@ func (bs backScanner) scanBackupDirectories(destDir, srcDir, volumeName string, 
 // extractCopyFiles will look for files that are not backed up
 // i.e. walk through src file system looking for files
 // That don't have the volume name as an archived at
-func extractCopyFiles(targetDir, volumeName string, registerFunc func(*DirTracker)) (fpathListList, error) {
+func extractCopyFiles(targetDir, volumeName string, registerFunc func(*DirTracker), maxNumBackups int) (fpathListList, error) {
 	var lk sync.Mutex
 	remainingFiles := fpathListList{}
 	visitFunc := func(dm DirectoryMap, dir, fn string, d fs.DirEntry) error {
@@ -230,7 +227,7 @@ func extractCopyFiles(targetDir, volumeName string, registerFunc func(*DirTracke
 		}
 		fp := NewFpath(dir, fn)
 		lenArchive := len(fs.ArchivedAt)
-		if lenArchive > MaxBackups {
+		if lenArchive > maxNumBackups {
 			return nil
 		}
 		lk.Lock()
@@ -267,7 +264,7 @@ type FileCopier func(src, dst Fpath) error
 func doACopy(
 	srcDir, // The source of the backup as specified on the command line
 	destDir, // The destination directory as specified...
-	backupLabelName string, // the tag w should add to the sorce
+	backupLabelName string, // the tag we should add to the sorce
 	file Fpath, // The full path of the file
 	fc FileCopier) error {
 	if fc == nil {
@@ -333,6 +330,7 @@ func BackupRunner(
 	orphanFunc func(path string) error,
 	logFunc func(msg string),
 	registerFunc func(*DirTracker),
+	shutdownChan chan struct{},
 ) error {
 
 	if logFunc == nil {
@@ -360,33 +358,62 @@ func BackupRunner(
 		return nil
 	}
 	logFunc("Looking for files to  copy")
-	copyFilesArray, err := extractCopyFiles(srcDir, backupLabelName, registerFunc)
+	copyFilesArray, err := extractCopyFiles(srcDir, backupLabelName, registerFunc, maxNumBackups)
 	if err != nil {
 		return fmt.Errorf("BackupRunner cannot extract files, %w", err)
 	}
 
-	// FIXME Now run this through Prioritize
 	logFunc("Now starting Copy")
-	// Now do the copy, updating srcDir's labels as we go
-	for numBackups, copyFiles := range copyFilesArray {
-		if numBackups >= maxNumBackups {
-			logFunc(fmt.Sprint("Not backing up to more than", maxNumBackups, "places"))
+
+	// I don't like this pattern as it's not a clean pipeline - but the alternatives feel worse
+	copyTokens := makeTokenChan(2)
+	copyErrChan := make(chan error)
+	var cwg sync.WaitGroup
+	go func() {
+		defer func() {
+			cwg.Wait()
+			close(copyErrChan)
+		}()
+		// Now do the copy, updating srcDir's labels as we go
+		for numBackups, copyFiles := range copyFilesArray {
+			if numBackups >= maxNumBackups {
+				logFunc(fmt.Sprint("Not backing up to more than", maxNumBackups, "places"))
+				return
+			}
+			for _, file := range copyFiles {
+				select {
+				case <-shutdownChan:
+					logFunc("Seen shutdown request")
+					return
+
+				case _, ok := <-copyTokens:
+					if !ok {
+						return
+					}
+				}
+
+				cwg.Add(1)
+				go func(file Fpath) {
+					copyErrChan <- doACopy(srcDir, destDir, backupLabelName, file, fc)
+					cwg.Done()
+				}(file)
+			}
+		}
+	}()
+	defer func() { close(copyTokens) }()
+	for err := range copyErrChan {
+		if errors.Is(err, ErrNoSpace) {
+			// FIXME in the ideal world, we'd look at how much space there is left on the volume
+			// and look for a file with a size smaller than that
+			// and copy that.
+			// For now, that optimization is not too bad.
+			logFunc("Destination full")
 			return nil
 		}
-		for _, file := range copyFiles {
-			err := doACopy(srcDir, destDir, backupLabelName, file, fc)
-			if errors.Is(err, ErrNoSpace) {
-				// FIXME in the ideal world, we'd look at how much space there is left on the volume
-				// and look for a file with a size smaller than that
-				// and copy that.
-				// For now, that optimization is not too bad.
-				logFunc("Destination full")
-				return nil
-			}
-			if err != nil {
-				return fmt.Errorf("copy failed, %w::%s, %s, %s, %s", err, srcDir, destDir, backupLabelName, file)
-			}
+		if err != nil {
+			return fmt.Errorf("copy failed, %w::%s, %s, %s", err, srcDir, destDir, backupLabelName)
 		}
+		copyTokens <- struct{}{}
 	}
 	logFunc("Finished Copy")
 	return nil

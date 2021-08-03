@@ -69,6 +69,8 @@ func NewDirTracker(dir string, newEntry func(string) (DirectoryTrackerInterface,
 	dt.tokenChan = makeTokenChan(numOutsanding)
 	dt.wg = new(sync.WaitGroup)
 	dt.errChan = make(chan error)
+	dt.wg.Add(1)
+	go dt.populateDircount(dir)
 	go func() {
 		err := filepath.WalkDir(dir, dt.directoryWalker)
 		if err != nil {
@@ -83,7 +85,7 @@ func NewDirTracker(dir string, newEntry func(string) (DirectoryTrackerInterface,
 		close(dt.errChan)
 		close(dt.tokenChan)
 	}()
-	go dt.populateDircount(dir)
+
 	return &dt
 }
 
@@ -133,10 +135,9 @@ func (dt *DirTracker) getDirectoryEntry(path string) (DirectoryTrackerInterface,
 	if ok && de != nil {
 		return de, nil
 	}
-
 	// Call out to the external function to return a new entry
 	de, err := dt.newEntry(path)
-	if de == nil || err != nil {
+	if err != nil {
 		return nil, err
 	}
 
@@ -148,6 +149,7 @@ func (dt *DirTracker) getDirectoryEntry(path string) (DirectoryTrackerInterface,
 }
 
 func (dt *DirTracker) populateDircount(dir string) {
+	defer dt.wg.Done()
 	err := filepath.WalkDir(dir, dt.directoryWalkerPopulateDircount)
 	if err != nil {
 		dt.directoryCountTotal = -1
@@ -194,10 +196,6 @@ func (dt *DirTracker) directoryWalker(path string, d fs.DirEntry, err error) err
 		if de == nil {
 			return fmt.Errorf("%w::%s", errorMissingDe, path)
 		}
-		de, ok := dt.dm[path]
-		if !ok {
-			log.Fatal("bang!", de)
-		}
 		return nil
 	}
 	dir, file := filepath.Split(path)
@@ -229,6 +227,13 @@ func (dt *DirTracker) directoryWalker(path string, d fs.DirEntry, err error) err
 	de.VisitFile(dir, file, d, callback)
 	return nil
 }
+
+// func (dt *DirTracker) Revisit(dirVisitor func(dir string) error, fileVisitor func(dm DirectoryMap, dir, fn string, d fs.DirEntry, fileStruct FileStruct, fileInfo fs.FileInfo) error) {
+// 	for path, de := range dt.dm {
+// 		dirVisitor(path)
+// 		de.Revisit(fileVisitor)
+// 	}
+// }
 
 type dirTrackerJob struct {
 	dir string

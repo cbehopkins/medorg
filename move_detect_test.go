@@ -53,6 +53,17 @@ func createTestMoveDetectDirectories(numberOfDirectoriesWide, numberOfDirectorie
 	return dir, makeTestFilesAndDirectories(dir, numberOfDirectoriesWide, numberOfDirectoriesDeep, numberOfFiles)
 }
 
+func moveDetectDirCreationCount(numberOfDirectoriesWide, numberOfDirectoriesDeep, numberOfFiles int) int {
+	runningCnt := 0
+	for i := 0; i < numberOfDirectoriesWide; i++ {
+		runningCnt += numberOfFiles
+		if numberOfDirectoriesDeep > 0 {
+			runningCnt += moveDetectDirCreationCount(numberOfDirectoriesWide, numberOfDirectoriesDeep-1, numberOfFiles)
+		}
+	}
+	return runningCnt
+}
+
 // We want a function to select n random files and m random directories
 // The simplest way to do this would be to form a list of each
 // shuffle the list, and then select n & m from them
@@ -157,7 +168,7 @@ func TestMoveDetect(t *testing.T) {
 		{cfg: []int{100, 0, 1}, moveN: 2},
 		{cfg: []int{100, 1, 1}, moveN: 2},
 		// {cfg: []int{1000, 0, 1}, moveN: 2},
-		{cfg: []int{10000, 0, 1}, moveN: 2},
+		// {cfg: []int{10000, 0, 1}, moveN: 2},
 	}
 
 	for _, tst := range testSet0 {

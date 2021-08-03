@@ -4,14 +4,17 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io/fs"
 	"log"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/cbehopkins/medorg"
 	pb "github.com/cbehopkins/pb/v3"
+	bytesize "github.com/inhies/go-bytesize"
 )
 
 const (
@@ -25,6 +28,8 @@ const (
 	ExitBadVc
 )
 
+// FIXME
+var MaxBackups = 2
 var AF *medorg.AutoFix
 
 func isDir(fn string) bool {
@@ -62,6 +67,7 @@ func poolCopier(src, dst medorg.Fpath, pool *pb.Pool, wg *sync.WaitGroup) error 
 	myBar.Start()
 	defer pool.Remove(myBar)
 	closeChan := make(chan struct{})
+	defer func() { close(closeChan) }()
 	wg.Add(1)
 	go func() {
 		for {
@@ -77,13 +83,86 @@ func poolCopier(src, dst medorg.Fpath, pool *pb.Pool, wg *sync.WaitGroup) error 
 		}
 	}()
 
-	err := medorg.CopyFile(src, dst)
-	close(closeChan)
-	return err
+	return medorg.CopyFile(src, dst)
 }
-func main() {
+func topRegisterFunc(dt *medorg.DirTracker, pool *pb.Pool, wg *sync.WaitGroup) {
+	removeFunc := func(pb *pb.ProgressBar) {
+		err := pool.Remove(pb)
+		if err != nil {
+			log.Println("Failed to remove bar::", err)
+		}
+		wg.Done()
+	}
 
-	f, err := os.OpenFile("mdbackup.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	bar := pb.RegisterProgressable(dt, removeFunc)
+	pool.Add(bar)
+	wg.Add(1)
+}
+
+// FIXME this belongs in medorg
+
+func visitFilesUpdatingProgressBar(pool *pb.Pool, directories []string,
+	someVisitFunc func(dm medorg.DirectoryMap, dir, fn string, d fs.DirEntry, fileStruct medorg.FileStruct, fileInfo fs.FileInfo) error,
+) {
+	var wg sync.WaitGroup
+	registerFunc := func(dt *medorg.DirTracker) {
+		topRegisterFunc(dt, pool, &wg)
+	}
+	errChan := medorg.VisitFilesInDirectories(directories, registerFunc, someVisitFunc)
+	for err := range errChan {
+		log.Println("Error Got...", err)
+	}
+	wg.Wait()
+}
+
+func runStats(pool *pb.Pool, messageBar *pb.ProgressBar, directories []string) {
+	messageBar.Set("msg", "Start Scanning")
+	var lk sync.Mutex
+	// I want to know the size of storage I need to buy to get the files backed
+	// up n times
+	// So for each backup count, I want to know the size of the files
+	// i.e. how many bytes are backed up 0 times
+	// How many bytes are backed up 1 time
+	totalArray := make([]int64, MaxBackups+1)
+	for i := range totalArray {
+		totalArray[i] = 0
+	}
+	visitFunc := func(dm medorg.DirectoryMap, dir, fn string, d fs.DirEntry, fileStruct medorg.FileStruct, fileInfo fs.FileInfo) error {
+		lenArchive := len(fileStruct.ArchivedAt)
+		lenNeedesAdding := (lenArchive + 1) - len(totalArray)
+
+		if lenNeedesAdding > 0 {
+			lk.Lock()
+			totalArray = append(totalArray, make([]int64, lenNeedesAdding)...)
+			lk.Unlock()
+		}
+		fileSize := fileInfo.Size()
+
+		lk.Lock()
+		// Would like to do this with atomic add. The need to resize array prevents this
+		totalArray[lenArchive] += int64(fileSize)
+		lk.Unlock()
+		return nil
+	}
+	visitFilesUpdatingProgressBar(pool, directories, visitFunc)
+
+	for i, val := range totalArray {
+		// WTF why would you have a fraction number of bytes????
+		b := bytesize.New(float64(val))
+		log.Println(i, "requires", b, "bytes")
+	}
+}
+
+var LOGFILENAME = "mdbackup.log"
+
+func main() {
+	retcode := 0
+	defer func() { os.Exit(retcode) }()
+
+	///////////////////////////////////
+	// Logging setup
+	os.Remove(LOGFILENAME)
+	f, err := os.OpenFile(LOGFILENAME, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
 		log.Fatalf("error opening file: %v", err)
 	}
@@ -92,9 +171,9 @@ func main() {
 	log.SetOutput(f)
 	log.Println("This is a test log entry")
 
-	retcode := 0
-	defer func() { os.Exit(retcode) }()
 	var directories []string
+	///////////////////////////////////
+	// Read in top level config
 	var xc *medorg.XMLCfg
 	if xmcf := medorg.XmConfig(); xmcf != "" {
 		// FIXME should we be casting to string here or fixing the interfaces?
@@ -116,10 +195,14 @@ func main() {
 			fmt.Println("Error while saving config file", err)
 		}
 	}()
+
+	///////////////////////////////////
+	// Command line argument processing
 	var tagflg = flag.Bool("tag", false, "Locate and print the directory tag, create if needed")
 	var scanflg = flag.Bool("scan", false, "Only scan files in src & dst updating labels, don't run the backup")
 	var dummyflg = flag.Bool("dummy", false, "Don't copy, just tell me what you'd do")
 	var delflg = flag.Bool("delete", false, "Delete duplicated Files")
+	var statsflg = flag.Bool("stats", false, "Generate backup statistics")
 
 	flag.Parse()
 	if flag.NArg() > 0 {
@@ -138,6 +221,8 @@ func main() {
 		directories = []string{"."}
 	}
 
+	///////////////////////////////////
+	// Progress Bar init
 	messageBar := new(pb.ProgressBar)
 	pool := pb.NewPool(messageBar)
 	err = pool.Start()
@@ -152,11 +237,31 @@ func main() {
 	messageBar.SetTemplateString(`{{string . "msg"}}`)
 	messageBar.Set("msg", "Initialzing discombobulator")
 
+	///////////////////////////////////
+	// Catch Ctrl-C sensibly!
+	signalChan := make(chan os.Signal, 1)
+	signal.Notify(signalChan, os.Interrupt)
+	shutdownChan := make(chan struct{})
+	go func() {
+		ccCnt := 0
+		for range signalChan {
+			ccCnt++
+			if ccCnt == 1 {
+				messageBar.Set("msg", "Ctrl-C Detected")
+				close(shutdownChan)
+			} else {
+				os.Exit(1)
+			}
+		}
+	}()
+
 	logBar := new(pb.ProgressBar)
 	defer logBar.Finish()
 	logBar.SetTemplateString(`{{string . "msg"}}`)
 	pool.Add(logBar)
 
+	///////////////////////////////////
+	// Support tasks to main backup function need to run first
 	if *tagflg {
 		if len(directories) != 1 {
 			fmt.Println("One directory only please when configuring tags")
@@ -173,6 +278,14 @@ func main() {
 		return
 	}
 
+	if *statsflg {
+		runStats(pool, messageBar, directories)
+		return
+	}
+
+	///////////////////////////////////
+	// Main backup code starts
+	///////////////////////////////////
 	if len(directories) != 2 {
 		fmt.Println("Error, expected 2 directories!", directories)
 		retcode = ExitTwoDirectoriesOnly
@@ -224,21 +337,11 @@ func main() {
 	// This can take quite some time as it has to load and possibly generate
 	// the xml descriptions for the files (md5 hash calculation)
 	registerFunc := func(dt *medorg.DirTracker) {
-		removeFunc := func(pb *pb.ProgressBar) {
-			err := pool.Remove(pb)
-			if err != nil {
-				messageBar.Set("msg", fmt.Sprint("Failed to remove bar::", err))
-			}
-			wg.Done()
-		}
-
-		bar := pb.RegisterProgressable(dt, removeFunc)
-		pool.Add(bar)
-		wg.Add(1)
+		topRegisterFunc(dt, pool, &wg)
 	}
 
 	messageBar.Set("msg", "Starting Backup Run")
-	err = medorg.BackupRunner(xc, 2, copyer, directories[0], directories[1], orphanedFunc, logFunc, registerFunc)
+	err = medorg.BackupRunner(xc, 2, copyer, directories[0], directories[1], orphanedFunc, logFunc, registerFunc, shutdownChan)
 	messageBar.Set("msg", "Completed Backup Run")
 
 	if err != nil {

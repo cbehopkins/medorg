@@ -127,7 +127,7 @@ func TestDirectoryTrackerSpawning(t *testing.T) {
 	for _, tst := range testSet0 {
 		var cnt uint32
 		ts := tst.cfg
-		testName := fmt.Sprintln("DirectoryTrackerMock", ts)
+		testName := fmt.Sprintln("DirectoryTrackerSpawning", ts)
 		visiter := func(dir, file string) {
 			lk.Lock()
 			activeVisitors++

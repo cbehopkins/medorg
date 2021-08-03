@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 )
 
@@ -294,7 +295,7 @@ func TestBackupExtract(t *testing.T) {
 		t.Error("Error received on closing:", err)
 	}
 
-	copyFilesArray, err := extractCopyFiles(dirs[0], backupLabelName, nil)
+	copyFilesArray, err := extractCopyFiles(dirs[0], backupLabelName, nil, 2)
 	if err != nil {
 		t.Error(err)
 	}
@@ -349,22 +350,23 @@ func TestBackupMain(t *testing.T) {
 
 	_ = recalcTestDirectory(dirs[0])
 	_ = recalcTestDirectory(dirs[1])
-	callCount := 0
+	var callCount uint32
 
 	// FIXME Provide a proper dummy object here for testing
 	var xc XMLCfg
 	fc := func(src, dst Fpath) error {
 		t.Log("Copy", src, "to", dst)
 		CopyFile(src, dst)
-		callCount++
+		atomic.AddUint32(&callCount, 1)
 		return nil
 	}
-	err = BackupRunner(&xc, 2, fc, dirs[0], dirs[1], nil, nil, nil)
+	err = BackupRunner(&xc, 2, fc, dirs[0], dirs[1], nil, nil, nil, nil)
 	if err != nil {
 		t.Error(err)
 	}
-	if callCount != (srcFiles - numberBackedUp) {
-		t.Error("Incorrect call count:", callCount, srcFiles-numberBackedUp)
+	cc := atomic.LoadUint32(&callCount)
+	if int(cc) != (srcFiles - numberBackedUp) {
+		t.Error("Incorrect call count:", cc, srcFiles-numberBackedUp)
 	}
 }
 
@@ -450,7 +452,7 @@ func TestBackupSrcHasDuplicateFiles(t *testing.T) {
 	if expectedDuplicates != 0 {
 		t.Error("Expected 0 duplicates left, got:", expectedDuplicates)
 	}
-	copyFilesArray, err := extractCopyFiles(dirs[0], backupLabelName, nil)
+	copyFilesArray, err := extractCopyFiles(dirs[0], backupLabelName, nil, 2)
 	if err != nil {
 		t.Error(err)
 	}

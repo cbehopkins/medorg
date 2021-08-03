@@ -1,5 +1,13 @@
 package medorg
 
+import (
+	"encoding/xml"
+	"errors"
+	"fmt"
+	"io"
+	"log"
+)
+
 // Md5File is the struct written into each directory
 // It contains a lost of the files and the properties assoxciated with them
 type Md5File struct {
@@ -23,21 +31,21 @@ func (md *Md5File) append(fs FileStruct) {
 // 	}
 // 	return string(txt)
 // }
-// func supressXmlUnmarshallErrors(data []byte, v interface{}) error {
-// 	err := xml.Unmarshal(data, v)
-// 	xse := &xml.SyntaxError{}
-// 	switch true {
-// 	case err == nil:
-// 	case errors.Is(err, io.EOF):
-// 	case errors.As(err, &xse):
-// 		// Suppress error from causing a genuine failure (disks are unreliable)
-// 		// But still note that it happened
-// 		log.Println("Unmarshalling error:", err)
-// 	default:
-// 		return fmt.Errorf("unknown Error UnMarshalling:%w", err)
-// 	}
-// 	return nil
-// }
+func supressXmlUnmarshallErrors(err error) error {
+	xse := &xml.SyntaxError{}
+	switch true {
+	case err == nil:
+	case errors.Is(err, io.EOF):
+		return nil
+	case errors.As(err, &xse):
+		// Suppress error from causing a genuine failure (disks are unreliable)
+		// But still note that it happened
+		log.Println("Unmarshalling error:", err)
+	default:
+		return fmt.Errorf("unknown Error UnMarshalling:%w", err)
+	}
+	return nil
+}
 
 // Equal compares to Md5Files and returns true if they are equal
 // func (md0 Md5File) Equal(md1 Md5File) bool {
