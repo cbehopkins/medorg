@@ -49,9 +49,15 @@ func errHandler(
 	return errChan
 }
 
-func AutoVisitFilesInDirectories(directories []string,
+func AutoVisitFilesInDirectories(
+	directories []string,
 	someVisitFunc func(dm DirectoryMap, dir, fn string, d fs.DirEntry, fileStruct FileStruct, fileInfo fs.FileInfo) error,
 ) []*DirTracker {
+	if someVisitFunc == nil {
+		someVisitFunc = func(dm DirectoryMap, dir, fn string, d fs.DirEntry, fileStruct FileStruct, fileInfo fs.FileInfo) error {
+			return nil
+		}
+	}
 	visitFunc := func(dm DirectoryMap, dir, fn string, d fs.DirEntry) error {
 		if fn == Md5FileName {
 			return nil

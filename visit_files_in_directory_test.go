@@ -124,10 +124,7 @@ func TestVisitFilesInDirectory1(t *testing.T) {
 				atomic.AddUint32(&reVisitCount, 1)
 				return nil
 			}
-			directoryVisitor := func(dir string) error {
-				log.Println("Visiting Dir:", dir)
-				return nil
-			}
+			directoryVisitor := func(dt *DirTracker) {}
 			for _, dt := range dta {
 				dt.Revisit(root, directoryVisitor, fileVisitFunc)
 			}

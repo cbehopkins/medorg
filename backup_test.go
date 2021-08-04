@@ -150,7 +150,7 @@ func TestDuplicateDetect(t *testing.T) {
 			return nil
 		},
 	}
-	bs.scanBackupDirectories(srcDir, destDir, "wibble", nil, nil)
+	bs.scanBackupDirectories(srcDir, destDir, "wibble", nil)
 	if expectedDuplicates != 0 {
 		t.Error("Expected 0 duplicates left, got:", expectedDuplicates)
 	}
@@ -174,7 +174,7 @@ func TestDuplicateArchivedAtPopulation(t *testing.T) {
 	backupLabelName := "tstBackup"
 	t.Log("Created Test Directories:", dirs)
 	var bs backScanner
-	err = bs.scanBackupDirectories(dirs[1], dirs[0], backupLabelName, nil, nil)
+	err = bs.scanBackupDirectories(dirs[1], dirs[0], backupLabelName, nil)
 	if err != nil {
 		t.Error(err)
 	}
@@ -241,7 +241,7 @@ func TestBackupExtract(t *testing.T) {
 
 	// FIXME error handling
 	var bs backScanner
-	_ = bs.scanBackupDirectories(dirs[1], dirs[0], backupLabelName, nil, nil)
+	_ = bs.scanBackupDirectories(dirs[1], dirs[0], backupLabelName, nil)
 
 	// Now hack it about so that we pretend  n of the files
 	// are additionally backed up to an alternate location
@@ -448,7 +448,7 @@ func TestBackupSrcHasDuplicateFiles(t *testing.T) {
 		},
 	}
 	backupLabelName := "wibble"
-	bs.scanBackupDirectories(srcDir, destDir, backupLabelName, nil, nil)
+	bs.scanBackupDirectories(srcDir, destDir, backupLabelName, nil)
 	if expectedDuplicates != 0 {
 		t.Error("Expected 0 duplicates left, got:", expectedDuplicates)
 	}

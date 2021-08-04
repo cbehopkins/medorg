@@ -76,20 +76,39 @@ func (bdm *backupDupeMap) Get(key backupKey) (Fpath, bool) {
 	v, ok := bdm.dupeMap[key]
 	return v, ok
 }
-
-type backupMaker struct {
-	visitFunc func(dm DirectoryMap, dir, fn string, d fs.DirEntry) error
+func (bdm *backupDupeMap) AddVisit(dm DirectoryEntryInterface, dir, fn string, fileStruct FileStruct) error {
+	bdm.Add(fileStruct)
+	return nil
 }
+func (bdm *backupDupeMap) NewSrcVisitor(
+	lookupFunc func(Fpath, bool) error,
+	backupDestination *backupDupeMap, volumeName string) func(dm DirectoryEntryInterface, dir, fn string, fileStruct FileStruct) error {
 
-func (bm backupMaker) backMake(dir string) (DirectoryTrackerInterface, error) {
-	mkFk := func(dir string) (DirectoryEntryInterface, error) {
-		log.Println("Examining::", dir)
-		// Not an issue if we get errors - we'll just have a blank dm and rebuild
-		dm, _ := DirectoryMapFromDir(dir)
-		dm.VisitFunc = bm.visitFunc
-		return dm, nil
+	return func(dm DirectoryEntryInterface, dir, fn string, fileStruct FileStruct) error {
+		// If it exists in the destination already
+		path, ok := backupDestination.Get(fileStruct.Key())
+		if lookupFunc != nil {
+			err := lookupFunc(path, ok)
+			if err != nil {
+				return err
+			}
+		}
+		if ok {
+			// Then mark in the source as already backed up
+			_ = fileStruct.AddTag(volumeName)
+		}
+		if !ok && fileStruct.HasTag(volumeName) {
+			// FIXME add testcase for this
+			// The case where the file is not present at the dest
+			// but the tag says that it is
+			fileStruct.RemoveTag(volumeName)
+		}
+
+		bdm.Add(fileStruct)
+		adm, _ := dm.(DirectoryMap)
+		adm.Add(fileStruct)
+		return nil
 	}
-	return NewDirectoryEntry(dir, mkFk)
 }
 
 type backScanner struct {
@@ -115,13 +134,10 @@ func (dm DirectoryMap) updateAndGo(dir, fn string) (fs FileStruct, err error) {
 
 // scanBackupDirectories will mark srcDir's ArchiveAt
 // tag, with any files that are already found in the destination
-func (bs backScanner) scanBackupDirectories(destDir, srcDir, volumeName string, logFunc func(msg string),
+func (bs backScanner) scanBackupDirectories(
+	destDir, srcDir, volumeName string,
 	registerFunc func(*DirTracker),
 ) error {
-	if logFunc == nil {
-		logFunc = func(msg string) {
-		}
-	}
 	calcCnt := 2
 	tokenBuffer := makeTokenChan(calcCnt)
 	defer close(tokenBuffer)
@@ -131,47 +147,16 @@ func (bs backScanner) scanBackupDirectories(destDir, srcDir, volumeName string, 
 		tokenBuffer <- struct{}{}
 		return err
 	}
-	dta := AutoVisitFilesInDirectories([]string{destDir, srcDir},
-		visitFunc,
-	)
+	dta := AutoVisitFilesInDirectories([]string{destDir, srcDir}, visitFunc)
 	for err := range errHandler(dta, nil) {
 		return err
 	}
 
 	var backupDestination backupDupeMap
 	var backupSource backupDupeMap
-	destVisitFunc := func(dm DirectoryEntryInterface, dir, fn string, fileStruct FileStruct) error {
-		backupDestination.Add(fileStruct)
-		return nil
-	}
-	dta[0].Revisit(destDir, nil, destVisitFunc)
 
-	srcVisitFunc := func(dm DirectoryEntryInterface, dir, fn string, fileStruct FileStruct) error {
-		// If it exists in the destination already
-		path, ok := backupDestination.Get(fileStruct.Key())
-		if bs.lookupFunc != nil {
-			err := bs.lookupFunc(path, ok)
-			if err != nil {
-				return err
-			}
-		}
-		if ok {
-			// Then mark in the source as already backed up
-			_ = fileStruct.AddTag(volumeName)
-		}
-		if !ok && fileStruct.HasTag(volumeName) {
-			// FIXME add testcase for this
-			// The case where the file is not present at the dest
-			// but the tag says that it is
-			fileStruct.RemoveTag(volumeName)
-		}
-
-		backupSource.Add(fileStruct)
-		adm, _ := dm.(DirectoryMap)
-		adm.Add(fileStruct)
-		return nil
-	}
-	dta[1].Revisit(srcDir, nil, srcVisitFunc)
+	dta[0].Revisit(destDir, registerFunc, backupDestination.AddVisit)
+	dta[1].Revisit(srcDir, registerFunc, backupSource.NewSrcVisitor(bs.lookupFunc, &backupDestination, volumeName))
 
 	if (bs.dupeFunc != nil) && (backupDestination.Len() > 0) {
 		// There's stuff on the backup that's not in the Source
@@ -187,7 +172,7 @@ func (bs backScanner) scanBackupDirectories(destDir, srcDir, volumeName string, 
 // extractCopyFiles will look for files that are not backed up
 // i.e. walk through src file system looking for files
 // That don't have the volume name as an archived at
-func extractCopyFiles(targetDir, volumeName string, registerFunc func(*DirTracker), maxNumBackups int) (fpathListList, error) {
+func extractCopyFiles(destDir, volumeName string, registerFunc func(*DirTracker), maxNumBackups int) (fpathListList, error) {
 	var lk sync.Mutex
 	remainingFiles := fpathListList{}
 	visitFunc := func(dm DirectoryMap, dir, fn string, d fs.DirEntry) error {
@@ -220,7 +205,7 @@ func extractCopyFiles(targetDir, volumeName string, registerFunc func(*DirTracke
 		}
 		return NewDirectoryEntry(dir, mkFk)
 	}
-	ndt := NewDirTracker(targetDir, makerFunc)
+	ndt := NewDirTracker(destDir, makerFunc)
 	if registerFunc != nil {
 		registerFunc(ndt)
 	}
@@ -298,49 +283,13 @@ func doACopy(
 	return nil
 }
 
-func BackupRunner(
-	xc *XMLCfg,
-	maxNumBackups int,
-	fc FileCopier,
+func doCopies(
 	srcDir, destDir string,
-	orphanFunc func(path string) error,
-	logFunc func(msg string),
-	registerFunc func(*DirTracker),
-	shutdownChan chan struct{},
+	backupLabelName string,
+	fc FileCopier,
+	copyFilesArray fpathListList, maxNumBackups int,
+	logFunc func(msg string), shutdownChan chan struct{},
 ) error {
-
-	if logFunc == nil {
-		logFunc = func(msg string) {
-			log.Println(msg)
-		}
-	}
-	backupLabelName, err := xc.getVolumeLabel(destDir)
-	if err != nil {
-		return err
-	}
-	logFunc(fmt.Sprint("Determined label as:", backupLabelName, "now scanning directories"))
-
-	// Go ahead and run a check_calc style scan of the directories and make sure
-	// they have all their existing md5s up to date
-	// First of all get the srcDir updated with files that are already in destDir
-	var bs backScanner
-	err = bs.scanBackupDirectories(destDir, srcDir, backupLabelName, logFunc, registerFunc)
-	if err != nil {
-		return err
-	}
-	if fc == nil {
-		logFunc("Scan only. Going no further")
-		// If we've not supplied a copier, when we clearly don't want to run the copy
-		return nil
-	}
-	logFunc("Looking for files to  copy")
-	copyFilesArray, err := extractCopyFiles(srcDir, backupLabelName, registerFunc, maxNumBackups)
-	if err != nil {
-		return fmt.Errorf("BackupRunner cannot extract files, %w", err)
-	}
-
-	logFunc("Now starting Copy")
-
 	// I don't like this pattern as it's not a clean pipeline - but the alternatives feel worse
 	copyTokens := makeTokenChan(2)
 	copyErrChan := make(chan error)
@@ -391,6 +340,60 @@ func BackupRunner(
 		}
 		copyTokens <- struct{}{}
 	}
-	logFunc("Finished Copy")
 	return nil
+}
+
+func BackupRunner(
+	xc *XMLCfg,
+	maxNumBackups int,
+	fc FileCopier,
+	srcDir, destDir string,
+	orphanFunc func(path string) error,
+	logFunc func(msg string),
+	registerFunc func(*DirTracker),
+	shutdownChan chan struct{},
+) error {
+
+	if logFunc == nil {
+		logFunc = func(msg string) {
+			log.Println(msg)
+		}
+	}
+	backupLabelName, err := xc.getVolumeLabel(destDir)
+	if err != nil {
+		return err
+	}
+	logFunc(fmt.Sprint("Determined label as:", backupLabelName, "now scanning directories"))
+
+	// Go ahead and run a check_calc style scan of the directories and make sure
+	// they have all their existing md5s up to date
+	// First of all get the srcDir updated with files that are already in destDir
+	var bs backScanner
+	err = bs.scanBackupDirectories(destDir, srcDir, backupLabelName, registerFunc)
+	if err != nil {
+		return err
+	}
+	if fc == nil {
+		logFunc("Scan only. Going no further")
+		// If we've not supplied a copier, when we clearly don't want to run the copy
+		return nil
+	}
+	logFunc("Looking for files to  copy")
+	copyFilesArray, err := extractCopyFiles(srcDir, backupLabelName, registerFunc, maxNumBackups)
+	if err != nil {
+		return fmt.Errorf("BackupRunner cannot extract files, %w", err)
+	}
+
+	logFunc("Now starting Copy")
+
+	err = doCopies(
+		srcDir, destDir,
+		backupLabelName,
+		fc,
+		copyFilesArray, maxNumBackups,
+		logFunc, shutdownChan,
+	)
+
+	logFunc("Finished Copy")
+	return err
 }

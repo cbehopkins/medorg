@@ -30,6 +30,9 @@ func (f *finishedB) Get() bool {
 func (f *finishedB) Set() {
 	atomic.StoreUint32((*uint32)(f), 1)
 }
+func (f *finishedB) Clear() {
+	atomic.StoreUint32((*uint32)(f), 0)
+}
 
 type DirTracker struct {
 	directoryCountTotal   int64
@@ -182,7 +185,7 @@ func (dt *DirTracker) directoryWalker(path string, d fs.DirEntry, err error) err
 		}
 		atomic.AddInt64(&dt.directoryCountVisited, 1)
 		closerFunc := func(pt string) {
-			// FIXME wewill want this back when we are not revisiting
+			// FIXME we will want this back when we are not revisiting
 			// de, ok := dt.dm[pt]
 			// if ok {
 			// 	de.Close()
@@ -229,56 +232,15 @@ func (dt *DirTracker) directoryWalker(path string, d fs.DirEntry, err error) err
 	return nil
 }
 
-func (dt *DirTracker) Revisit(dir string, dirVisitor func(dir string) error, fileVisitor func(dm DirectoryEntryInterface, dir, fn string, fileStruct FileStruct) error) {
+func (dt *DirTracker) Revisit(dir string, dirVisitor func(dt *DirTracker), fileVisitor func(dm DirectoryEntryInterface, dir, fn string, fileStruct FileStruct) error) {
+	dt.finished.Clear()
+	defer dt.finished.Set()
+	atomic.StoreInt64(&dt.directoryCountVisited, 0)
+	if dirVisitor != nil {
+		dirVisitor(dt)
+	}
 	for path, de := range dt.dm {
-		if dirVisitor != nil {
-			dirVisitor(path)
-		}
+		atomic.AddInt64(&dt.directoryCountVisited, 1)
 		de.Revisit(path, fileVisitor)
 	}
-}
-
-type dirTrackerJob struct {
-	dir string
-	mf  func(string) (DirectoryTrackerInterface, error)
-}
-
-// func runParallelDirTrackerJob(jobs []dirTrackerJob, registerChanger func(*DirTracker) <-chan error {
-// 	errChan := make(chan error)
-// 	var wg sync.WaitGroup
-// 	wg.Add(len(jobs))
-// 	for _, job := range jobs {
-// 		go func(job dirTrackerJob) {
-// 			for err := range NewDirTracker(job.dir, job.mf) {
-// 				if err != nil {
-// 					errChan <- err
-// 				}
-// 			}
-// 			wg.Done()
-// 		}(job)
-// 	}
-// 	go func() {
-// 		wg.Wait()
-// 		close(errChan)
-// 	}()
-// 	return errChan
-// }
-
-func runSerialDirTrackerJob(jobs []dirTrackerJob, registerChanger func(*DirTracker)) <-chan error {
-	errChan := make(chan error)
-	go func() {
-		for _, job := range jobs {
-			ndt := NewDirTracker(job.dir, job.mf)
-			if registerChanger != nil {
-				registerChanger(ndt)
-			}
-			for err := range ndt.ErrChan() {
-				if err != nil {
-					errChan <- err
-				}
-			}
-		}
-		close(errChan)
-	}()
-	return errChan
 }
