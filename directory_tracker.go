@@ -231,7 +231,9 @@ func (dt *DirTracker) directoryWalker(path string, d fs.DirEntry, err error) err
 
 func (dt *DirTracker) Revisit(dir string, dirVisitor func(dir string) error, fileVisitor func(dm DirectoryEntryInterface, dir, fn string, fileStruct FileStruct) error) {
 	for path, de := range dt.dm {
-		dirVisitor(path)
+		if dirVisitor != nil {
+			dirVisitor(path)
+		}
 		de.Revisit(path, fileVisitor)
 	}
 }

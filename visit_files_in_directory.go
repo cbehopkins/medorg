@@ -24,6 +24,9 @@ func errHandler(
 	dts []*DirTracker,
 	registerFunc func(dt *DirTracker),
 ) <-chan error {
+	if registerFunc == nil {
+		registerFunc = func(dt *DirTracker) {}
+	}
 	errChan := make(chan error)
 	var wg sync.WaitGroup
 	wg.Add(len(dts))

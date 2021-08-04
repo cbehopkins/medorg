@@ -406,5 +406,5 @@ func (dm DirectoryMap) Revisit(dir string, visitor func(dm DirectoryEntryInterfa
 	for path, fileStruct := range dm.mp {
 		_ = visitor(dm, dir, path, fileStruct)
 	}
-	return
+	_ = dm.Persist(dir)
 }

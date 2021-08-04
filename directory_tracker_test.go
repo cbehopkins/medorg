@@ -72,9 +72,9 @@ func TestDirectoryTrackerAgainstMock(t *testing.T) {
 		// {cfg: []int{6, 4, 2}},
 		{cfg: []int{10, 2, 1}},
 		{cfg: []int{100, 0, 1}},
-		{cfg: []int{100, 1, 1}},
-		{cfg: []int{1000, 0, 1}},
-		{cfg: []int{10000, 0, 1}},
+		// {cfg: []int{100, 1, 1}},
+		// {cfg: []int{1000, 0, 1}},
+		// {cfg: []int{10000, 0, 1}},
 	}
 
 	for _, tst := range testSet0 {
@@ -111,17 +111,17 @@ func TestDirectoryTrackerSpawning(t *testing.T) {
 		prob int
 	}
 	testSet0 := []testSet{
-		// {cfg: []int{1, 0, 1}, prob: 1},
-		// {cfg: []int{1, 1, 1}, prob: 1},
-		// {cfg: []int{2, 0, 1}, prob: 1},
-		// {cfg: []int{10, 1, 1}, prob: 3},
-		// {cfg: []int{3, 3, 4}, prob: 100},
-		// {cfg: []int{4, 2, 8}, prob: 500},
-		// {cfg: []int{10, 2, 1}, prob: 10},
-		{cfg: []int{100, 0, 1}, prob: 1},
-		{cfg: []int{100, 1, 1}, prob: 200},
-		{cfg: []int{1000, 0, 1}, prob: 250},
-		{cfg: []int{10000, 0, 1}, prob: 400},
+		{cfg: []int{1, 0, 1}, prob: 1},
+		{cfg: []int{1, 1, 1}, prob: 1},
+		{cfg: []int{2, 0, 1}, prob: 1},
+		{cfg: []int{10, 1, 1}, prob: 3},
+		{cfg: []int{3, 3, 4}, prob: 100},
+		{cfg: []int{4, 2, 8}, prob: 500},
+		{cfg: []int{10, 2, 1}, prob: 10},
+		// {cfg: []int{100, 0, 1}, prob: 1},
+		// {cfg: []int{100, 1, 1}, prob: 200},
+		// {cfg: []int{1000, 0, 1}, prob: 250},
+		// {cfg: []int{10000, 0, 1}, prob: 400},
 	}
 	var activeVisitors int
 	var lk sync.Mutex

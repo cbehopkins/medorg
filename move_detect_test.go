@@ -165,8 +165,8 @@ func TestMoveDetect(t *testing.T) {
 		// {cfg: []int{4, 2, 8}, moveN: 16},
 		// {cfg: []int{6, 4, 2}, moveN: 36},
 		// {cfg: []int{10, 2, 1}, moveN: 2},
-		{cfg: []int{100, 0, 1}, moveN: 2},
-		{cfg: []int{100, 1, 1}, moveN: 2},
+		// {cfg: []int{100, 0, 1}, moveN: 2},
+		// {cfg: []int{100, 1, 1}, moveN: 2},
 		// {cfg: []int{1000, 0, 1}, moveN: 2},
 		// {cfg: []int{10000, 0, 1}, moveN: 2},
 	}

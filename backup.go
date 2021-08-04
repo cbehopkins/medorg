@@ -125,77 +125,53 @@ func (bs backScanner) scanBackupDirectories(destDir, srcDir, volumeName string, 
 	calcCnt := 2
 	tokenBuffer := makeTokenChan(calcCnt)
 	defer close(tokenBuffer)
+	visitFunc := func(dm DirectoryMap, dir, fn string, d fs.DirEntry, fileStruct FileStruct, fileInfo fs.FileInfo) error {
+		<-tokenBuffer
+		_, err := dm.updateAndGo(dir, fn)
+		tokenBuffer <- struct{}{}
+		return err
+	}
+	dta := AutoVisitFilesInDirectories([]string{destDir, srcDir},
+		visitFunc,
+	)
+	for err := range errHandler(dta, nil) {
+		return err
+	}
 
 	var backupDestination backupDupeMap
 	var backupSource backupDupeMap
-
-	modifyFuncDestinationDm := func(dm DirectoryMap, dir, fn string, d fs.DirEntry) error {
-		logFunc("Examining Destination")
-		if fn == Md5FileName {
-			return nil
-		}
-		<-tokenBuffer
-		fs, err := dm.updateAndGo(dir, fn)
-		tokenBuffer <- struct{}{}
-
-		if err != nil {
-			return err
-		}
-		backupDestination.Add(fs)
+	destVisitFunc := func(dm DirectoryEntryInterface, dir, fn string, fileStruct FileStruct) error {
+		backupDestination.Add(fileStruct)
 		return nil
 	}
-	modifyFuncSourceDm := func(dm DirectoryMap, dir, fn string, d fs.DirEntry) error {
-		if fn == Md5FileName {
-			return nil
-		}
-		<-tokenBuffer
-		fs, err := dm.updateAndGo(dir, fn)
-		tokenBuffer <- struct{}{}
-		if err != nil {
-			return err
-		}
+	dta[0].Revisit(destDir, nil, destVisitFunc)
+
+	srcVisitFunc := func(dm DirectoryEntryInterface, dir, fn string, fileStruct FileStruct) error {
 		// If it exists in the destination already
-		path, ok := backupDestination.Get(fs.Key())
+		path, ok := backupDestination.Get(fileStruct.Key())
 		if bs.lookupFunc != nil {
-			err = bs.lookupFunc(path, ok)
+			err := bs.lookupFunc(path, ok)
 			if err != nil {
 				return err
 			}
 		}
 		if ok {
 			// Then mark in the source as already backed up
-			_ = fs.AddTag(volumeName)
+			_ = fileStruct.AddTag(volumeName)
 		}
-		if !ok && fs.HasTag(volumeName) {
+		if !ok && fileStruct.HasTag(volumeName) {
 			// FIXME add testcase for this
 			// The case where the file is not present at the dest
 			// but the tag says that it is
-			fs.RemoveTag(volumeName)
+			fileStruct.RemoveTag(volumeName)
 		}
 
-		backupSource.Add(fs)
-		dm.Add(fs)
+		backupSource.Add(fileStruct)
+		adm, _ := dm.(DirectoryMap)
+		adm.Add(fileStruct)
 		return nil
 	}
-
-	makerFuncDest := backupMaker{
-		visitFunc: modifyFuncDestinationDm,
-	}
-	makerFuncSrc := backupMaker{
-		visitFunc: modifyFuncSourceDm,
-	}
-	errChan := runSerialDirTrackerJob([]dirTrackerJob{
-		{destDir, makerFuncDest.backMake},
-		{srcDir, makerFuncSrc.backMake},
-	}, registerFunc)
-
-	for err := range errChan {
-		if err != nil {
-			for range errChan {
-			}
-			return err
-		}
-	}
+	dta[1].Revisit(srcDir, nil, srcVisitFunc)
 
 	if (bs.dupeFunc != nil) && (backupDestination.Len() > 0) {
 		// There's stuff on the backup that's not in the Source
