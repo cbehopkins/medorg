@@ -282,7 +282,7 @@ func (dm DirectoryMap) UpdateChecksum(directory, file string, forceUpdate bool) 
 	if Debug && file == "" {
 		return errors.New("asked to update a checksum on a null filename")
 	}
-
+	log.Println("Updating vchecksum for", directory, file)
 	fc := func(fs *FileStruct) error {
 		return fs.UpdateChecksum(forceUpdate)
 	}

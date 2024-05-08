@@ -126,7 +126,7 @@ func TestVisitFilesInDirectory1(t *testing.T) {
 			}
 			directoryVisitor := func(dt *DirTracker) {}
 			for _, dt := range dta {
-				dt.Revisit(root, directoryVisitor, fileVisitFunc)
+				dt.Revisit(root, directoryVisitor, fileVisitFunc, nil)
 			}
 
 			act = atomic.LoadUint32(&reVisitCount)

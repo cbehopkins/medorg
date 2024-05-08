@@ -22,16 +22,21 @@ type DirectoryTrackerInterface interface {
 	Revisit(dir string, visitor func(dm DirectoryEntryInterface, directory string, file string, fileStruct FileStruct) error)
 }
 
-type finishedB uint32
+type finishedB struct {
+	cnt uint32
+	fc  chan struct{}
+}
 
 func (f *finishedB) Get() bool {
-	return atomic.LoadUint32((*uint32)(f)) > 0
+	return atomic.LoadUint32(&f.cnt) > 0
 }
 func (f *finishedB) Set() {
-	atomic.StoreUint32((*uint32)(f), 1)
+	close(f.fc)
+	atomic.StoreUint32(&f.cnt, 1)
 }
 func (f *finishedB) Clear() {
-	atomic.StoreUint32((*uint32)(f), 0)
+	f.fc = make(chan struct{})
+	atomic.StoreUint32(&f.cnt, 0)
 }
 
 type DirTracker struct {
@@ -73,7 +78,8 @@ func NewDirTracker(dir string, newEntry func(string) (DirectoryTrackerInterface,
 	dt.tokenChan = makeTokenChan(numOutsanding)
 	dt.wg = new(sync.WaitGroup)
 	dt.errChan = make(chan error)
-	dt.wg.Add(1)
+	dt.wg.Add(1) // add one for populateDircount
+	dt.finished.Clear()
 	go dt.populateDircount(dir)
 	go func() {
 		err := filepath.WalkDir(dir, dt.directoryWalker)
@@ -84,6 +90,9 @@ func NewDirTracker(dir string, newEntry func(string) (DirectoryTrackerInterface,
 			val.Close()
 		}
 		dt.wg.Wait()
+		if dt.Total() != dt.Value() {
+			panic("hadn't actually finished")
+		}
 		dt.finished.Set()
 		close(dt.errChan)
 		close(dt.tokenChan)
@@ -112,6 +121,12 @@ func (dt *DirTracker) Value() int64 {
 func (dt *DirTracker) Finished() bool {
 	return dt.finished.Get()
 }
+
+// Finished - have we finished yet?
+func (dt *DirTracker) FinishedChan() <-chan struct{} {
+	return dt.finished.fc
+}
+
 func (dt *DirTracker) runChild(de DirectoryTrackerInterface) {
 	// Start is allowed to consume significant time
 	// In fact it may directly be the main runner
@@ -167,6 +182,7 @@ func (dt *DirTracker) directoryWalkerPopulateDircount(path string, d fs.DirEntry
 		if isHiddenDirectory(path) {
 			return filepath.SkipDir
 		}
+		log.Println("popping dir", path, dt.Total())
 		atomic.AddInt64(&dt.directoryCountTotal, 1)
 	}
 	_, file := filepath.Split(path)
@@ -183,6 +199,7 @@ func (dt *DirTracker) directoryWalker(path string, d fs.DirEntry, err error) err
 		if isHiddenDirectory(path) {
 			return filepath.SkipDir
 		}
+		log.Println("visiting dir", path, dt.Value())
 		atomic.AddInt64(&dt.directoryCountVisited, 1)
 		closerFunc := func(pt string) {
 			// FIXME we will want this back when we are not revisiting
@@ -232,7 +249,12 @@ func (dt *DirTracker) directoryWalker(path string, d fs.DirEntry, err error) err
 	return nil
 }
 
-func (dt *DirTracker) Revisit(dir string, dirVisitor func(dt *DirTracker), fileVisitor func(dm DirectoryEntryInterface, dir, fn string, fileStruct FileStruct) error) {
+func (dt *DirTracker) Revisit(
+	dir string,
+	dirVisitor func(dt *DirTracker),
+	fileVisitor func(dm DirectoryEntryInterface, dir, fn string, fileStruct FileStruct) error,
+	closer <-chan struct{},
+) {
 	dt.finished.Clear()
 	defer dt.finished.Set()
 	atomic.StoreInt64(&dt.directoryCountVisited, 0)
@@ -240,6 +262,16 @@ func (dt *DirTracker) Revisit(dir string, dirVisitor func(dt *DirTracker), fileV
 		dirVisitor(dt)
 	}
 	for path, de := range dt.dm {
+		if closer != nil {
+			select {
+			case _, ok := <-closer:
+				if !ok {
+					log.Println("Revisit saw a closer")
+					return
+				}
+			default:
+			}
+		}
 		atomic.AddInt64(&dt.directoryCountVisited, 1)
 		de.Revisit(path, fileVisitor)
 	}

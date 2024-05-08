@@ -150,7 +150,7 @@ func TestDuplicateDetect(t *testing.T) {
 			return nil
 		},
 	}
-	bs.scanBackupDirectories(srcDir, destDir, "wibble", nil)
+	_, _ = bs.scanBackupDirectories(srcDir, destDir, "wibble", nil, nil, nil)
 	if expectedDuplicates != 0 {
 		t.Error("Expected 0 duplicates left, got:", expectedDuplicates)
 	}
@@ -174,7 +174,7 @@ func TestDuplicateArchivedAtPopulation(t *testing.T) {
 	backupLabelName := "tstBackup"
 	t.Log("Created Test Directories:", dirs)
 	var bs backScanner
-	err = bs.scanBackupDirectories(dirs[1], dirs[0], backupLabelName, nil)
+	_, err = bs.scanBackupDirectories(dirs[1], dirs[0], backupLabelName, nil, nil, nil)
 	if err != nil {
 		t.Error(err)
 	}
@@ -241,7 +241,7 @@ func TestBackupExtract(t *testing.T) {
 
 	// FIXME error handling
 	var bs backScanner
-	_ = bs.scanBackupDirectories(dirs[1], dirs[0], backupLabelName, nil)
+	_, _ = bs.scanBackupDirectories(dirs[1], dirs[0], backupLabelName, nil, nil, nil)
 
 	// Now hack it about so that we pretend  n of the files
 	// are additionally backed up to an alternate location
@@ -294,8 +294,16 @@ func TestBackupExtract(t *testing.T) {
 	for err := range NewDirTracker(dirs[0], makerFunc).ErrChan() {
 		t.Error("Error received on closing:", err)
 	}
-
-	copyFilesArray, err := extractCopyFiles(dirs[0], backupLabelName, nil, 2)
+	dt := AutoVisitFilesInDirectories([]string{dirs[0]}, nil)
+	errChan := errHandler(dt, nil)
+	for err := range errChan {
+		for range errChan {
+		}
+		if err != nil {
+			t.Errorf("extractCopyFiles::%w", err)
+		}
+	}
+	copyFilesArray, err := extractCopyFiles(dirs[0], dt[0], backupLabelName, nil, 2, nil)
 	if err != nil {
 		t.Error(err)
 	}
@@ -448,11 +456,20 @@ func TestBackupSrcHasDuplicateFiles(t *testing.T) {
 		},
 	}
 	backupLabelName := "wibble"
-	bs.scanBackupDirectories(srcDir, destDir, backupLabelName, nil)
+	_, _ = bs.scanBackupDirectories(srcDir, destDir, backupLabelName, nil, nil, nil)
 	if expectedDuplicates != 0 {
 		t.Error("Expected 0 duplicates left, got:", expectedDuplicates)
 	}
-	copyFilesArray, err := extractCopyFiles(dirs[0], backupLabelName, nil, 2)
+	dt := AutoVisitFilesInDirectories([]string{dirs[0]}, nil)
+	errChan := errHandler(dt, nil)
+	for err := range errChan {
+		for range errChan {
+		}
+		if err != nil {
+			t.Errorf("extractCopyFiles::%w", err)
+		}
+	}
+	copyFilesArray, err := extractCopyFiles(dirs[0], dt[0], backupLabelName, nil, 2, nil)
 	if err != nil {
 		t.Error(err)
 	}
