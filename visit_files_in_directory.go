@@ -64,12 +64,19 @@ func AutoVisitFilesInDirectories(
 		}
 		fileStruct, ok := dm.Get(fn)
 		if !ok {
-			return nil
+			var err error
+			// FIXME we could use the fileInfo from below if we had the option
+			fileStruct, err = NewFileStruct(dir, fn)
+			if err != nil {
+				return err
+			}
+			dm.Add(fileStruct)
 		}
 		fileInfo, err := d.Info()
 		if err != nil {
-			return nil
+			return err
 		}
+
 		return someVisitFunc(dm, dir, fn, d, fileStruct, fileInfo)
 	}
 

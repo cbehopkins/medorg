@@ -3,7 +3,6 @@ package medorg
 import (
 	"errors"
 	"fmt"
-	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
@@ -137,27 +136,48 @@ func (dm DirectoryMap) updateAndGo(dir, fn string) (fs FileStruct, err error) {
 func (bs backScanner) scanBackupDirectories(
 	destDir, srcDir, volumeName string,
 	registerFunc func(*DirTracker),
-) error {
+	logFunc func(msg string),
+	shutdownChan chan struct{},
+) ([]*DirTracker, error) {
+	if logFunc == nil {
+		logFunc = func(msg string) {
+			log.Println(msg)
+		}
+	}
+	dta := AutoVisitFilesInDirectories([]string{destDir, srcDir}, nil)
+	for err := range errHandler(dta, registerFunc) {
+		return nil, err
+	}
+
+	panic("yes we finished scanning")
 	calcCnt := 2
 	tokenBuffer := makeTokenChan(calcCnt)
 	defer close(tokenBuffer)
-	visitFunc := func(dm DirectoryMap, dir, fn string, d fs.DirEntry, fileStruct FileStruct, fileInfo fs.FileInfo) error {
+
+	visitFunc := func(dm DirectoryEntryInterface, dir, fn string, fileStruct FileStruct) error {
+		de, ok := dm.(DirectoryMap)
+		if !ok {
+			return errors.New("unable to cast to de")
+		}
 		<-tokenBuffer
-		_, err := dm.updateAndGo(dir, fn)
+		_, err := de.updateAndGo(dir, fn)
 		tokenBuffer <- struct{}{}
 		return err
 	}
-	dta := AutoVisitFilesInDirectories([]string{destDir, srcDir}, visitFunc)
-	for err := range errHandler(dta, nil) {
-		return err
-	}
+
+	logFunc("Computing Checksum Phase dest")
+	dta[0].Revisit(destDir, registerFunc, visitFunc, shutdownChan)
+	logFunc("Computing Checksum Phase src")
+	dta[1].Revisit(destDir, registerFunc, visitFunc, shutdownChan)
 
 	var backupDestination backupDupeMap
 	var backupSource backupDupeMap
 
-	dta[0].Revisit(destDir, registerFunc, backupDestination.AddVisit)
-	dta[1].Revisit(srcDir, registerFunc, backupSource.NewSrcVisitor(bs.lookupFunc, &backupDestination, volumeName))
-
+	logFunc("Initial scan for anything that needs building")
+	dta[0].Revisit(destDir, registerFunc, backupDestination.AddVisit, shutdownChan)
+	logFunc("Scanning Source for Files already at destination")
+	dta[1].Revisit(srcDir, registerFunc, backupSource.NewSrcVisitor(bs.lookupFunc, &backupDestination, volumeName), shutdownChan)
+	logFunc("Dealing with duplicates")
 	if (bs.dupeFunc != nil) && (backupDestination.Len() > 0) {
 		// There's stuff on the backup that's not in the Source
 		// We'll need to do something about this soon!
@@ -166,28 +186,21 @@ func (bs backScanner) scanBackupDirectories(
 			bs.dupeFunc(string(v))
 		}
 	}
-	return nil
+	return dta, nil
 }
 
 // extractCopyFiles will look for files that are not backed up
 // i.e. walk through src file system looking for files
 // That don't have the volume name as an archived at
-func extractCopyFiles(destDir, volumeName string, registerFunc func(*DirTracker), maxNumBackups int) (fpathListList, error) {
+func extractCopyFiles(srcDir string, dt *DirTracker, volumeName string, registerFunc func(*DirTracker), maxNumBackups int, shutdownChan chan struct{}) (fpathListList, error) {
 	var lk sync.Mutex
 	remainingFiles := fpathListList{}
-	visitFunc := func(dm DirectoryMap, dir, fn string, d fs.DirEntry) error {
-		if fn == Md5FileName {
-			return nil
-		}
-		fs, ok := dm.Get(fn)
-		if !ok {
-			return fmt.Errorf("%w: %s/%s", errMissingCopyEntry, dir, fn)
-		}
-		if fs.HasTag(volumeName) {
+	visitFunc := func(dm DirectoryEntryInterface, dir, fn string, fileStruct FileStruct) error {
+		if fileStruct.HasTag(volumeName) {
 			return nil
 		}
 		fp := NewFpath(dir, fn)
-		lenArchive := len(fs.ArchivedAt)
+		lenArchive := len(fileStruct.ArchivedAt)
 		if lenArchive > maxNumBackups {
 			return nil
 		}
@@ -196,27 +209,7 @@ func extractCopyFiles(destDir, volumeName string, registerFunc func(*DirTracker)
 		lk.Unlock()
 		return nil
 	}
-
-	makerFunc := func(dir string) (DirectoryTrackerInterface, error) {
-		mkFk := func(dir string) (DirectoryEntryInterface, error) {
-			dm, err := DirectoryMapFromDir(dir)
-			dm.VisitFunc = visitFunc
-			return dm, err
-		}
-		return NewDirectoryEntry(dir, mkFk)
-	}
-	ndt := NewDirTracker(destDir, makerFunc)
-	if registerFunc != nil {
-		registerFunc(ndt)
-	}
-	errChan := ndt.ErrChan()
-	for err := range errChan {
-		for range errChan {
-		}
-		if err != nil {
-			return remainingFiles, fmt.Errorf("extractCopyFiles::%w", err)
-		}
-	}
+	dt.Revisit(srcDir, registerFunc, visitFunc, nil)
 	return remainingFiles, nil
 }
 
@@ -363,13 +356,13 @@ func BackupRunner(
 	if err != nil {
 		return err
 	}
-	logFunc(fmt.Sprint("Determined label as:", backupLabelName, "now scanning directories"))
+	logFunc(fmt.Sprint("Determined label as: \"", backupLabelName, "\" :now scanning directories"))
 
 	// Go ahead and run a check_calc style scan of the directories and make sure
 	// they have all their existing md5s up to date
 	// First of all get the srcDir updated with files that are already in destDir
 	var bs backScanner
-	err = bs.scanBackupDirectories(destDir, srcDir, backupLabelName, registerFunc)
+	dt, err := bs.scanBackupDirectories(destDir, srcDir, backupLabelName, registerFunc, logFunc, shutdownChan)
 	if err != nil {
 		return err
 	}
@@ -379,7 +372,8 @@ func BackupRunner(
 		return nil
 	}
 	logFunc("Looking for files to  copy")
-	copyFilesArray, err := extractCopyFiles(srcDir, backupLabelName, registerFunc, maxNumBackups)
+
+	copyFilesArray, err := extractCopyFiles(srcDir, dt[1], backupLabelName, registerFunc, maxNumBackups, shutdownChan)
 	if err != nil {
 		return fmt.Errorf("BackupRunner cannot extract files, %w", err)
 	}

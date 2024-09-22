@@ -99,8 +99,6 @@ func topRegisterFunc(dt *medorg.DirTracker, pool *pb.Pool, wg *sync.WaitGroup) {
 	wg.Add(1)
 }
 
-// FIXME this belongs in medorg
-
 func visitFilesUpdatingProgressBar(pool *pb.Pool, directories []string,
 	someVisitFunc func(dm medorg.DirectoryMap, dir, fn string, d fs.DirEntry, fileStruct medorg.FileStruct, fileInfo fs.FileInfo) error,
 ) {
