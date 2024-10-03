@@ -1,30 +1,30 @@
 import asyncio
-from dataclasses import dataclass
 import itertools
-from pathlib import Path
-import shutil
-import pytest
-from aiopath import AsyncPath
-from bkp_p.async_bkp_xml import AsyncBkpXml
-from bkp_p.backup_xml_walker import BackupXmlWalker
-from bkp_p.bdsa import DatabaseHandler
-from lxml import etree
-
-from bkp_p.bkp_xml import XML_NAME, BkpFile, calculate_md5
-import string
-import random
-from bkp_p.async_walker import walk
-
 import os
 import random
+import shutil
 import string
+from dataclasses import dataclass
+from pathlib import Path
 
-from bkp_p.runners import (
+import pytest
+from aiopath import AsyncPath
+from lxml import etree
+
+from medorg.bkp_p import XML_NAME
+from medorg.bkp_p.async_bkp_xml import AsyncBkpXml
+from medorg.bkp_p.backup_xml_walker import BackupXmlWalker
+from medorg.cli.runners import (
     backup_files,
     create_update_db_file_entries,
+    remove_unvisited_files_from_database,
     update_source_directory_entries,
     writeback_db_file_entries,
 )
+from medorg.common.async_walker import walk
+from medorg.common.bkp_file import BkpFile, calculate_md5
+from medorg.database.database_handler import DatabaseHandler
+from tests.database_helpers import aquery_all_files, query_all_files
 
 
 def id_generator(size=6, chars=string.ascii_uppercase + string.digits):
@@ -209,7 +209,7 @@ async def test_walk_with_db(tmp_path):
         bkp_file = bkp_xml[entry.name]
         async with lock:
             # FIXME the session itself should probably have a lock
-            entry = await db_session.update_file(bkp_file)
+            entry = await db_session.update_file(bkp_file, src_dir=AsyncPath(tmp_path))
         entry.visited = 1
 
     file_count = 0
@@ -219,7 +219,7 @@ async def test_walk_with_db(tmp_path):
     async with db_handler.session_scope() as db_session:
         # When we walk the directory
         await walker.go_walk(walker=my_walker)
-        async for entry in db_session.aquery_all_files():
+        for entry in await aquery_all_files(db_session):
             # Then all files are marked as visited
             assert entry.visited == 1
             file_count += 1
@@ -244,7 +244,7 @@ async def test_walk_runner(tmp_path):
         await create_update_db_file_entries(db_session, tmp_tmp)
 
         # And we ask for files that will need to be backed up
-        files = await db_session.for_backup(my_dest)
+        files = list(await db_session.for_backup(my_dest))
 
         # Then all files will need to be backed up
         assert len(files) == 7
@@ -275,17 +275,17 @@ async def test_update_source_directory_entries(tmp_path):
     my_dest = "some destination"
     async with db_handler.session_scope() as db_session:
         # When we run a backup
+        await db_session.add_src_dir(tmp_tmp)
         await create_update_db_file_entries(db_session, tmp_tmp)
-
+        await remove_unvisited_files_from_database(db_session)
         # And we mark the files as have been backed up:
         await update_source_directory_entries(
-            session=db_session,
-            src_dir=tmp_tmp,
+            bdsa=db_session,
             dest_id=my_dest,
         )
 
         # Then all those files are marked as backed up
-        files = await db_session.for_backup(my_dest)
+        files = list(await db_session.for_backup(my_dest))
         assert len(files) == 7
 
 
@@ -297,7 +297,7 @@ def list_files(pth: os.PathLike) -> list[str]:
 
 
 @pytest.mark.asyncio
-@mock.patch("bkp_p.runners.copy_file")
+@mock.patch("medorg.cli.runners.async_copy_file")
 async def test_full_backup(mock_copy, tmp_path):
     """For each visited file, do we correctly update the dest_id"""
     tmp_path = AsyncPath(tmp_path)
@@ -313,9 +313,9 @@ async def test_full_backup(mock_copy, tmp_path):
     my_dest = "some destination"
     async with db_handler.session_scope() as db_session:
         # When we run a backup
+        await db_session.add_src_dir(tmp_src)
         await backup_files(
             session=db_session,
-            src_dir=tmp_src,
             dest_path=tmp_dst,
             dest_id=my_dest,
         )
@@ -328,7 +328,7 @@ async def test_full_backup(mock_copy, tmp_path):
     assert all(p.parts[0] == "dst" for p in dst_dirs)
     expected_stuff = list(expected_paths(Path(""), directory_structure))
     src_reduction = {str(p.relative_to("src")) for p in src_dirs}
-    dst_reduction = {str(p.relative_to("dst")) for p in dst_dirs}
+    dst_reduction = {str(p.relative_to("dst/src")) for p in dst_dirs}
 
     assert all(str(es) in src_reduction for es in expected_stuff)
     assert all(str(es) in dst_reduction for es in expected_stuff)
@@ -337,7 +337,7 @@ async def test_full_backup(mock_copy, tmp_path):
 
 
 @pytest.mark.asyncio
-@mock.patch("bkp_p.runners.copy_file")
+@mock.patch("medorg.cli.runners.async_copy_file")
 async def test_backup_filling_drive(mock_copy, tmp_path):
     """For each visited file, do we correctly update the dest_id"""
     tmp_path = AsyncPath(tmp_path)
@@ -361,10 +361,10 @@ async def test_backup_filling_drive(mock_copy, tmp_path):
 
     my_dest = "some destination"
     async with db_handler.session_scope() as db_session:
+        await db_session.add_src_dir(tmp_src)
         # When we run a backup
         await backup_files(
             session=db_session,
-            src_dir=tmp_src,
             dest_path=tmp_dst,
             dest_id=my_dest,
         )
@@ -377,7 +377,7 @@ async def test_backup_filling_drive(mock_copy, tmp_path):
 
 @pytest.mark.asyncio
 async def test_discovery(tmp_path):
-    """We have an exsitign backup dest, can we back prop the dest_id"""
+    """We have an existing backup dest, can we back prop the dest_id"""
     tmp_src = tmp_path / "src"
     tmp_src.mkdir()
     tmp_src = AsyncPath(tmp_src)
@@ -389,14 +389,14 @@ async def test_discovery(tmp_path):
 
     my_dest = "some first destination"
     async with db_handler.session_scope() as db_session:
+        db_session.add_src_dir(tmp_src)
         # Given a file setup that has been marked as backed up already
         await create_update_db_file_entries(db_session, tmp_src)
         # just mark every file as backed up to my_dest
-        for entry in await db_session.query_all_files():
+        for entry in await query_all_files(db_session):
             entry.visited = 1
         await update_source_directory_entries(
-            session=db_session,
-            src_dir=tmp_src,
+            bdsa=db_session,
             dest_id=my_dest,
         )
     # Check - has the xml been updated to include the dest_id
@@ -431,7 +431,7 @@ async def test_discovery(tmp_path):
 
     async with db_handler.session_scope() as db_session:
         await db_session.discovery(files=file_list, dest=my_second_dest)
-        await writeback_db_file_entries(db_session, tmp_src)
+        await writeback_db_file_entries(db_session)
 
     root = etree.parse(tmp_src / XML_NAME).getroot()
     file_elem = root.find(f".//fr[@fname='file1.txt']")

@@ -1,10 +1,126 @@
+import contextlib
 from pathlib import Path
-from bkp_p.bdsa import Bdsa, DatabaseHandler
-from bkp_p.bkp_xml import BkpFile
 
 import pytest
+from aiopath import AsyncPath
+
+from medorg.common.bkp_file import BkpFile
+from medorg.common.types import BackupFile
+from medorg.database.bdsa import Bdsa
+from medorg.database.database_handler import DatabaseHandler
+from tests.database_helpers import (
+    add_file,
+    aquery_all_files,
+    aquery_all_src_dirs,
+    query_all_files,
+    query_dest,
+    query_files_visited,
+    query_files_without_dest,
+    query_hash,
+    query_src_dir,
+    visit_files,
+)
 
 pytest_plugins = ("pytest_asyncio",)
+
+
+@pytest.mark.asyncio
+async def test_add_src_dir(tmp_path):
+    db_handler = DatabaseHandler(tmp_path)
+    await db_handler.create_session()
+    async with db_handler.session_scope() as db_session:
+        src_dir = tmp_path / "src_dir"
+        await db_session.add_src_dir(src_dir)
+        result = await query_src_dir(db_session, src_dir)
+        assert result.path == str(src_dir)
+
+
+@pytest.mark.asyncio
+async def test_add_src_dir_duplicate(tmp_path):
+    db_handler = DatabaseHandler(tmp_path)
+    await db_handler.create_session()
+    async with db_handler.session_scope() as db_session:
+        src_dir = tmp_path / "src_dir"
+        await db_session.add_src_dir(src_dir)
+        with pytest.raises(FileExistsError):
+            await db_session.add_src_dir(src_dir)
+
+
+@pytest.mark.asyncio
+async def test_add_src_dir_relative_path(tmp_path):
+    db_handler = DatabaseHandler(tmp_path)
+    await db_handler.create_session()
+    async with db_handler.session_scope() as db_session:
+        src_dir = tmp_path / "src_dir"
+        relative_src_dir = Path("src_dir")
+        with contextlib.chdir(tmp_path):
+            await db_session.add_src_dir(relative_src_dir)
+        result = await query_src_dir(db_session, src_dir)
+        assert result.path == str(src_dir.resolve())
+
+
+@pytest.mark.asyncio
+async def test_aquery_all_src_dirs(tmp_path):
+    db_handler = DatabaseHandler(tmp_path)
+    await db_handler.create_session()
+    async with db_handler.session_scope() as db_session:
+        src_dirs = [tmp_path / f"src_dir_{i}" for i in range(3)]
+        for src_dir in src_dirs:
+            await db_session.add_src_dir(src_dir)
+
+        result = await aquery_all_src_dirs(db_session)
+        result_paths = [src.path for src in result]
+        expected_paths = [str(src_dir) for src_dir in src_dirs]
+        assert sorted(result_paths) == sorted(expected_paths)
+
+
+@pytest.mark.asyncio
+async def test_add_src_dir_across_sessions_0(tmp_path):
+    db_handler = DatabaseHandler(tmp_path)
+    await db_handler.create_session()
+    src_dir = tmp_path / "src_dir"
+
+    async with db_handler.session_scope() as db_session:
+        await db_session.add_src_dir(src_dir)
+
+    async with db_handler.session_scope() as db_session:
+        result = await query_src_dir(db_session, src_dir)
+        assert result.path == str(src_dir)
+
+
+@pytest.mark.asyncio
+async def test_add_src_dir_across_sessions_1(tmp_path):
+    db_path = tmp_path / "db"
+    src_path = tmp_path / "src"
+    db_handler_0 = DatabaseHandler(db_path)
+    await db_handler_0.create_session()
+
+    async with db_handler_0.session_scope() as db_session:
+        await db_session.add_src_dir(src_path)
+
+    db_handler_1 = DatabaseHandler(db_path)
+    await db_handler_1.create_session()
+
+    async with db_handler_1.session_scope() as db_session:
+        result = await query_src_dir(db_session, src_path)
+        assert result.path == str(src_path)
+
+
+@pytest.mark.asyncio
+async def test_aquery_all_src_dirs_across_sessions(tmp_path):
+    db_handler = DatabaseHandler(tmp_path)
+    await db_handler.create_session()
+    src_dirs = [tmp_path / f"src_dir_{i}" for i in range(3)]
+
+    async with db_handler.session_scope() as db_session:
+        for src_dir in src_dirs:
+            await db_session.add_src_dir(src_dir)
+
+    async with db_handler.session_scope() as db_session:
+        result = await aquery_all_src_dirs(db_session)
+        result_paths = [src.path for src in result]
+        expected_paths = [str(src_dir) for src_dir in src_dirs]
+        assert sorted(result_paths) == sorted(expected_paths)
 
 
 @pytest.mark.asyncio
@@ -12,8 +128,8 @@ async def test_query_file_one(tmp_path):
     db_handler = DatabaseHandler(tmp_path)
     await db_handler.create_session()
     async with db_handler.session_scope() as db_session:
-        await db_session.add_new_file("file1", "some_tag")
-        file = await db_session.query_filename("file1")
+        await add_file(db_session, "file1", "some_tag")
+        file = await db_session.aquery_one(BackupFile, BackupFile.filename == "file1")
         assert file.filename == "file1"
 
 
@@ -22,16 +138,16 @@ async def test_query_two_files(tmp_path):
     db_handler = DatabaseHandler(tmp_path)
     await db_handler.create_session()
     async with db_handler.session_scope() as db_session:
-        await db_session.add_new_file("file1", "some_tag")
+        await add_file(db_session, "file1", "some_tag")
         # Add another file for the same volume
-        await db_session.add_new_file("file2", "some_tag")
-        file = await db_session.query_filename("file1")
+        await add_file(db_session, "file2", "some_tag")
+        file = await db_session.aquery_one(BackupFile, BackupFile.filename == "file1")
         assert file.filename == "file1"
-        file = await db_session.query_filename("file2")
+        file = await db_session.aquery_one(BackupFile, BackupFile.filename == "file2")
         assert file.filename == "file2"
 
         # Now can we query by dest
-        files = await db_session.query_dest("some_tag")
+        files = await query_dest(db_session, "some_tag")
         assert len(files) == 2
         filenames = [f.filename for f in files]
         assert "file1" in filenames
@@ -44,35 +160,35 @@ async def test_query_missing_dest(tmp_path):
     await db_handler.create_session()
     my_dest = "some string"
     async with db_handler.session_scope() as db_session:
-        db_session.init_dest(my_dest)
-        await db_session.add_new_file("file1", my_dest)
-        await db_session.add_new_file("file2", my_dest)
-        await db_session.add_new_file("file3")
-        files = await db_session.query_dest(my_dest)
+        db_session.add_dest(my_dest)
+        await add_file(db_session, "file1", my_dest)
+        await add_file(db_session, "file2", my_dest)
+        await add_file(db_session, "file3")
+        files = await query_dest(db_session, my_dest)
         assert len(files) == 2
-        files = await db_session.query_files_without_dest(my_dest)
+        files = await query_files_without_dest(db_session, my_dest)
         assert len(files) == 1
 
 
 @pytest.mark.asyncio
 async def test_query_missing_multi_dest(tmp_path):
-    db_handler = DatabaseHandler(tmp_path)
-    await db_handler.create_session()
     my_dest = "some string"
     my_other_dest = "some other string"
+    db_handler = DatabaseHandler(tmp_path)
+    await db_handler.create_session()
     async with db_handler.session_scope() as db_session:
-        await db_session.init_dest(my_dest)
-        await db_session.add_new_file("file1", my_dest)
-        await db_session.add_new_file("file2", my_dest)
-        await db_session.add_new_file("file3", my_other_dest)
-        await db_session.add_new_file("file4", [my_dest, my_other_dest])
-        files = await db_session.query_dest(my_dest)
+        await db_session.add_dest(my_dest)
+        await add_file(db_session, "file1", my_dest)
+        await add_file(db_session, "file2", my_dest)
+        await add_file(db_session, "file3", my_other_dest)
+        await add_file(db_session, "file4", [my_dest, my_other_dest])
+        files = await query_dest(db_session, my_dest)
         assert len(files) == 3
-        files = await db_session.query_dest(my_other_dest)
+        files = await query_dest(db_session, my_other_dest)
         assert len(files) == 2
-        files = await db_session.query_files_without_dest(my_dest)
+        files = await query_files_without_dest(db_session, my_dest)
         assert len(files) == 1
-        files = await db_session.query_files_without_dest(my_other_dest)
+        files = await query_files_without_dest(db_session, my_other_dest)
         assert len(files) == 2
 
 
@@ -82,12 +198,12 @@ async def test_query_persistence(tmp_path):
     await db_handler_0.create_session()
     my_dest = "some string"
     async with db_handler_0.session_scope() as db_session:
-        await db_session.init_dest(my_dest)
-        await db_session.add_new_file("file1", my_dest, md5_hash="123456")
-        await db_session.add_new_file("file2", my_dest, md5_hash="789a")
+        await db_session.add_dest(my_dest)
+        await add_file(db_session, "file1", my_dest, md5_hash="123456")
+        await add_file(db_session, "file2", my_dest, md5_hash="789a")
 
     async with db_handler_0.session_scope() as db_session:
-        files = await db_session.query_dest(my_dest)
+        files = await query_dest(db_session, my_dest)
         assert len(files) == 2
 
     # Now creating another db that should read back in that file
@@ -95,7 +211,7 @@ async def test_query_persistence(tmp_path):
 
     await db_handler_1.create_session()
     async with db_handler_1.session_scope() as db_session:
-        files = await db_session.query_dest(my_dest)
+        files = await query_dest(db_session, my_dest)
         assert len(files) == 2
 
 
@@ -107,13 +223,13 @@ async def test_query_persistence_hash(tmp_path):
     # Given a backup session that has had files backed up
     # to a dest
     async with db_handler_0.session_scope() as db_session:
-        await db_session.init_dest(my_dest)
-        await db_session.add_new_file("file1", my_dest, md5_hash="123456")
-        await db_session.add_new_file("file2", my_dest, md5_hash="789a")
+        await db_session.add_dest(my_dest)
+        await add_file(db_session, "file1", my_dest, md5_hash="123456")
+        await add_file(db_session, "file2", my_dest, md5_hash="789a")
 
     # When we query them by their hash
     async with db_handler_0.session_scope() as db_session:
-        file_obj = await db_session.query_hash("123456")
+        file_obj = await query_hash(db_session, "123456")
         assert len(file_obj) == 1
         # Then the dest_id is persisted
         assert file_obj[0].md5_hash == "123456"
@@ -126,25 +242,29 @@ async def test_query_ordering(tmp_path):
     await db_handler.create_session()
     my_dest = "some string"
     async with db_handler.session_scope() as db_session:
-        await db_session.add_new_file(
+        await add_file(
+            db_session,
             "file1",
             size=30,
         )
-        await db_session.add_new_file(
+        await add_file(
+            db_session,
             "file0",
             size=300,
         )
-        await db_session.add_new_file(
+        await add_file(
+            db_session,
             "file2",
             size=3,
         )
-        await db_session.add_new_file(
+        await add_file(
+            db_session,
             "file3",
             size=30,
             dest_names=[my_dest],
         )
 
-        files = await db_session.for_backup(my_dest)
+        files = list(await db_session.for_backup(my_dest))
         assert len(files) == 3
         assert files[0].filename == "file0"
         assert files[1].filename == "file1"
@@ -157,12 +277,12 @@ async def test_query_table_clear(tmp_path):
     await db_handler_0.create_session()
     my_dest = "some string"
     async with db_handler_0.session_scope() as db_session:
-        await db_session.init_dest(my_dest)
-        await db_session.add_new_file("file1", my_dest)
-        await db_session.add_new_file("file2", my_dest)
+        await db_session.add_dest(my_dest)
+        await add_file(db_session, "file1", my_dest)
+        await add_file(db_session, "file2", my_dest)
 
     async with db_handler_0.session_scope() as db_session:
-        files = await db_session.query_dest(my_dest)
+        files = await query_dest(db_session, my_dest)
         assert len(files) == 2
 
     # Now creating another db that should read back in that file
@@ -172,18 +292,18 @@ async def test_query_table_clear(tmp_path):
     await db_handler_1.clear_files()
     async with db_handler_1.session_scope() as db_session:
         await db_session.session.commit()
-        files = await db_session.query_dest(my_dest)
+        files = await query_dest(db_session, my_dest)
         assert len(files) == 0
 
         # But can we still create new ones?
-        await db_session.add_new_file("file3", my_dest)
-        await db_session.add_new_file("file4", my_dest)
-        files = await db_session.query_dest(my_dest)
+        await add_file(db_session, "file3", my_dest)
+        await add_file(db_session, "file4", my_dest)
+        files = await query_dest(db_session, my_dest)
         filenames = [ent.filename for ent in files]
         assert len(files) == 2, f"too many files {filenames}"
 
     async with db_handler_1.session_scope() as db_session:
-        files = await db_session.query_dest(my_dest)
+        files = await query_dest(db_session, my_dest)
         assert len(files) == 2
 
 
@@ -197,32 +317,31 @@ async def test_dummy_bkp_steps(tmp_path):
     dummy_file = Path("some/dummy/file_path.fls")
     file_props = BkpFile(
         name=dummy_file.name,
-        file_path=str(dummy_file),
+        file_path=dummy_file,
         size=30,
         mtime=20,
         md5="Some String",
         bkp_dests=[],
     )
     async with db_handler.session_scope() as db_session:
-        await db_session.update_file(file_props)
+        await db_session.update_file(file_props, src_dir=AsyncPath(tmp_path))
     async with db_handler.session_scope() as db_session:
-        files = await db_session.query_dest(my_dest)
+        files = await query_dest(db_session, my_dest)
         assert len(files) == 0
     # Add in the backup
     file_props.bkp_dests.append(my_dest)
     async with db_handler.session_scope() as db_session:
-        entry = await db_session.update_file(file_props)
+        entry = await db_session.update_file(file_props, src_dir=AsyncPath(tmp_path))
         entry.visited = 1
 
-    async with db_handler.session_scope() as db_session:
-        files = await db_session.query_dest(my_dest)
+        files = await query_dest(db_session, my_dest)
         assert len(files) == 1
         # Check that we can go back and play with any visited files
-        files = await db_session.query_files_visited()
+        files = await query_files_visited(db_session)
         assert len(files) == 1
         for file in files:
             file.visited = 0
-        files = await db_session.query_files_visited()
+        files = await query_files_visited(db_session)
         assert len(files) == 0
 
 
@@ -252,23 +371,22 @@ async def test_dummy_bkp_source_files_deleted(tmp_path):
     # Okay, pass 1!
     async with db_handler.session_scope() as db_session:
         props_src = [bkp_file(filename) for filename in my_source_files_0]
-        await db_session.visit_files(props_src)
-        await db_session.filter(Bdsa.delete_unvisited_files)
-        # files = await db_session.query_all_files()
-        files = [file async for file in db_session.aquery_all_files()]
+        await visit_files(db_session, props_src, src_dir=AsyncPath(tmp_path))
+
+        files = await aquery_all_files(db_session)
         assert len(files) == len(my_source_files_0)
 
     # Now for pass 2
     async with db_handler.session_scope() as db_session:
         props_src = [bkp_file(filename) for filename in my_source_files_1]
-        await db_session.visit_files(props_src)
-        await db_session.filter(Bdsa.delete_unvisited_files)
-        files = await db_session.query_all_files()
+        await visit_files(db_session, props_src, src_dir=AsyncPath(tmp_path))
+        await db_session.filter(Bdsa.delete_unvisited_files, BackupFile)
+        files = await query_all_files(db_session)
         assert len(files) == len(my_source_files_1)
 
     # The database does not contain the files that have dissapeared
     async with db_handler.session_scope() as db_session:
-        files = await db_session.query_all_files()
+        files = await query_all_files(db_session)
         assert len(files) == len(my_source_files_1)
         found_filenames = {entry.filename for entry in files}
         assert not missing_files.intersection(found_filenames)
@@ -286,13 +404,13 @@ async def test_restore_process_basic(tmp_path):
 
     async with db_handler.session_scope() as db_session:
         for file in my_source_files_0:
-            await db_session.add_new_file(file, dest_names=["dest 0"])
+            await add_file(db_session, file, dest_names=["dest 0"])
         for file in my_source_files_1:
-            await db_session.add_new_file(file, dest_names=["dest 1"])
+            await add_file(db_session, file, dest_names=["dest 1"])
 
     # When we restore, we get all source files from both runs
     async with db_handler.session_scope() as db_session:
-        files = await db_session.query_all_files()
+        files = await query_all_files(db_session)
         expected_filenames = set(my_source_files_0)
         expected_filenames.update(my_source_files_1)
         assert len(files) == len(expected_filenames)
@@ -313,15 +431,15 @@ async def test_restore_process_multiple_dests(tmp_path):
 
     async with db_handler.session_scope() as db_session:
         for file in my_source_files_0:
-            await db_session.add_new_file(file, dest_names=["dest 0"])
+            await add_file(db_session, file, dest_names=["dest 0"])
         for file in my_source_files_1:
-            await db_session.add_new_file(file, dest_names=["dest 0", "dest 1"])
+            await add_file(db_session, file, dest_names=["dest 0", "dest 1"])
         for file in my_source_files_2:
-            await db_session.add_new_file(file, dest_names=["dest 1"])
+            await add_file(db_session, file, dest_names=["dest 1"])
 
     # When we restore, we get source files from correct dest
     async with db_handler.session_scope() as db_session:
-        async for entry in db_session.aquery_all_files():
+        for entry in await aquery_all_files(db_session):
             if entry.filename in my_source_files_0:
                 assert entry.dest_names == {"dest 0"}
             if entry.filename in my_source_files_1:
@@ -341,13 +459,13 @@ async def test_restore_process_dir_hierarchy_preserved(tmp_path):
 
     async with db_handler.session_scope() as db_session:
         for file in my_source_files_0:
-            await db_session.add_new_file(f"dira/{file}", dest_names=["dest 0"])
+            await add_file(db_session, f"dira/{file}", dest_names=["dest 0"])
         for file in my_source_files_1:
-            await db_session.add_new_file(f"dirb/{file}", dest_names=["dest 0"])
+            await add_file(db_session, f"dirb/{file}", dest_names=["dest 0"])
 
     # When we restore, get filepaths correct
     async with db_handler.session_scope() as db_session:
-        async for entry in db_session.aquery_all_files():
+        for entry in await aquery_all_files(db_session):
             filepath = Path(entry.filename)
 
             if filepath.name in my_source_files_0:
@@ -374,16 +492,16 @@ async def test_discover_process(tmp_path):
     }
     async with db_handler.session_scope() as db_session:
         for filename, props in my_source_files_0.items():
-            await db_session.add_new_file(file_name=filename, md5_hash=props["md5"])
+            await add_file(db_session, file_name=filename, md5_hash=props["md5"])
 
     async with db_handler.session_scope() as db_session:
-        file_1234 = await db_session.query_hash("1234")
+        file_1234 = await query_hash(db_session, "1234")
         assert file_1234 is not None
         assert len(file_1234) == 1
         assert file_1234[0].filename == "file_0"
 
-        file_missing = await db_session.query_hash("0123")
-        assert file_missing is None
+        file_missing = await query_hash(db_session, "0123")
+        assert not file_missing
 
     dummy_dest = "here"
     async with db_handler.session_scope() as db_session:
@@ -399,7 +517,7 @@ async def test_discover_process(tmp_path):
             dest=dummy_dest,
         )
         # When we query for files backed up to that dest
-        files = await db_session.query_dest(dummy_dest)
+        files = await query_dest(db_session, dummy_dest)
         assert len(files) == 1
         # Then the file with the different filename but same hash is there
         assert files[0].filename == "file_1"
@@ -410,7 +528,7 @@ async def test_discover_process(tmp_path):
             dest=dummy_dest,
         )
         # We should get the same result
-        files = await db_session.query_dest(dummy_dest)
+        files = await query_dest(db_session, dummy_dest)
         assert len(files) == 1
         assert files[0].filename == "file_1"
 

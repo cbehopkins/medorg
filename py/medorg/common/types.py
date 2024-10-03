@@ -1,7 +1,26 @@
+from typing import Any, Protocol
+import typing
 from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Table
 from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy.ext.asyncio import AsyncAttrs
+from sqlalchemy.orm import DeclarativeBase
 
-Base = declarative_base()
+VolumeId = str
+
+DatabaseBase = typing.Type[declarative_base]
+# Base: DatabaseBase = declarative_base()
+
+
+class Base(AsyncAttrs, DeclarativeBase):
+    pass
+
+
+class BackupSrc(Base):
+    __tablename__ = "src_dirs"
+
+    id = Column(Integer, primary_key=True)
+    path = Column(String, nullable=False, unique=True)
+
 
 # Define the association table for the many-to-many relationship
 file_backup_dest_association = Table(
@@ -17,6 +36,7 @@ class BackupFile(Base):
 
     id = Column(Integer, primary_key=True)
     filename = Column(String, nullable=False, unique=True)
+    src_path = Column(String, nullable=False)
     size = Column(Integer)
     timestamp = Column(DateTime)  # Use DateTime type for timestamp
     md5_hash = Column(String)
@@ -26,7 +46,7 @@ class BackupFile(Base):
         "BackupDest",
         secondary=file_backup_dest_association,
         back_populates="files",
-        lazy="selectin",
+        lazy="joined",
     )
 
     def __str__(self) -> str:
@@ -38,6 +58,8 @@ class BackupFile(Base):
 
 
 class BackupDest(Base):
+    """The destination for a backup as a database"""
+
     __tablename__ = "backup_dest"
     id = Column(Integer, primary_key=True)
     name = Column(String, nullable=False, unique=True)
@@ -45,5 +67,4 @@ class BackupDest(Base):
         "BackupFile",
         secondary=file_backup_dest_association,
         back_populates="backup_dest",
-        lazy="selectin",
     )

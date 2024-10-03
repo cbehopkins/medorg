@@ -1,20 +1,11 @@
-import base64
-import hashlib
-from dataclasses import dataclass, field
+import asyncio
 import logging
-from stat import S_IFDIR, S_IFREG, S_ISDIR, S_ISREG
+import os
 from typing import Awaitable, Callable, Optional
 
-
-import os
-import asyncio
-
 from aiopath import AsyncPath
-import aiofiles
-from lxml import etree
-from bkp_p.async_bkp_xml import AsyncBkpXml
 
-from bkp_p.bkp_xml import BkpXmlManager
+from .async_bkp_xml import AsyncBkpXml, AsyncBkpXmlManager
 
 _log = logging.getLogger(__name__)
 
@@ -37,28 +28,27 @@ DirWalker = Callable[
 ]
 
 
-class BackupXmlWalker(BkpXmlManager):
+class BackupXmlWalker(AsyncBkpXmlManager):
     def __init__(self, root: os.PathLike):
         self.root = AsyncPath(root)
 
     async def go_walk(self, walker: DirWalker):
-        await self.walk_directory(walker)
+        await self._walk_directory(walker)
 
     @staticmethod
-    async def create_xml(directory: AsyncPath) -> AsyncBkpXml:
+    async def _create_xml(directory: AsyncPath) -> AsyncBkpXml:
         tmp = AsyncBkpXml(directory)
         await tmp.init_structs()
         return tmp
 
-    async def walk_directory(self, callback: DirWalker):
+    async def _walk_directory(self, callback: DirWalker):
         async def walk(current_path: AsyncPath):
 
             # Asynchronously list all files and subdirectories using aiopath's rglob
             entries = current_path.glob("*")
-            tmp = self.create_xml(current_path)
+            tmp = self._create_xml(current_path)
             bkp_xml = await tmp
-            if bkp_xml.root is None:
-                print("Init didn't work!")
+            assert bkp_xml.root is not None
 
             # Create a list to hold tasks for processing files
             file_processing_tasks = []
@@ -99,4 +89,6 @@ class BackupXmlWalker(BkpXmlManager):
             await bkp_xml.commit()
 
         # Start the directory walk
-        await walk(self.root)
+        walk_path = await self.root.resolve()
+        _log.debug(f"Starting directory walk at: {walk_path}")
+        await walk(walk_path)

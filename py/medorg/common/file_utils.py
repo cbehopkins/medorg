@@ -1,4 +1,7 @@
+import shutil
 from pathlib import Path
+
+from aiopath import AsyncPath
 
 
 async def async_copy():
@@ -14,6 +17,11 @@ async def async_copy():
     # fd_dst = handle_dst.fileno()
     # # copy the file
     # await aiofiles.os.sendfile(fd_dst, fd_src, 0, n_bytes)
+
+
+async def async_copy_file(src: AsyncPath, dest: AsyncPath):
+    # FIXME find an awaitable version of this
+    shutil.copy2(str(src), str(dest))
 
 
 def path_from_dirs(dirs, file):

@@ -1,0 +1,33 @@
+[tool.poetry]
+name = "medorg"
+version = "0.0.0"  # Placeholder version, will be overridden by the plugin
+description = "Media organizer"
+license = "MIT"
+authors = ["Chris Hopkins <cbehopkins@gmail.com>"]
+
+[tool.poetry.dependencies]
+python = "^3.12"
+click = "^8.0.0"
+aiofiles="23.2.1"
+aiopath="^0.7.0"
+isort="5.13.2"
+lxml="5.0.0"
+SQLAlchemy="2.0.25"
+pytest-asyncio="0.23.5"
+aiosqlite="0.20.0"
+
+[tool.poetry-dynamic-versioning]
+enable = true
+vcs = "git"
+style = "pep440"
+bump="true"
+
+[build-system]
+requires = ["poetry-core>=1.0.0", "poetry-dynamic-versioning>=1.0.0,<2.0.0"]
+build-backend = "poetry_dynamic_versioning.backend"
+
+[project.scripts]
+mdback= "medorg.cli.medback:cli"
+
+[tool.poetry.scripts]
+mdback= "medorg.cli.medback:cli"

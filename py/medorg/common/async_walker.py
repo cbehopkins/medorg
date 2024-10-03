@@ -1,12 +1,12 @@
 # Nicked wholesale from https://github.com/Tinche/aiofiles/issues/167 until implemented...
 import os
+
 import aiofiles.os
 
 
 async def _walk(top, onerror, followlinks):
     dirs = []
     nondirs = []
-    walk_dirs = []
 
     # We may not have read permission for top, in which case we can't
     # get a list of the files the directory contains.  os.walk

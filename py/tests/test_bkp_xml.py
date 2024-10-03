@@ -1,11 +1,13 @@
-from pathlib import Path
-from lxml import etree
-from bkp_p.async_bkp_xml import AsyncBkpXmlManager
-from bkp_p.bkp_xml import XML_NAME, BkpFile, BkpXml
 import textwrap
-from aiopath import AsyncPath
+from pathlib import Path
 
 import pytest
+from aiopath import AsyncPath
+from lxml import etree
+
+from medorg.bkp_p import XML_NAME
+from medorg.bkp_p.async_bkp_xml import AsyncBkpXmlManager
+from medorg.common.bkp_file import BkpFile
 
 
 def test_bkp_file_xml_render():
@@ -31,66 +33,6 @@ def test_bkp_file_xml_render():
     src.update_file_elem(file_elem)
     xml_data = etree.tostring(root, pretty_print=True, encoding="unicode")
     assert xml_data == expected_output
-
-
-def test_bkp_file_xml_load(monkeypatch):
-    source_input = textwrap.dedent(
-        """\
-        <dr>
-          <fr fname="my_file" mtime="256" size="128" checksum="deadbeef">
-            <bd id="def"/>
-            <bd id="abc"/>
-          </fr>
-        </dr>
-        """
-    )
-
-    def my_md5_calc(*_):
-        raise RuntimeError
-
-    monkeypatch.setattr(BkpXml, "_init_checks", lambda _: None)
-    monkeypatch.setattr(BkpXml, "_file_exists", lambda *_: True)
-    monkeypatch.setattr(BkpXml, "_file_size", lambda *_: 128)
-    monkeypatch.setattr(BkpXml, "_file_timestamp", lambda *_: 256)
-    monkeypatch.setattr(BkpXml, "_calculate_md5", my_md5_calc)
-
-    bob = BkpXml(Path("Some/Path"))
-    bob._root_from_string(source_input)
-    the_file = bob["my_file"]
-    assert the_file.md5 == "deadbeef"
-    assert the_file.size == 128
-    assert the_file.name == "my_file"
-    assert the_file.bkp_dests == {"def", "abc"}
-    assert the_file.bkp_dests == {"abc", "def"}
-
-
-def test_bkp_file_xml_load_changed_file_size(monkeypatch):
-    source_input = textwrap.dedent(
-        """\
-        <dr>
-          <fr fname="my_file" mtime="256" size="128" checksum="deadbeef">
-            <bd id="def"/>
-            <bd id="abc"/>
-          </fr>
-        </dr>
-        """
-    )
-
-    def my_md5_calc(*_):
-        return "fresh beef"
-
-    monkeypatch.setattr(BkpXml, "_init_checks", lambda _: None)
-    monkeypatch.setattr(BkpXml, "_file_exists", lambda *_: True)
-    monkeypatch.setattr(BkpXml, "_file_size", lambda *_: 129)
-    monkeypatch.setattr(BkpXml, "_file_timestamp", lambda *_: 256)
-    monkeypatch.setattr(BkpXml, "_calculate_md5", my_md5_calc)
-
-    bob = BkpXml(Path("Some/Path"))
-    bob._root_from_string(source_input)
-    the_file = bob["my_file"]
-    assert the_file.md5 == "fresh beef"
-    assert the_file.size == 129
-    assert the_file.name == "my_file"
 
 
 def test_bkp_file_xml_load_changed_file_clears_backup_dests(): ...

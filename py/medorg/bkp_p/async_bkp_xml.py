@@ -1,32 +1,23 @@
 import asyncio
-import base64
-import hashlib
+from csv import excel
 import logging
 from os import PathLike, stat_result
-import aiofiles
+
 from aiopath import AsyncPath
 from lxml import etree
 
-from bkp_p.bkp_xml import XML_NAME, BkpFile
+from medorg.common.bkp_file import BkpFile
+from medorg.common.checksum import async_calculate_md5
+
+from . import XML_NAME
 
 _log = logging.getLogger(__name__)
-
-
-async def async_calculate_md5(file_path):
-    md5 = hashlib.md5()
-    async with aiofiles.open(file_path, "rb") as file:
-        while chunk := await file.read(8192):
-            md5.update(chunk)
-    tmp = base64.b64encode(md5.digest())
-    if len(tmp) == 24 and tmp[22:24] == b"==":
-        return tmp[:22]
-    return tmp
 
 
 class AsyncBkpXml:
     def __init__(self, path: PathLike):
         self.path = AsyncPath(path)
-        self.xml_path = self.path / XML_NAME
+        self.xml_path: AsyncPath = self.path / XML_NAME
         self.parser = etree.XMLParser(remove_blank_text=True)
         self._files: dict[str, BkpFile] = {}
         self.root = None
@@ -80,7 +71,7 @@ class AsyncBkpXml:
 
     def _root_from_string(self, xml_str: str):
         tree = etree.fromstring(xml_str, self.parser)
-        assert tree
+        assert tree is not None
         return tree
 
     def __getitem__(self, key: str) -> BkpFile:
@@ -116,19 +107,17 @@ class AsyncBkpXml:
         return bkpf
 
     def remove_if_not_in_set(self, file_set: set[str]) -> None:
+        file: etree.Element
         for file in self.root.findall(".//fr"):
             name = file.attrib["fname"]
             if name not in file_set:
-                file.getparent.remove(file)
+                file.getparent().remove(file)
 
     async def commit(self) -> None:
         if self.root is None:
             raise SystemError("self.root should not be none. Puzzled...")
-        try:
-            xml_data = etree.tostring(self.root, pretty_print=True, encoding="unicode")
-            await self.xml_path.write_text(xml_data)
-        except Exception as e:
-            raise
+        xml_data = etree.tostring(self.root, pretty_print=True, encoding="unicode")
+        await self.xml_path.write_text(xml_data)
 
 
 class AsyncBkpXmlManager(dict[AsyncPath, AsyncBkpXml]):
