@@ -1,7 +1,4 @@
-import asyncio
-import importlib.metadata
 import os
-from functools import wraps
 from pathlib import Path
 from typing import IO
 
@@ -10,6 +7,7 @@ from aiopath import AsyncPath
 
 from medorg.bkp_p.async_bkp_xml import AsyncBkpXml, AsyncBkpXmlManager
 from medorg.bkp_p.backup_xml_walker import BackupXmlWalker
+from medorg.cli import VERSION, coro
 from medorg.cli.runners import (
     copy_best_files,
     create_update_db_file_entries,
@@ -23,18 +21,6 @@ from medorg.common.types import BackupSrc
 from medorg.database.database_handler import DatabaseHandler
 from medorg.restore.structs import RestoreContext
 from medorg.volume_id.volume_id import VolumeIdSrc
-
-
-# Stolen from https://github.com/pallets/click/issues/85
-def coro(f):
-    @wraps(f)
-    def wrapper(*args, **kwargs):
-        return asyncio.run(f(*args, **kwargs))
-
-    return wrapper
-
-
-VERSION = importlib.metadata.version("medorg")
 
 
 @click.group()
@@ -111,12 +97,12 @@ async def add_restore_context(session_db: Path, restore_file: IO) -> None:
 
     try:
         restore_context = RestoreContext.from_file_handle(restore_file)
-    except FileNotFoundError:
-        raise click.ClickException(f"Restore file {restore_file} not found.")
+    except FileNotFoundError as e:
+        raise click.ClickException(f"Restore file {restore_file} not found.") from e
     except Exception as e:
         raise click.ClickException(
             f"An error occurred while reading the restore file: {e}"
-        )
+        ) from e
     db_handler = DatabaseHandler(session_db)
     await db_handler.create_session()
     async with db_handler.session_scope() as db_session:

@@ -15,6 +15,8 @@ lxml="5.0.0"
 SQLAlchemy="2.0.25"
 pytest-asyncio="0.23.5"
 aiosqlite="0.20.0"
+pytest = "^8.3.3"
+black = "^24.8.0"
 
 [tool.poetry-dynamic-versioning]
 enable = true
@@ -27,7 +29,9 @@ requires = ["poetry-core>=1.0.0", "poetry-dynamic-versioning>=1.0.0,<2.0.0"]
 build-backend = "poetry_dynamic_versioning.backend"
 
 [project.scripts]
-mdback= "medorg.cli.medback:cli"
+medback= "medorg.cli.medback:cli"
+medtools= "medorg.cli.medtools:cli"
 
 [tool.poetry.scripts]
-mdback= "medorg.cli.medback:cli"
+medback= "medorg.cli.medback:cli"
+medtools= "medorg.cli.medtools:cli"

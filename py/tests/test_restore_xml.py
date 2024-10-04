@@ -1,8 +1,10 @@
 import textwrap
-from lxml import etree
-import pytest
 
-from medorg.restore.structs import RestoreContext, RestoreDirectory, RestoreFile
+import pytest
+from lxml import etree
+
+from medorg.restore.structs import (RestoreContext, RestoreDirectory,
+                                    RestoreFile)
 
 
 def test_restore_file_to_xml():

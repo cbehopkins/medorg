@@ -3,19 +3,15 @@ import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Iterable, Sequence
-from sqlalchemy.orm import selectinload, joinedload
+
 from aiopath import AsyncPath
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.expression import BinaryExpression, Select, and_
+
 from medorg.common.bkp_file import BkpFile
-from medorg.common.types import (
-    BackupDest,
-    BackupFile,
-    BackupSrc,
-    DatabaseBase,
-    VolumeId,
-)
+from medorg.common.types import (BackupDest, BackupFile, BackupSrc,
+                                 DatabaseBase, VolumeId)
 from medorg.restore.structs import RestoreContext, RestoreDirectory
 
 _log = logging.getLogger(__name__)
@@ -72,9 +68,7 @@ class AsyncSessionWrapper:
     ) -> list[DatabaseBase | None]:
         def handle_fail(result: DatabaseBase | None, val: Any) -> DatabaseBase | None:
             if result is None:
-                if not on_fail:
-                    return None
-                return on_fail(val)
+                return on_fail(val) if on_fail else None
             return result
 
         async def my_task(my_session, statement, val: Any) -> DatabaseBase | None:
@@ -179,19 +173,16 @@ class Bdsa(AsyncSessionWrapper):
 
     async def _query_dest_tag(self, dest_id: VolumeId) -> BackupDest:
         result = await self.aquery_one(BackupDest, BackupDest.name == dest_id)
-        if not result:
-            return BackupDest(name=dest_id)
-        return result
+        return result or BackupDest(name=dest_id)
 
     async def _query_dest_tags(self, dest_ids: Iterable[VolumeId]) -> BackupDest:
-        results = await self.aquery_many(
+        return await self.aquery_many(
             BackupDest,
             filter_options=[
                 (BackupDest.name == dest_id, dest_id) for dest_id in dest_ids
             ],
             on_fail=lambda x: BackupDest(name=x),
         )
-        return results
 
     async def for_backup(self, dest_name: VolumeId) -> Iterable[BackupFile]:
         # Query for files without a specified dest

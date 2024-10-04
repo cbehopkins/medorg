@@ -1,13 +1,17 @@
-from unittest.mock import AsyncMock
-import pytest
 from pathlib import Path
+from unittest.mock import AsyncMock
+
+import pytest
+from aiopath import AsyncPath
+
 from medorg.common.bkp_file import BkpFile
 from medorg.common.types import BackupFile
 from medorg.database.bdsa import Bdsa
 from medorg.database.database_handler import DatabaseHandler
-from medorg.restore.structs import RestoreContext, RestoreDirectory, RestoreFile
+from medorg.restore.structs import (RestoreContext, RestoreDirectory,
+                                    RestoreFile)
 from tests.database_helpers import query_all_files
-from aiopath import AsyncPath
+
 
 @pytest.fixture
 def restore_context() -> RestoreContext:

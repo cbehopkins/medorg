@@ -1,1 +1,1 @@
-XML_NAME = ".bkp.xml"
+XML_NAME = ".medorg.xml"

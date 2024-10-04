@@ -28,8 +28,7 @@ def run_command_in_venv(command, venv_path):
         activate_script = os.path.join(venv_path, "bin", "activate")
         full_command = f'bash -c "source {activate_script} && {command}"'
 
-    result = subprocess.run(full_command, shell=True, capture_output=True, text=True)
-    return result
+    return subprocess.run(full_command, shell=True, capture_output=True, text=True)
 
 
 def test_install_cli(tmp_path):
@@ -56,14 +55,20 @@ def test_install_cli(tmp_path):
     # Install the package in the virtual environment
     run_command(f"{python_executable} -m pip install {wheel_file}")
 
-    # Run the CLI command using subprocess
-    result = run_command_in_venv("mdback --help", venv_dir)
-    assert result.returncode == 0
+    _run_test_one_command("medback --help", venv_dir)
+    _run_test_one_command("medtools --help", venv_dir)
 
+
+def _run_test_one_command(arg0, venv_dir):
+    # Run the mdback CLI command using subprocess
+    result = run_command_in_venv(arg0, venv_dir)
+    assert result.returncode == 0
     # Check if the output contains the expected help message
     assert (
         "Usage:" in result.stdout
     ), "CLI command did not produce the expected help message"
+
+    return result
 
 
 if __name__ == "__main__":

@@ -5,6 +5,8 @@ from typing import Awaitable, Callable, Optional
 
 from aiopath import AsyncPath
 
+from medorg.bkp_p import XML_NAME
+
 from .async_bkp_xml import AsyncBkpXml, AsyncBkpXmlManager
 
 _log = logging.getLogger(__name__)
@@ -46,9 +48,7 @@ class BackupXmlWalker(AsyncBkpXmlManager):
 
             # Asynchronously list all files and subdirectories using aiopath's rglob
             entries = current_path.glob("*")
-            tmp = self._create_xml(current_path)
-            bkp_xml = await tmp
-            assert bkp_xml.root is not None
+            bkp_xml = await self._create_xml(current_path)
 
             # Create a list to hold tasks for processing files
             file_processing_tasks = []
@@ -57,7 +57,7 @@ class BackupXmlWalker(AsyncBkpXmlManager):
             dir_entries = []
 
             async for entry in entries:
-                if entry.name == ".bkp.xml":
+                if entry.name == XML_NAME:
                     continue
                 stat_result_i = await entry.stat()
 
@@ -89,6 +89,6 @@ class BackupXmlWalker(AsyncBkpXmlManager):
             await bkp_xml.commit()
 
         # Start the directory walk
-        walk_path = await self.root.resolve()
+        walk_path = await self.root.resolve(strict=True)
         _log.debug(f"Starting directory walk at: {walk_path}")
         await walk(walk_path)

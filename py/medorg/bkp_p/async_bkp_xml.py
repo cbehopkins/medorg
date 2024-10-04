@@ -1,6 +1,6 @@
 import asyncio
-from csv import excel
 import logging
+from csv import excel
 from os import PathLike, stat_result
 
 from aiopath import AsyncPath
@@ -100,11 +100,7 @@ class AsyncBkpXml:
         # FIXME move to use accessor methods from bkp_xml
         file_path = self.path / key
 
-        bkpf = BkpFile.from_file_elem(file_elem, file_path)
-        # Note, we have to be sync here, so no io acess allowed to check
-        # timestamp/size
-        # That must have been done before
-        return bkpf
+        return BkpFile.from_file_elem(file_elem, file_path)
 
     def remove_if_not_in_set(self, file_set: set[str]) -> None:
         file: etree.Element

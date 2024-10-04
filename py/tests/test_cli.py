@@ -1,10 +1,10 @@
 import base64
 import hashlib
 import shutil
-from typing import Sequence
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Sequence
 from unittest import mock
 
 import pytest
@@ -14,7 +14,8 @@ from medorg.bkp_p import XML_NAME
 from medorg.cli.medback import cli
 from medorg.database.bdsa import Bdsa
 from medorg.database.database_handler import DatabaseHandler
-from medorg.restore.structs import RestoreContext, RestoreDirectory, RestoreFile
+from medorg.restore.structs import (RestoreContext, RestoreDirectory,
+                                    RestoreFile)
 from medorg.volume_id.volume_id import VolumeIdSrc
 
 
@@ -109,7 +110,7 @@ def _copy_subdirs_to_target(subdirs: Sequence[Path], target_dir: Path) -> None:
 
     for subdir in subdirs:
         subdir = Path(subdir)
-        if subdir.exists() and subdir.is_dir():
+        if subdir.is_dir():
             for item in subdir.iterdir():
                 dest = target_dir / item.name
                 if item.is_dir():
@@ -122,7 +123,7 @@ def test_target_discovery(tmp_path: Path, example_files: TestFiles) -> None:
     files, subdirs = example_files
     target_dir = tmp_path / "target"
     session_db = tmp_path / "session"
-    _copy_subdirs_to_target(list(tmp_path / d for d in subdirs), target_dir)
+    _copy_subdirs_to_target([tmp_path / d for d in subdirs], target_dir)
 
     runner = CliRunner()
     # Let's now pretend we are about to do a new fancy backup

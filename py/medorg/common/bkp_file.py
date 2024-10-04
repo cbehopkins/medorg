@@ -24,7 +24,7 @@ class BkpFile:
             self.md5 = calculate_md5(str(self.file_path))
         file_elem.set("checksum", self.md5)
         # Remove any current bd elements, before adding new ones...
-        list(file_elem.remove(elem) for elem in file_elem.xpath("bd"))
+        [file_elem.remove(elem) for elem in file_elem.xpath("bd")]
 
         if self.bkp_dests:
             for backup_dest in self.bkp_dests:
@@ -45,7 +45,7 @@ class BkpFile:
         existing_size = int(file_elem.get("size", -1))
         md5_hash = file_elem.get("checksum")
         bkp_dests = {e.attrib["id"] for e in file_elem.xpath("bd[@id]")}
-        bkpf = cls(
+        return cls(
             name=file_path.name,
             file_path=file_path,
             size=existing_size,
@@ -53,4 +53,3 @@ class BkpFile:
             md5=md5_hash,
             bkp_dests=bkp_dests,
         )
-        return bkpf
