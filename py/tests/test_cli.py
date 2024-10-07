@@ -12,8 +12,6 @@ from click.testing import CliRunner
 
 from medorg.bkp_p import XML_NAME
 from medorg.cli.medback import cli
-from medorg.database.bdsa import Bdsa
-from medorg.database.database_handler import DatabaseHandler
 from medorg.restore.structs import (RestoreContext, RestoreDirectory,
                                     RestoreFile)
 from medorg.volume_id.volume_id import VolumeIdSrc
@@ -294,6 +292,7 @@ def restore_context_from_example_files(tmp_path, example_files) -> RestoreContex
             file_path=file_path,
             md5=md5,
             bkp_dests=set(),
+            mtime=0,
         )
         current_dir.add_file(restore_file)
 

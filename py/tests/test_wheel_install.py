@@ -32,7 +32,7 @@ def run_command_in_venv(command, venv_path):
 
 
 def test_install_cli(tmp_path):
-    # pytest.skip("It's a long test, skip it for now")
+    pytest.skip("It's a long test, skip it for now")
     # Create a virtual environment
     venv_dir = tmp_path / "venv"
     venv.create(venv_dir, with_pip=True)

@@ -1,4 +1,5 @@
 import asyncio
+import datetime
 import logging
 import os
 from copy import copy
@@ -83,6 +84,7 @@ async def writeback_db_file_entries(session: Bdsa):
             file_bob.bkp_dests = file_entry.dest_names
             file_bob.md5 = file_entry.md5_hash
             file_bob.size = file_entry.size
+            file_bob.mtime = int(file_entry.timestamp.timestamp())
             bkp_xml_src[filename] = file_bob
 
         for entry in await session.aquery_generator(
@@ -112,7 +114,9 @@ async def generate_src_dest_full_paths(file_entry: BackupFile, dest_path: AsyncP
 
     dest_file_path = dest_path / Path(file_entry.src_path).name / relative_path
     if not await src_file_path.is_file():
-        raise FileNotFoundError(f"File {src_file_path} not found")
+        raise FileNotFoundError(
+            f"File {src_file_path} not found in generate_src_dest_full_paths"
+        )
     return src_file_path, dest_file_path
 
 
@@ -132,8 +136,11 @@ async def copy_best_files(
             _backup_file(dest_id, src_full_path, dest_file_path, file_entry, bkp_xmls)
         )
         tasks.append(task)
-
-    await asyncio.gather(*tasks)
+    try:
+        await asyncio.gather(*tasks)
+    except Exception as e:
+        _log.error(f"Error backing up files: {e}")
+    print(tasks)
 
 
 async def _backup_file(
@@ -146,7 +153,11 @@ async def _backup_file(
     assert (
         not file_entry.visited
     ), "When backing up the file, it should not have been visited already"
-    await dest_file_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        await dest_file_path.parent.mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        _log.error(f"Failed to create directory {dest_file_path.parent}: {e}")
+        return
     bkp_xml_src = bkp_xmls[src_file_path.parent]
     await bkp_xml_src.init_structs()  # FIXME this is awful
     if bkp_xml_src.root is None:
@@ -156,25 +167,34 @@ async def _backup_file(
         _log.info(f"Not copying {src_file_path}, as it already is at dest {dest_id}")
         return
     bkp_xml_dest: AsyncBkpXml = bkp_xmls[dest_file_path.parent]
-    await bkp_xml_dest.init_structs()  # FIXME this is awful
+    try:
+        await bkp_xml_dest.init_structs()  # FIXME this is awful
+    except Exception as e:
+        _log.error(f"Failed to init structs for {dest_file_path.parent}: {e}")
+        return
     if bkp_xml_dest.root is None:
         raise RuntimeError("Root is None")
 
     current_file_data_dest = copy(current_file_data_src)
     current_file_data_dest.file_path = dest_file_path
-    bkp_xml_dest[dest_file_path.name] = current_file_data_dest
-
+    current_file_data_dest.size = current_file_data_src.size
+    current_file_data_dest.mtime = current_file_data_src.mtime
+    current_file_data_dest.md5 = current_file_data_src.md5
     try:
+        assert await src_file_path.is_file()
+        assert await dest_file_path.parent.is_dir()
         await async_copy_file(src_file_path, dest_file_path)
     except IOError as e:
         # As long as we return without marking it as visited...
         return
-
+    assert current_file_data_dest.mtime != "None"
+    assert current_file_data_dest.size != "None"
+    bkp_xml_dest[dest_file_path.name] = current_file_data_dest
     # Backup successful, update the visited flag
     file_entry.visited = 1
 
 
-async def update_source_directory_entries(bdsa: Bdsa, dest_id: str):
+async def update_source_directory_entries(bdsa: Bdsa, dest_id: VolumeId):
     # Go back and update the source directory data
     # Telling it about where the files have been backed up to
     async with AsyncBkpXmlManager() as bkp_xmls:
@@ -190,9 +210,17 @@ async def update_source_directory_entries(bdsa: Bdsa, dest_id: str):
 
             # FIXME this is gronky - but is awaiting a getitem worse?
             await bkp_xml_src.init_structs()
+            await bkp_xml_src.visit_file(
+                full_src_filepath, (await full_src_filepath.stat())
+            )
             # Modify backup dest attribute in the xml file
             file_props: BkpFile = bkp_xml_src[filename]
             file_props.bkp_dests.add(dest_id)
+            assert None not in [
+                file_props.size,
+                file_props.mtime,
+                file_props.md5,
+            ], f"File {file_props} is missing data"
             bkp_xml_src[filename] = file_props
 
         for entry in await bdsa.aquery_generator(BackupFile, BackupFile.visited != 0):

@@ -26,6 +26,8 @@ class RestoreFile:
         )
 
     def to_element(self) -> etree.Element:
+        if self.mtime is None:
+            raise ValueError("mtime is not set")
         file_element = etree.Element(
             "file",
             name=self.name,
@@ -44,7 +46,10 @@ class RestoreFile:
         name = element.get("name")
         size = int(element.get("size"))
         mtime_i = element.get("mtime")
-        mtime = int(mtime_i) if mtime_i != "None" else None
+        try:
+            mtime = int(mtime_i)
+        except ValueError:
+            print(f"mtime_i: {mtime_i}")
         md5 = element.get("md5")
         bkp_dests = {dest.text for dest in element.findall("bd")}
         return RestoreFile(
@@ -145,7 +150,7 @@ class RestoreContext:
         return root
 
     def to_xml_string(self) -> str:
-        return etree.tostring(self.to_element(), pretty_print=True, encoding="unicode")
+        return etree.tounicode(self.to_element(), pretty_print=True)
 
     @staticmethod
     def from_element(element: etree.Element) -> "RestoreContext":

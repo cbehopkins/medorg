@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import logging
 from csv import excel
 from os import PathLike, stat_result
@@ -14,14 +15,73 @@ from . import XML_NAME
 _log = logging.getLogger(__name__)
 
 
+class AsyncBkpXmlError(Exception):
+    """Custom exception for AsyncBkpXml errors."""
+
+
+class Counter:
+    def __init__(self, initial=0):
+        self._value = initial
+        self.lock = asyncio.Lock()
+        self._condition = asyncio.Condition()
+
+    async def increment(self):
+        async with self._condition:
+            async with self.lock:
+                self._value += 1
+                self._condition.notify_all()
+
+    async def decrement(self):
+        async with self._condition:
+            async with self.lock:
+                self._value -= 1
+                if self._value == 0:
+                    self._condition.notify_all()
+
+    async def wait_for_zero(self):
+        async with self._condition:
+            await self._condition.wait_for(lambda: self._value == 0)
+
+
 class AsyncBkpXml:
     def __init__(self, path: PathLike):
         self.path = AsyncPath(path)
         self.xml_path: AsyncPath = self.path / XML_NAME
         self.parser = etree.XMLParser(remove_blank_text=True)
-        self._files: dict[str, BkpFile] = {}
         self.root = None
         self.lock = asyncio.Lock()
+        self.schema = self._load_schema()
+        self.counter = Counter()
+
+    def _load_schema(self):
+        xsd_str = """
+        <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+  <xs:element name="dr">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="fr" minOccurs="0" maxOccurs="unbounded">
+          <xs:complexType>
+            <xs:sequence>
+              <xs:element name="bd" minOccurs="0"  maxOccurs="unbounded">
+                <xs:complexType>
+                  <xs:attribute name="id" type="xs:string" use="required"/>
+                </xs:complexType>
+              </xs:element>
+            </xs:sequence>
+            <xs:attribute name="fname" type="xs:string" use="required"/>
+            <xs:attribute name="mtime" type="xs:integer" use="required"/>
+            <xs:attribute name="size" type="xs:integer" use="required"/>
+            <xs:attribute name="checksum" type="xs:string" use="required"/>
+          </xs:complexType>
+        </xs:element>
+      </xs:sequence>
+      <xs:attribute name="dir" type="xs:string" use="optional"/>
+    </xs:complexType>
+  </xs:element>
+</xs:schema>
+        """
+        schema_root = etree.XML(xsd_str)
+        return etree.XMLSchema(schema_root)
 
     async def init_structs(self):
         async with self.lock:
@@ -54,28 +114,80 @@ class AsyncBkpXml:
         # The fast path MUST be to go: yeah, it's what we expect from the xml
         # so do not create any new structs
         if self.path != entry.parent:
-            _log.error(f"{self.path=}::{entry.parent=} werid path base")
+            _log.error(f"Path mismatch: expected {self.path}, got {entry.parent}")
         current_entry = self[entry.name]
-        # assert current_entry
         if not current_entry.md5 or not self._same_stats(current_entry, sr):
-            new_md5 = await async_calculate_md5(entry)
-            current_entry.size = sr.st_size
-            current_entry.mtime = int(sr.st_mtime)
-            current_entry.md5 = new_md5
-            self[entry.name] = current_entry
+            try:
+                await self.counter.increment()
+                new_md5 = await async_calculate_md5(entry)
+                current_entry.size = sr.st_size
+                current_entry.mtime = int(sr.st_mtime)
+                current_entry.md5 = new_md5
+                assert None not in [
+                    current_entry.md5,
+                    current_entry.size,
+                    current_entry.mtime,
+                ], "How????"
+                self[entry.name] = current_entry
+            except Exception as e:
+                _log.error(f"Failed to calculate MD5 for {entry}: {e}")
+                raise AsyncBkpXmlError(f"Failed to calculate MD5 for {entry}") from e
+            finally:
+                await self.counter.decrement()
+
+    async def visit_all(self):
+        # FIXME this is a bit of a hack
+        # But it's a way to make sure we have all the files in the XML
+        # and that they are up to date
+        async with self.lock:
+            if self.root is None:
+                raise RuntimeError("Root is None")
+        for file in self.root.findall(".//fr"):
+            with contextlib.suppress(KeyError):
+                if (
+                    file.attrib["mtime"]
+                    and file.attrib["size"]
+                    and file.attrib["checksum"]
+                ):
+                    continue
+            file_path = self.path / file.attrib["fname"]
+            if not await file_path.exists():
+                raise FileNotFoundError(
+                    f"File {file_path} is in AsyncBkpXML but not found"
+                )
+            await self.visit_file(file_path, await file_path.stat())
 
     async def _root_from_file_path(self):
-        # read in the file, then construct from string
-        result: str = await self.xml_path.read_text()
-        return self._root_from_string(result)
+        try:
+            result: str = await self.xml_path.read_text()
+            root = self._root_from_string(result)
+            self._validate_xml(root)
+            return root
+        except Exception as e:
+            # FIXME Improve this error handling to be finer grained
+            # Maybe? If we can't recover from this, we should just raise
+            _log.error(f"Failed to read XML from {self.xml_path}: {e}")
+            raise AsyncBkpXmlError(f"Failed to read XML from {self.xml_path}") from e
 
     def _root_from_string(self, xml_str: str):
-        tree = etree.fromstring(xml_str, self.parser)
-        assert tree is not None
-        return tree
+        try:
+            tree = etree.XML(xml_str, self.parser)
+            assert tree is not None
+            return tree
+        except etree.XMLSyntaxError as e:
+            _log.error(f"XML syntax error: {e}")
+        except Exception as e:
+            _log.error(f"Failed to parse XML string: {e}")
+        return etree.Element("dr")
+
+    def _validate_xml(self, root):
+        if not self.schema.validate(root):
+            log_msg = f"XML validation error: {self.schema.error_log}"
+            _log.error(log_msg)
+            raise AsyncBkpXmlError(log_msg)
 
     def __getitem__(self, key: str) -> BkpFile:
-        """Get a file object for the directory"""
+        """Get a file object requested file"""
         # FIXME before this is called we must have done all the io updates
         # and so this is just about doing self.root -> BkpFile conversion
         file_elem = self.root.find(f".//fr[@fname='{key}']")
@@ -99,7 +211,6 @@ class AsyncBkpXml:
     def _from_file_elem(self, file_elem, key) -> BkpFile:
         # FIXME move to use accessor methods from bkp_xml
         file_path = self.path / key
-
         return BkpFile.from_file_elem(file_elem, file_path)
 
     def remove_if_not_in_set(self, file_set: set[str]) -> None:
@@ -112,8 +223,16 @@ class AsyncBkpXml:
     async def commit(self) -> None:
         if self.root is None:
             raise SystemError("self.root should not be none. Puzzled...")
-        xml_data = etree.tostring(self.root, pretty_print=True, encoding="unicode")
-        await self.xml_path.write_text(xml_data)
+        try:
+            await self.counter.wait_for_zero()
+            await self.visit_all()
+            self._validate_xml(self.root)
+
+            xml_data = etree.tounicode(self.root, pretty_print=True)
+            await self.xml_path.write_text(xml_data)
+        except Exception as e:
+            _log.error(f"Failed to write XML to {self.xml_path}: {e}")
+            raise AsyncBkpXmlError(f"Failed to write XML to {self.xml_path}") from e
 
 
 class AsyncBkpXmlManager(dict[AsyncPath, AsyncBkpXml]):
@@ -132,4 +251,7 @@ class AsyncBkpXmlManager(dict[AsyncPath, AsyncBkpXml]):
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         # FIXME do this with a tasks gather
         for bkp_xml in self.values():
-            await bkp_xml.commit()
+            try:
+                await bkp_xml.commit()
+            except AsyncBkpXmlError as e:
+                _log.error(f"Failed to commit changes for {bkp_xml.path}: {e}")

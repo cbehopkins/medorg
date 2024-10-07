@@ -296,6 +296,7 @@ def list_files(pth: os.PathLike) -> list[str]:
 @pytest.mark.asyncio
 @mock.patch("medorg.cli.runners.async_copy_file")
 async def test_full_backup(mock_copy, tmp_path):
+    mock_copy.side_effect = shutil.copy2
     """For each visited file, do we correctly update the dest_id"""
     tmp_path = AsyncPath(tmp_path)
     tmp_src = tmp_path / "src"
@@ -330,7 +331,7 @@ async def test_full_backup(mock_copy, tmp_path):
     assert all(str(es) in src_reduction for es in expected_stuff)
     assert all(str(es) in dst_reduction for es in expected_stuff)
     # We have mocked the copy file
-    assert len(list_files(tmp_dst)) == 0
+    assert len(list_files(tmp_dst)) == 7
 
 
 @pytest.mark.asyncio
@@ -398,7 +399,7 @@ async def test_discovery(tmp_path):
         )
     # Check - has the xml been updated to include the dest_id
     root = etree.parse(tmp_src / XML_NAME).getroot()
-    file_elem = root.find(f".//fr[@fname='file1.txt']")
+    file_elem = root.find(".//fr[@fname='file1.txt']")
     file_elem[0].attrib["id"] == my_dest
 
     # Hacky bit, just grab the md5s:
@@ -431,7 +432,7 @@ async def test_discovery(tmp_path):
         await writeback_db_file_entries(db_session)
 
     root = etree.parse(tmp_src / XML_NAME).getroot()
-    file_elem = root.find(f".//fr[@fname='file1.txt']")
+    file_elem = root.find(".//fr[@fname='file1.txt']")
     # Here we look for, has the bkp xml been updated
     # To say the file is now backed up on two places
     assert len(file_elem) == 2
