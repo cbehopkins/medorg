@@ -117,23 +117,21 @@ class AsyncBkpXml:
             _log.error(f"Path mismatch: expected {self.path}, got {entry.parent}")
         current_entry = self[entry.name]
         if not current_entry.md5 or not self._same_stats(current_entry, sr):
+            await self.counter.increment()
             try:
-                await self.counter.increment()
                 new_md5 = await async_calculate_md5(entry)
-                current_entry.size = sr.st_size
-                current_entry.mtime = int(sr.st_mtime)
-                current_entry.md5 = new_md5
-                assert None not in [
-                    current_entry.md5,
-                    current_entry.size,
-                    current_entry.mtime,
-                ], "How????"
-                self[entry.name] = current_entry
             except Exception as e:
                 _log.error(f"Failed to calculate MD5 for {entry}: {e}")
                 raise AsyncBkpXmlError(f"Failed to calculate MD5 for {entry}") from e
-            finally:
-                await self.counter.decrement()
+            current_entry.size = sr.st_size
+            current_entry.mtime = int(sr.st_mtime)
+            current_entry.md5 = new_md5
+            assert None not in [
+                current_entry.md5,
+                current_entry.size,
+                current_entry.mtime,
+            ], "How????"
+            self[entry.name] = current_entry
 
     async def visit_all(self):
         # FIXME this is a bit of a hack
@@ -224,7 +222,6 @@ class AsyncBkpXml:
         if self.root is None:
             raise SystemError("self.root should not be none. Puzzled...")
         try:
-            await self.counter.wait_for_zero()
             await self.visit_all()
             self._validate_xml(self.root)
 

@@ -22,10 +22,10 @@ def cli():
 
 
 @cli.command()
-@click.argument("directory", type=click.Path(exists=True))
+@click.argument("directories", nargs=-1, type=click.Path(exists=True))
 @coro
-async def generate(directory: Path):
-    """Walk a directory tree and log each file found."""
+async def generate(directories: list[Path]):
+    """Walk multiple directory trees and log each file found."""
 
     async def my_walker(
         dir_: AsyncPath,
@@ -35,8 +35,9 @@ async def generate(directory: Path):
     ):
         _log.info(f"Processing {entry.name} in {dir_}")
 
-    walker = BackupXmlWalker(directory)
-    await walker.go_walk(walker=my_walker)
+    for directory in directories:
+        walker = BackupXmlWalker(directory)
+        await walker.go_walk(walker=my_walker)
 
 
 @cli.command()
