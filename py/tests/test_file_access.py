@@ -400,7 +400,7 @@ async def test_discovery(tmp_path):
     # Check - has the xml been updated to include the dest_id
     root = etree.parse(tmp_src / XML_NAME).getroot()
     file_elem = root.find(".//fr[@fname='file1.txt']")
-    file_elem[0].attrib["id"] == my_dest
+    file_elem[0].text == my_dest
 
     # Hacky bit, just grab the md5s:
     md5_map = {}
@@ -436,7 +436,7 @@ async def test_discovery(tmp_path):
     # Here we look for, has the bkp xml been updated
     # To say the file is now backed up on two places
     assert len(file_elem) == 2
-    destinations = {fe.attrib["id"] for fe in file_elem}
+    destinations = {fe.text for fe in file_elem}
     assert {my_dest, my_second_dest} == destinations
 
 

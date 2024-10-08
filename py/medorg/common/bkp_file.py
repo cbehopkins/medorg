@@ -4,6 +4,8 @@ from typing import Self
 
 from lxml import etree
 
+from medorg.common.types import Checksum, VolumeId
+
 from .checksum import calculate_md5
 
 
@@ -16,8 +18,8 @@ class BkpFile:
     file_path: Path = None
     size: int = None
     mtime: int = None
-    md5: str = ""
-    bkp_dests: set[str] = field(default_factory=set)
+    md5: Checksum = ""
+    bkp_dests: set[VolumeId] = field(default_factory=set)
 
     def update_file_elem(self, file_elem: etree.Element) -> Self:
         file_elem.set("fname", str(self.name))
@@ -34,7 +36,7 @@ class BkpFile:
         if self.bkp_dests:
             for backup_dest in self.bkp_dests:
                 bkp_elm = etree.SubElement(file_elem, "bd")
-                bkp_elm.set("id", backup_dest)
+                bkp_elm.text = backup_dest
         return self
 
     @classmethod
@@ -49,7 +51,7 @@ class BkpFile:
         existing_timestamp = int(existing_timestamp)
         existing_size = int(file_elem.get("size", -1))
         md5_hash = file_elem.get("checksum")
-        bkp_dests = {e.attrib["id"] for e in file_elem.xpath("bd[@id]")}
+        bkp_dests = {e.text for e in file_elem.xpath("bd")}
         assert None not in [
             existing_timestamp,
             existing_size,

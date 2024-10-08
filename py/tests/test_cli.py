@@ -150,7 +150,7 @@ def test_target_discovery(tmp_path: Path, example_files: TestFiles) -> None:
             if file.path.parts[-2] == subdir.name:
                 file_element = root.find(f"./fr[@fname='{file.path.name}']")
                 assert len(file_element) == 1
-                destinations = {fe.attrib["id"] for fe in file_element}
+                destinations = {fe.text for fe in file_element}
                 assert volume_id in destinations
 
 

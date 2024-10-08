@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import stat
 from typing import Awaitable, Callable, Optional
 
 from aiopath import AsyncPath
@@ -46,8 +47,10 @@ class BackupXmlWalker(AsyncBkpXmlManager):
     async def _walk_directory(self, callback: DirWalker):
         async def walk(current_path: AsyncPath):
 
-            # Asynchronously list all files and subdirectories using aiopath's rglob
-            entries = current_path.glob("*")
+            # Asynchronously list all files and subdirectories using aiopath's glob
+            entries = current_path.glob(
+                "*"
+            )  # We start the glob going, but don't use it yet
             bkp_xml = await self._create_xml(current_path)
 
             # Create a list to hold tasks for processing files
@@ -56,32 +59,37 @@ class BackupXmlWalker(AsyncBkpXmlManager):
             file_entries = []
             dir_entries = []
 
+            entry: AsyncPath
             async for entry in entries:
                 if entry.name == XML_NAME:
                     continue
-                stat_result_i = await entry.stat()
+                stat_result_i: os.stat_result = await entry.stat()
 
-                if await entry.is_file():
+                if stat.S_ISREG(stat_result_i.st_mode):
                     file_names.add(entry.name)
                     file_entries.append((entry, stat_result_i))
 
                     # If it's a file, start a new task to process it concurrently
                     task = bkp_xml.visit_file(entry, stat_result_i)
                     file_processing_tasks.append(task)
-                elif await entry.is_dir():
+                elif stat.S_ISDIR(stat_result_i.st_mode):
+                    if entry.name.startswith("."):
+                        # Skip hidden directories
+                        continue
                     dir_entries.append((entry, stat_result_i))
 
             # Now make sure that bkp_xml object is up to date before we...
             await asyncio.gather(*file_processing_tasks)
-            file_processing_tasks = []
-            bkp_xml.remove_if_not_in_set(file_names)
 
-            for entry, stat_result_i in file_entries:
-                task = callback(current_path, entry, stat_result_i, bkp_xml)
-                if task:
-                    file_processing_tasks.append(task)
+            file_processing_tasks.clear()
+            bkp_xml._remove_if_not_in_set(file_names)
+            if callback:
+                for entry, stat_result_i in file_entries:
+                    task = callback(current_path, entry, stat_result_i, bkp_xml)
+                    if task:
+                        file_processing_tasks.append(task)
 
-            for entry, stat_result_i in dir_entries:
+            for entry, _ in dir_entries:
                 file_processing_tasks.append(walk(entry))
 
             # Wait for all file processing tasks to complete

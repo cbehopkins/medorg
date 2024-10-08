@@ -1,10 +1,16 @@
 import base64
 import hashlib
+import os
 
 import aiofiles
 
+from medorg.common.types import Checksum
 
-def md5_generator():
+
+from typing import Generator
+
+
+def md5_generator() -> Generator[bytes, None, Checksum]:
     """Generator to update MD5 hash with received chunks."""
     hash_md5 = hashlib.md5()
     chunk = yield
@@ -15,7 +21,7 @@ def md5_generator():
     return tmp[:22] if len(tmp) == 24 and tmp[22:24] == b"==" else tmp
 
 
-def calculate_md5(file_path):
+def calculate_md5(file_path) -> Checksum:
     """Calculate MD5 hash for a given file."""
     gen = md5_generator()
     next(gen)  # Initialize the generator
@@ -27,7 +33,8 @@ def calculate_md5(file_path):
     except StopIteration as e:
         return e.value
 
-async def async_calculate_md5(file_path):
+
+async def async_calculate_md5(file_path: os.PathLike) -> Checksum:
     gen = md5_generator()
     next(gen)  # Initialize the generator
     async with aiofiles.open(file_path, "rb") as file:

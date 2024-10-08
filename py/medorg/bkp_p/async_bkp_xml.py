@@ -1,7 +1,6 @@
 import asyncio
 import contextlib
 import logging
-from csv import excel
 from os import PathLike, stat_result
 
 from aiopath import AsyncPath
@@ -9,7 +8,7 @@ from lxml import etree
 
 from medorg.common.bkp_file import BkpFile
 from medorg.common.checksum import async_calculate_md5
-
+from xml.sax.saxutils import escape
 from . import XML_NAME
 
 _log = logging.getLogger(__name__)
@@ -51,34 +50,46 @@ class AsyncBkpXml:
         self.root = None
         self.lock = asyncio.Lock()
         self.schema = self._load_schema()
-        self.counter = Counter()
 
     def _load_schema(self):
         xsd_str = """
-        <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
-  <xs:element name="dr">
-    <xs:complexType>
-      <xs:sequence>
-        <xs:element name="fr" minOccurs="0" maxOccurs="unbounded">
-          <xs:complexType>
+    <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+        <!-- Define a complex type for the bd element -->
+        <xs:complexType name="bdType" mixed="true">
+            <xs:simpleContent>
+                <xs:extension base="xs:string"/>
+            </xs:simpleContent>
+        </xs:complexType>
+
+        <!-- Define a complex type for the tag element -->
+        <xs:complexType name="tagType" mixed="true">
+            <xs:simpleContent>
+                <xs:extension base="xs:string"/>
+            </xs:simpleContent>
+        </xs:complexType>
+
+        <!-- Define a complex type for the fr element -->
+        <xs:complexType name="frType">
             <xs:sequence>
-              <xs:element name="bd" minOccurs="0"  maxOccurs="unbounded">
-                <xs:complexType>
-                  <xs:attribute name="id" type="xs:string" use="required"/>
-                </xs:complexType>
-              </xs:element>
+                <xs:element name="bd" type="bdType" minOccurs="0" maxOccurs="unbounded"/>
+                <xs:element name="tag" type="tagType" minOccurs="0" maxOccurs="unbounded"/>
             </xs:sequence>
             <xs:attribute name="fname" type="xs:string" use="required"/>
             <xs:attribute name="mtime" type="xs:integer" use="required"/>
             <xs:attribute name="size" type="xs:integer" use="required"/>
             <xs:attribute name="checksum" type="xs:string" use="required"/>
-          </xs:complexType>
+        </xs:complexType>
+
+        <!-- Define the root element dr -->
+        <xs:element name="dr">
+            <xs:complexType>
+                <xs:sequence>
+                    <xs:element name="fr" type="frType" minOccurs="0" maxOccurs="unbounded"/>
+                </xs:sequence>
+                <xs:attribute name="dir" type="xs:string" use="optional"/>
+            </xs:complexType>
         </xs:element>
-      </xs:sequence>
-      <xs:attribute name="dir" type="xs:string" use="optional"/>
-    </xs:complexType>
-  </xs:element>
-</xs:schema>
+    </xs:schema>
         """
         schema_root = etree.XML(xsd_str)
         return etree.XMLSchema(schema_root)
@@ -117,7 +128,6 @@ class AsyncBkpXml:
             _log.error(f"Path mismatch: expected {self.path}, got {entry.parent}")
         current_entry = self[entry.name]
         if not current_entry.md5 or not self._same_stats(current_entry, sr):
-            await self.counter.increment()
             try:
                 new_md5 = await async_calculate_md5(entry)
             except Exception as e:
@@ -126,11 +136,6 @@ class AsyncBkpXml:
             current_entry.size = sr.st_size
             current_entry.mtime = int(sr.st_mtime)
             current_entry.md5 = new_md5
-            assert None not in [
-                current_entry.md5,
-                current_entry.size,
-                current_entry.mtime,
-            ], "How????"
             self[entry.name] = current_entry
 
     async def visit_all(self):
@@ -184,11 +189,24 @@ class AsyncBkpXml:
             _log.error(log_msg)
             raise AsyncBkpXmlError(log_msg)
 
+    def _lkup_elem(self, key: str) -> etree.Element:
+        escaped_key = escape(key)
+        if "'" in escaped_key and '"' in escaped_key:
+            # Replace single quotes with &apos; and use double quotes around the attribute value
+            escaped_key = escaped_key.replace("'", "&apos;")
+            return self.root.find(f'.//fr[@fname="{escaped_key}"]')
+        if "'" in escaped_key:
+            # Use double quotes around the attribute value
+            return self.root.find(f'.//fr[@fname="{escaped_key}"]')
+
+        # Use single quotes around the attribute value
+        return self.root.find(f".//fr[@fname='{escaped_key}']")
+
     def __getitem__(self, key: str) -> BkpFile:
         """Get a file object requested file"""
         # FIXME before this is called we must have done all the io updates
         # and so this is just about doing self.root -> BkpFile conversion
-        file_elem = self.root.find(f".//fr[@fname='{key}']")
+        file_elem = self._lkup_elem(key)
         if file_elem is None:
             return BkpFile(
                 name=key,
@@ -196,22 +214,18 @@ class AsyncBkpXml:
                 size=None,
                 mtime=None,
             )
-        return self._from_file_elem(file_elem, key)
+        file_path = self.path / key
+        return BkpFile.from_file_elem(file_elem, file_path)
 
     def __setitem__(self, key: str, value: BkpFile) -> None:
         # This should only be about setting self.root <- BkpFile conversion
         assert self.root is not None
-        file_elem = self.root.find(f".//fr[@fname='{key}']")
+        file_elem = self._lkup_elem(key)
         if file_elem is None:
             file_elem = etree.SubElement(self.root, "fr")
         value.update_file_elem(file_elem)
 
-    def _from_file_elem(self, file_elem, key) -> BkpFile:
-        # FIXME move to use accessor methods from bkp_xml
-        file_path = self.path / key
-        return BkpFile.from_file_elem(file_elem, file_path)
-
-    def remove_if_not_in_set(self, file_set: set[str]) -> None:
+    def _remove_if_not_in_set(self, file_set: set[str]) -> None:
         file: etree.Element
         for file in self.root.findall(".//fr"):
             name = file.attrib["fname"]

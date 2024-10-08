@@ -1,11 +1,10 @@
 import typing
-from typing import Any, Protocol
-
 from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Table
 from sqlalchemy.ext.asyncio import AsyncAttrs
 from sqlalchemy.orm import DeclarativeBase, declarative_base, relationship
 
 VolumeId = str
+Checksum = str
 
 DatabaseBase = typing.Type[declarative_base]
 # Base: DatabaseBase = declarative_base()
