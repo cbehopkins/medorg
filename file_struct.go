@@ -18,9 +18,8 @@ type FileStruct struct {
 
 	Mtime      int64    `xml:"mtime,attr,omitempty"`
 	Size       int64    `xml:"size,attr,omitempty"`
-	Analysed   int64    `xml:"analysed,omitempty"`
-	Tags       []string `xml:"tags,omitempty"`
-	ArchivedAt []string `xml:"ArchivedAt,omitempty"`
+	Tags       []string `xml:"tag,omitempty"`
+	ArchivedAt []string `xml:"bd,omitempty"`
 }
 
 // FileStructArray declares an array of filestructs, explicitly for sorting

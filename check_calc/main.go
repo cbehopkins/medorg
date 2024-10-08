@@ -26,7 +26,7 @@ func isDir(fn string) bool {
 func main() {
 	var directories []string
 
-	var scrubflg = flag.Bool("scrub", false, "Scrub all backup labels from src records")
+	var scrubflg = flag.Bool("scrub", false, "Scruball backup labels from src records")
 
 	var calcCnt = flag.Int("calc", 2, "Max Number of MD5 calculators")
 	var delflg = flag.Bool("delete", false, "Delete duplicated Files")

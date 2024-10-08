@@ -91,6 +91,9 @@ func NewDirTracker(dir string, newEntry func(string) (DirectoryTrackerInterface,
 		}
 		dt.wg.Wait()
 		if dt.Total() != dt.Value() {
+			// FIXME I'm not sure panic is correct here
+			// If the file system changes while we are walking, we may not get the correct count
+			// Helpful for debugging though
 			panic("hadn't actually finished")
 		}
 		dt.finished.Set()
@@ -122,7 +125,7 @@ func (dt *DirTracker) Finished() bool {
 	return dt.finished.Get()
 }
 
-// Finished - have we finished yet?
+// Finished Channel - have we finished yet?
 func (dt *DirTracker) FinishedChan() <-chan struct{} {
 	return dt.finished.fc
 }
@@ -136,6 +139,7 @@ func (dt *DirTracker) runChild(de DirectoryTrackerInterface) {
 	}
 	dt.wg.Done()
 }
+// serviceChild - copy errors from the child to the parent
 func (dt *DirTracker) serviceChild(de DirectoryTrackerInterface) {
 	for err := range de.ErrChan() {
 		if err != nil {
@@ -145,8 +149,8 @@ func (dt *DirTracker) serviceChild(de DirectoryTrackerInterface) {
 	dt.wg.Done()
 }
 
-// Should we export this?
-// so that clients can not have to recreate them
+// getDirectoryEntry - get a directory entry
+// If it doesn't exist, create it
 func (dt *DirTracker) getDirectoryEntry(path string) (DirectoryTrackerInterface, error) {
 	// Fast path - does it already exist? If so, use it!
 	de, ok := dt.dm[path]
@@ -165,15 +169,19 @@ func (dt *DirTracker) getDirectoryEntry(path string) (DirectoryTrackerInterface,
 	go dt.serviceChild(de)
 	return de, nil
 }
-
+// populateDircount - populate the directory count
+// i.e. how many directories we have to visit
 func (dt *DirTracker) populateDircount(dir string) {
 	defer dt.wg.Done()
 	err := filepath.WalkDir(dir, dt.directoryWalkerPopulateDircount)
 	if err != nil {
+		// FIXME Question: I did eveything else on this with atomics - is this correct?
 		dt.directoryCountTotal = -1
 		return
 	}
 }
+
+
 func (dt *DirTracker) directoryWalkerPopulateDircount(path string, d fs.DirEntry, err error) error {
 	if err != nil {
 		return err
@@ -199,7 +207,7 @@ func (dt *DirTracker) directoryWalker(path string, d fs.DirEntry, err error) err
 		if isHiddenDirectory(path) {
 			return filepath.SkipDir
 		}
-		log.Println("visiting dir", path, dt.Value())
+		log.Println("visiting dir", path, dt.Value(), "of", dt.Total())
 		atomic.AddInt64(&dt.directoryCountVisited, 1)
 		closerFunc := func(pt string) {
 			// FIXME we will want this back when we are not revisiting
@@ -233,6 +241,7 @@ func (dt *DirTracker) directoryWalker(path string, d fs.DirEntry, err error) err
 		dir = dir[:len(dir)-1]
 	}
 
+	// Grab an IO token
 	<-dt.tokenChan
 	callback := func() {
 		dt.tokenChan <- struct{}{}
