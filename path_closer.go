@@ -6,6 +6,8 @@ import (
 	"sync"
 )
 
+// lastPath is a struct that holds the last path we visited
+// It is used to determine if we have gone out of scope
 type lastPath struct {
 	sync.Mutex
 	path string

@@ -9,6 +9,10 @@ import (
 
 var errMvdQueryFailed = errors.New("query failed")
 
+// moveKey is the key for the move detect map
+// We're looking for a file with the same name and size
+// just in a different location
+// This saves us re-calculating the checksum
 type moveKey struct {
 	size int64
 	name string
@@ -95,6 +99,9 @@ func (mvd *moveDetect) runMoveDetectFindNew(directory string) error {
 }
 
 // RunMoveDetect the move detect on specified directories
+// First get the properties for any files that have been deleted
+// Then a second pass to see if new files with matching
+// properties have been added
 func RunMoveDetect(dirs []string) error {
 	var mvd moveDetect
 	for _, dir := range dirs {
