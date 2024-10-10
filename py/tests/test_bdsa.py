@@ -153,7 +153,7 @@ async def test_query_missing_dest(tmp_path):
     await db_handler.create_session()
     my_dest = "some string"
     async with db_handler.session_scope() as db_session:
-        db_session.add_dest(my_dest)
+        await db_session.add_dest(my_dest)
         await add_file(db_session, "file1", my_dest)
         await add_file(db_session, "file2", my_dest)
         await add_file(db_session, "file3")

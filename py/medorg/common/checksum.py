@@ -1,13 +1,11 @@
 import base64
 import hashlib
 import os
+from typing import Generator
 
 import aiofiles
 
 from medorg.common.types import Checksum
-
-
-from typing import Generator
 
 
 def md5_generator() -> Generator[bytes, None, Checksum]:

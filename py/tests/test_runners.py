@@ -61,4 +61,4 @@ async def test_generate_src_dest_full_paths(
         assert src_file_path == src_path / expected_src
         assert dest_file_path == dest_path / expected_dest
         assert src_file_path.is_absolute()
-        assert src_file_path.is_file()
+        assert await src_file_path.is_file()

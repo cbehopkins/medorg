@@ -387,7 +387,7 @@ async def test_discovery(tmp_path):
 
     my_dest = "some first destination"
     async with db_handler.session_scope() as db_session:
-        db_session.add_src_dir(tmp_src)
+        await db_session.add_src_dir(tmp_src)
         # Given a file setup that has been marked as backed up already
         await create_update_db_file_entries(db_session, tmp_src)
         # just mark every file as backed up to my_dest

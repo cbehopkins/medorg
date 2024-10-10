@@ -1,6 +1,7 @@
 # Stolen from https://github.com/pallets/click/issues/85
 import asyncio
 from functools import wraps
+
 try:
     import importlib.metadata as importlib_metadata
 except ImportError:

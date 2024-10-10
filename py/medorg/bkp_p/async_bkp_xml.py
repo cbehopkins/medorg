@@ -1,14 +1,16 @@
 import asyncio
 import contextlib
 import logging
+import stat
 from os import PathLike, stat_result
+from xml.sax.saxutils import escape
 
 from aiopath import AsyncPath
 from lxml import etree
 
 from medorg.common.bkp_file import BkpFile
 from medorg.common.checksum import async_calculate_md5
-from xml.sax.saxutils import escape
+
 from . import XML_NAME
 
 _log = logging.getLogger(__name__)
@@ -41,18 +43,7 @@ class Counter:
         async with self._condition:
             await self._condition.wait_for(lambda: self._value == 0)
 
-
-class AsyncBkpXml:
-    def __init__(self, path: PathLike):
-        self.path = AsyncPath(path)
-        self.xml_path: AsyncPath = self.path / XML_NAME
-        self.parser = etree.XMLParser(remove_blank_text=True)
-        self.root = None
-        self.lock = asyncio.Lock()
-        self.schema = self._load_schema()
-
-    def _load_schema(self):
-        xsd_str = """
+BKP_XML_SCHEMA = """
     <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
         <!-- Define a complex type for the bd element -->
         <xs:complexType name="bdType" mixed="true">
@@ -91,8 +82,16 @@ class AsyncBkpXml:
         </xs:element>
     </xs:schema>
         """
-        schema_root = etree.XML(xsd_str)
-        return etree.XMLSchema(schema_root)
+
+
+class AsyncBkpXml:
+    def __init__(self, path: PathLike):
+        self.path = AsyncPath(path)
+        self.xml_path: AsyncPath = self.path / XML_NAME
+        self.parser = etree.XMLParser(remove_blank_text=True)
+        self.root = None
+        self.lock = asyncio.Lock()
+        self.schema = etree.XMLSchema(etree.XML(BKP_XML_SCHEMA))
 
     async def init_structs(self):
         async with self.lock:
@@ -106,7 +105,6 @@ class AsyncBkpXml:
                 self.root = await self._root_from_file_path()
             else:
                 self.root = etree.Element("dr")
-                assert self.root is not None
 
     @staticmethod
     def _same_stats(cand: BkpFile, sr: stat_result):
@@ -138,13 +136,26 @@ class AsyncBkpXml:
             current_entry.md5 = new_md5
             self[entry.name] = current_entry
 
+    async def _populate_file(self, file_path: AsyncPath):
+        """Task template to populate the file contents
+
+        Args:
+            file_path (AsyncPath): Path to populate
+
+        Raises:
+            FileNotFoundError: Asked to populate a file that doesn't exist
+        """
+        file_stats = await file_path.stat()
+        if not stat.S_ISREG(file_stats.st_mode):
+            raise FileNotFoundError(f"File {file_path} is in AsyncBkpXML but not found")
+        await self.visit_file(file_path, file_stats)
+
     async def visit_all(self):
-        # FIXME this is a bit of a hack
-        # But it's a way to make sure we have all the files in the XML
-        # and that they are up to date
         async with self.lock:
             if self.root is None:
                 raise RuntimeError("Root is None")
+
+        tasks = []
         for file in self.root.findall(".//fr"):
             with contextlib.suppress(KeyError):
                 if (
@@ -154,11 +165,8 @@ class AsyncBkpXml:
                 ):
                     continue
             file_path = self.path / file.attrib["fname"]
-            if not await file_path.exists():
-                raise FileNotFoundError(
-                    f"File {file_path} is in AsyncBkpXML but not found"
-                )
-            await self.visit_file(file_path, await file_path.stat())
+            tasks.append(self._populate_file(file_path))
+        await asyncio.gather(*tasks)
 
     async def _root_from_file_path(self):
         try:
@@ -167,10 +175,8 @@ class AsyncBkpXml:
             self._validate_xml(root)
             return root
         except Exception as e:
-            # FIXME Improve this error handling to be finer grained
-            # Maybe? If we can't recover from this, we should just raise
             _log.error(f"Failed to read XML from {self.xml_path}: {e}")
-            raise AsyncBkpXmlError(f"Failed to read XML from {self.xml_path}") from e
+            return etree.Element("dr")
 
     def _root_from_string(self, xml_str: str):
         try:
@@ -233,8 +239,6 @@ class AsyncBkpXml:
                 file.getparent().remove(file)
 
     async def commit(self) -> None:
-        if self.root is None:
-            raise SystemError("self.root should not be none. Puzzled...")
         try:
             await self.visit_all()
             self._validate_xml(self.root)
