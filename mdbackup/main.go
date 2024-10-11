@@ -126,7 +126,7 @@ func runStats(pool *pb.Pool, messageBar *pb.ProgressBar, directories []string) {
 		totalArray[i] = 0
 	}
 	visitFunc := func(dm medorg.DirectoryMap, dir, fn string, d fs.DirEntry, fileStruct medorg.FileStruct, fileInfo fs.FileInfo) error {
-		lenArchive := len(fileStruct.ArchivedAt)
+		lenArchive := len(fileStruct.BackupDest)
 		lenNeedesAdding := (lenArchive + 1) - len(totalArray)
 
 		if lenNeedesAdding > 0 {

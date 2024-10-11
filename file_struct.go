@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 )
-
+var ErrRecalced = errors.New("File checksum has been recalculated")
 // FileStruct contains all the properties associated with a file
 type FileStruct struct {
 	XMLName   struct{} `xml:"fr"`
@@ -19,7 +19,7 @@ type FileStruct struct {
 	Mtime      int64    `xml:"mtime,attr,omitempty"`
 	Size       int64    `xml:"size,attr,omitempty"`
 	Tags       []string `xml:"tag,omitempty"`
-	ArchivedAt []string `xml:"bd,omitempty"`
+	BackupDest []string `xml:"bd,omitempty"`
 }
 
 // FileStructArray declares an array of filestructs, explicitly for sorting
@@ -97,13 +97,13 @@ func (fs *FileStruct) FromStat(directory string, fn string, fsi os.FileInfo) (Fi
 	fs.Mtime = fsi.ModTime().Unix()
 	fs.Size = fsi.Size()
 	fs.Checksum = ""
-	fs.ArchivedAt = []string{}
+	fs.BackupDest = []string{}
 	fs.directory = directory
 	return *fs, nil
 }
 
 func (fs FileStruct) indexTag(tag string) int {
-	for i, v := range fs.ArchivedAt {
+	for i, v := range fs.BackupDest {
 		if v == tag {
 			return i
 		}
@@ -121,7 +121,7 @@ func (fs *FileStruct) AddTag(tag string) bool {
 	if fs.HasTag(tag) {
 		return false
 	}
-	fs.ArchivedAt = append(fs.ArchivedAt, tag)
+	fs.BackupDest = append(fs.BackupDest, tag)
 	return true
 }
 
@@ -132,8 +132,8 @@ func (fs *FileStruct) RemoveTag(tag string) bool {
 		return false
 	}
 	// Order is not important, so swap interesting element to the end and remove
-	fs.ArchivedAt[len(fs.ArchivedAt)-1], fs.ArchivedAt[index] = fs.ArchivedAt[index], fs.ArchivedAt[len(fs.ArchivedAt)-1]
-	fs.ArchivedAt = fs.ArchivedAt[:len(fs.ArchivedAt)-1]
+	fs.BackupDest[len(fs.BackupDest)-1], fs.BackupDest[index] = fs.BackupDest[index], fs.BackupDest[len(fs.BackupDest)-1]
+	fs.BackupDest = fs.BackupDest[:len(fs.BackupDest)-1]
 	return true
 }
 
@@ -150,13 +150,11 @@ func (fs FileStruct) Changed(info fs.FileInfo) (bool, error) {
 	}
 	return false, nil
 }
-
 // UpdateChecksum makes the tea
 func (fs *FileStruct) UpdateChecksum(forceUpdate bool) error {
 	if !forceUpdate && (fs.Checksum != "") {
 		return nil
 	}
-	// FIXME we need a compute token for this
 	cks, err := CalcMd5File(fs.directory, fs.Name)
 	if err != nil {
 		return err
@@ -166,6 +164,20 @@ func (fs *FileStruct) UpdateChecksum(forceUpdate bool) error {
 	}
 	fs.Checksum = cks
 	// If we've had to update the checksum, then any existing backups are invalid
-	fs.ArchivedAt = []string{}
+	fs.BackupDest = []string{}
 	return nil
+}
+// ValidateChecksum checks if the checksum is correct
+func (fs *FileStruct) ValidateChecksum() error {
+	cks, err := CalcMd5File(fs.directory, fs.Name)
+	if err != nil {
+		return err
+	}
+	if fs.Checksum == cks {
+		return nil
+	}
+	fs.Checksum = cks
+	// If we've had to update the checksum, then any existing backups are invalid
+	fs.BackupDest = []string{}
+	return ErrRecalced
 }

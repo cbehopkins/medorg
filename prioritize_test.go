@@ -130,7 +130,7 @@ func TestPrioritize(t *testing.T) {
 					Name:       "another_file.mp3",
 					Checksum:   "ghijk",
 					Size:       123,
-					ArchivedAt: []string{"bob"},
+					BackupDest: []string{"bob"},
 				}},
 			expectedOrder: []int{0, 1}},
 		tc{
@@ -141,7 +141,7 @@ func TestPrioritize(t *testing.T) {
 					Name:       "some_file.mp3",
 					Checksum:   "abcdef",
 					Size:       123,
-					ArchivedAt: []string{"bob"},
+					BackupDest: []string{"bob"},
 				}, {
 					directory: "here",
 					Name:      "another_file.mp3",
@@ -167,13 +167,13 @@ func TestPrioritize(t *testing.T) {
 					Name:       "small_backed.mp3",
 					Checksum:   "ghijk",
 					Size:       123,
-					ArchivedAt: []string{"bob"},
+					BackupDest: []string{"bob"},
 				}, {
 					directory:  "here",
 					Name:       "larger_backed.mp3",
 					Checksum:   "ghijk",
 					Size:       321,
-					ArchivedAt: []string{"bob"},
+					BackupDest: []string{"bob"},
 				}},
 			expectedOrder: []int{1, 0, 3, 2}},
 		tc{
@@ -184,7 +184,7 @@ func TestPrioritize(t *testing.T) {
 					Name:       "small_backed.mp3",
 					Checksum:   "ghijk",
 					Size:       123,
-					ArchivedAt: []string{"bob"},
+					BackupDest: []string{"bob"},
 				}, {
 					directory: "here",
 					Name:      "small_file_not_backed.mp3",
@@ -200,7 +200,7 @@ func TestPrioritize(t *testing.T) {
 					Name:       "larger_backed.mp3",
 					Checksum:   "ghijk",
 					Size:       321,
-					ArchivedAt: []string{"bob"},
+					BackupDest: []string{"bob"},
 				}},
 			expectedOrder: []int{2, 1, 3, 0}},
 		tc{
@@ -211,7 +211,7 @@ func TestPrioritize(t *testing.T) {
 					Name:       "small_backed.mp3",
 					Checksum:   "ghijk",
 					Size:       123,
-					ArchivedAt: []string{"bob"},
+					BackupDest: []string{"bob"},
 				}, {
 					directory: "here",
 					Name:      "small_file_not_backed.mp3",
@@ -227,19 +227,19 @@ func TestPrioritize(t *testing.T) {
 					Name:       "missing.mp3",
 					Checksum:   "ghijk",
 					Size:       512,
-					ArchivedAt: []string{"labby"},
+					BackupDest: []string{"labby"},
 				}, {
 					directory:  "here",
 					Name:       "missing_again.mp3",
 					Checksum:   "ghijk",
 					Size:       512,
-					ArchivedAt: []string{"bob", "labby"},
+					BackupDest: []string{"bob", "labby"},
 				}, {
 					directory:  "here",
 					Name:       "larger_backed.mp3",
 					Checksum:   "ghijk",
 					Size:       321,
-					ArchivedAt: []string{"bob"},
+					BackupDest: []string{"bob"},
 				}},
 			expectedOrder: []int{2, 1, 5, 0}},
 	}

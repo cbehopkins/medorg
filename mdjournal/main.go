@@ -88,7 +88,7 @@ func main() {
 	}
 	defer fh.Close()
 	for _, dir := range directories {
-		errChan := medorg.NewDirTracker(dir, makerFunc).ErrChan()
+		errChan := medorg.NewDirTracker(false, dir, makerFunc).ErrChan()
 		for err := range errChan {
 			fmt.Println("Error received while walking:", dir, err)
 			os.Exit(2)

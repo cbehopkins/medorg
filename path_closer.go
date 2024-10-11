@@ -61,7 +61,7 @@ func (p *lastPath) Closer(path string, closerFunc func(string)) error {
 	if err != nil {
 		return err
 	}
-	if cl {
+	if cl && closerFunc != nil {
 		closerFunc(prevPath)
 	}
 	return nil

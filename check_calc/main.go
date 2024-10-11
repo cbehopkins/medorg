@@ -12,16 +12,11 @@ import (
 )
 
 func isDir(fn string) bool {
-	stat, err := os.Stat(fn)
-	if os.IsNotExist(err) {
-		return false
-	}
-	if os.IsExist(err) || err == nil {
-		if stat.IsDir() {
-			return true
-		}
-	}
-	return false
+    stat, err := os.Stat(fn)
+    if err != nil {
+        return false
+    }
+    return stat.IsDir()
 }
 func main() {
 	var directories []string
@@ -33,6 +28,7 @@ func main() {
 	var mvdflg = flag.Bool("mvd", false, "Move Detect")
 	var rnmflg = flag.Bool("rename", false, "Auto Rename Files")
 	var rclflg = flag.Bool("recalc", false, "Recalculate all checksums")
+	var valflg = flag.Bool("validate", false, "Validate all checksums")
 
 	var conflg = flag.Bool("conc", false, "Concentrate files together in same directory")
 	flag.Parse()
@@ -96,10 +92,20 @@ func main() {
 			}
 
 			if *scrubflg {
-				if len(fs.ArchivedAt) > 0 {
+				if len(fs.BackupDest) > 0 {
 					changed = true
-					fs.ArchivedAt = []string{}
+					fs.BackupDest = []string{}
 				}
+			}
+			if *valflg {
+				<-tokenBuffer
+				defer func() { tokenBuffer <- struct{}{} }()
+				err = fs.ValidateChecksum()
+				if errors.Is(err, medorg.ErrRecalced) {
+					fmt.Println("Had to recalculate a checksum", fs.Name)
+					return nil
+				}
+				return err
 			}
 
 			if !(changed || *rclflg || fs.Checksum == "") {
@@ -154,7 +160,7 @@ func main() {
 		if *conflg {
 			con = &medorg.Concentrator{BaseDir: dir}
 		}
-		errChan := medorg.NewDirTracker(dir, makerFunc).ErrChan()
+		errChan := medorg.NewDirTracker(false, dir, makerFunc).ErrChan()
 
 		for err := range errChan {
 			fmt.Println("Error received while walking:", dir, err)
