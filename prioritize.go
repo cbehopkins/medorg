@@ -5,7 +5,7 @@ import "sort"
 func prioritizeFiles(candidates []FileStruct, label string) []FileStruct {
 	filterFunc := func(can FileStruct) bool {
 		// If the file is already backed up at the provided label
-		for _, target := range can.ArchivedAt {
+		for _, target := range can.BackupDest {
 			if target == label {
 				return false
 			}
@@ -27,7 +27,7 @@ func prioritizeFiles(candidates []FileStruct, label string) []FileStruct {
 		return newCands[i].Size > newCands[j].Size
 	})
 	sort.Slice(newCands, func(i, j int) bool {
-		return len(newCands[i].ArchivedAt) < len(newCands[j].ArchivedAt)
+		return len(newCands[i].BackupDest) < len(newCands[j].BackupDest)
 	})
 	return newCands
 }

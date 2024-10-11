@@ -15,7 +15,7 @@ func TestFileStructXMLRead(t *testing.T) {
 <fr fname="example.txt" checksum="1234567890abcdef" mtime="1625097600" size="1024">
   <tag>tag1</tag>
   <tag>tag2</tag>
-  <bd>2021-07-01T12:00:00Z</bd>
+  <bd>some place</bd>
 </fr>`
 
     // Create a temporary directory
@@ -51,7 +51,7 @@ func TestFileStructXMLRead(t *testing.T) {
         Mtime:     1625097600,
         Size:      1024,
         Tags:      []string{"tag1", "tag2"},
-        ArchivedAt: []string{"some place"},
+        BackupDest: []string{"some place"},
     }
 
     // Compare the deserialized FileStruct with the expected values
@@ -60,7 +60,7 @@ func TestFileStructXMLRead(t *testing.T) {
         fs.Mtime != expected.Mtime ||
         fs.Size != expected.Size ||
         len(fs.Tags) != len(expected.Tags) ||
-        len(fs.ArchivedAt) != len(expected.ArchivedAt) {
+        len(fs.BackupDest) != len(expected.BackupDest) {
         t.Fatalf("Deserialized FileStruct does not match expected values")
     }
 
@@ -70,9 +70,9 @@ func TestFileStructXMLRead(t *testing.T) {
         }
     }
 
-    for i, archivedAt := range fs.ArchivedAt {
-        if archivedAt != expected.ArchivedAt[i] {
-            t.Fatalf("Deserialized FileStruct ArchivedAt does not match expected values")
+    for i, archivedAt := range fs.BackupDest {
+        if archivedAt != expected.BackupDest[i] {
+            t.Fatalf("Deserialized FileStruct Backup Dest does not match expected values")
         }
     }
 }

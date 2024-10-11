@@ -100,7 +100,7 @@ func TestVisitFilesInDirectory1(t *testing.T) {
 			expectedVisitCount := moveDetectDirCreationCount(ts[0], ts[1], ts[2])
 
 			registerFunc := func(dt *DirTracker) {
-				log.Println("Visiting Dit")
+				log.Println("Registering  Dirtracker error handler start")
 			}
 			someVisitFunc := func(dm DirectoryMap, dir, fn string, d fs.DirEntry, fileStruct FileStruct, fileInfo fs.FileInfo) error {
 				log.Println("Visit 0", dir, fn)

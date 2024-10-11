@@ -108,7 +108,7 @@ func checkTestDirectoryChecksums(dir string) error {
 		}
 		return NewDirectoryEntry(dir, mkFk)
 	}
-	errChan := NewDirTracker(dir, makerFunc).ErrChan()
+	errChan := NewDirTracker(false, dir, makerFunc).ErrChan()
 	for err := range errChan {
 		for range errChan {
 		}

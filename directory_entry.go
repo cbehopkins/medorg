@@ -37,7 +37,7 @@ type DirectoryEntryJournalableInterface interface {
 type EntryMaker func(string) (DirectoryEntryInterface, error)
 
 // DirectoryEntry represents a single directory
-// Upon creation it will open the appropriate direxctory's (md5)
+// Upon creation it will open the appropriate directory's (md5)
 // xml file, and when requested, close it again
 // We are also able to send it files to work
 type DirectoryEntry struct {

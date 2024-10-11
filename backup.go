@@ -200,7 +200,7 @@ func extractCopyFiles(srcDir string, dt *DirTracker, volumeName string, register
 			return nil
 		}
 		fp := NewFpath(dir, fn)
-		lenArchive := len(fileStruct.ArchivedAt)
+		lenArchive := len(fileStruct.BackupDest)
 		if lenArchive > maxNumBackups {
 			return nil
 		}

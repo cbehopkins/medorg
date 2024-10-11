@@ -50,6 +50,7 @@ type DirTracker struct {
 	tokenChan chan struct{}
 	wg        *sync.WaitGroup
 	errChan   chan error
+	preserveStructs bool
 
 	finished finishedB
 }
@@ -70,7 +71,7 @@ const NumTrackerOutstanding = 4
 // That new entry will then have its visitor called for each file in that directory
 // At some later time, we will then close the directory
 // There are no guaranetees about when this will happen
-func NewDirTracker(dir string, newEntry func(string) (DirectoryTrackerInterface, error)) *DirTracker {
+func NewDirTracker(preserveStructs bool, dir string, newEntry func(string) (DirectoryTrackerInterface, error)) *DirTracker {
 	numOutsanding := NumTrackerOutstanding // FIXME expose this
 	var dt DirTracker
 	dt.dm = make(map[string]DirectoryTrackerInterface)
@@ -80,6 +81,7 @@ func NewDirTracker(dir string, newEntry func(string) (DirectoryTrackerInterface,
 	dt.errChan = make(chan error)
 	dt.wg.Add(1) // add one for populateDircount
 	dt.finished.Clear()
+	dt.preserveStructs = preserveStructs
 	go dt.populateDircount(dir)
 	go func() {
 		err := filepath.WalkDir(dir, dt.directoryWalker)
@@ -190,7 +192,7 @@ func (dt *DirTracker) directoryWalkerPopulateDircount(path string, d fs.DirEntry
 		if isHiddenDirectory(path) {
 			return filepath.SkipDir
 		}
-		log.Println("popping dir", path, dt.Total())
+		log.Println("populating dir", path, dt.Total())
 		atomic.AddInt64(&dt.directoryCountTotal, 1)
 	}
 	_, file := filepath.Split(path)
@@ -199,33 +201,38 @@ func (dt *DirTracker) directoryWalkerPopulateDircount(path string, d fs.DirEntry
 	}
 	return nil
 }
+func (dt *DirTracker) handleDirectory(path string) error{
+	if isHiddenDirectory(path) {
+		return filepath.SkipDir
+	}
+	log.Println("visiting dir", path, dt.Value(), "of", dt.Total())
+	atomic.AddInt64(&dt.directoryCountVisited, 1)
+	closerFunc := func(pt string) {
+		// FIXME we will want this back when we are not revisiting
+		de, ok := dt.dm[pt]
+		if ok {
+			de.Close()
+		}
+		delete(dt.dm, pt)
+	}
+	if dt.preserveStructs {
+		closerFunc = nil}
+	dt.lastPath.Closer(path, closerFunc)
+	de, err := dt.getDirectoryEntry(path)
+	if err != nil {
+		return fmt.Errorf("%w::%s", err, path)
+	}
+	if de == nil {
+		return fmt.Errorf("%w::%s", errorMissingDe, path)
+	}
+	return nil
+}
 func (dt *DirTracker) directoryWalker(path string, d fs.DirEntry, err error) error {
 	if err != nil {
 		return err
 	}
 	if d.IsDir() {
-		if isHiddenDirectory(path) {
-			return filepath.SkipDir
-		}
-		log.Println("visiting dir", path, dt.Value(), "of", dt.Total())
-		atomic.AddInt64(&dt.directoryCountVisited, 1)
-		closerFunc := func(pt string) {
-			// FIXME we will want this back when we are not revisiting
-			// de, ok := dt.dm[pt]
-			// if ok {
-			// 	de.Close()
-			// }
-			// delete(dt.dm, pt)
-		}
-		dt.lastPath.Closer(path, closerFunc)
-		de, err := dt.getDirectoryEntry(path)
-		if err != nil {
-			return fmt.Errorf("%w::%s", err, path)
-		}
-		if de == nil {
-			return fmt.Errorf("%w::%s", errorMissingDe, path)
-		}
-		return nil
+		return dt.handleDirectory(path)
 	}
 	dir, file := filepath.Split(path)
 	if file == ".mdSkipDir" {
@@ -243,7 +250,7 @@ func (dt *DirTracker) directoryWalker(path string, d fs.DirEntry, err error) err
 
 	// Grab an IO token
 	<-dt.tokenChan
-	callback := func() {
+	returnToken := func() {
 		dt.tokenChan <- struct{}{}
 	}
 
@@ -254,10 +261,11 @@ func (dt *DirTracker) directoryWalker(path string, d fs.DirEntry, err error) err
 	if de == nil {
 		return fmt.Errorf("%w::%s", errorMissingDe, path)
 	}
-	de.VisitFile(dir, file, d, callback)
+	de.VisitFile(dir, file, d, returnToken)
 	return nil
 }
 
+// Revisit allows you to walk through an existing structure
 func (dt *DirTracker) Revisit(
 	dir string,
 	dirVisitor func(dt *DirTracker),

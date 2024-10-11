@@ -406,5 +406,6 @@ func (dm DirectoryMap) Revisit(dir string, visitor func(dm DirectoryEntryInterfa
 	for path, fileStruct := range dm.mp {
 		_ = visitor(dm, dir, path, fileStruct)
 	}
+	// FIXME why don't we do anything with errors?
 	_ = dm.Persist(dir)
 }
