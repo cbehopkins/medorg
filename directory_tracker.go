@@ -44,6 +44,7 @@ type DirTracker struct {
 	directoryCountVisited int64
 	// We do not lock the dm map as we only access it in a single threaded manner
 	// i.e. only the directory walker or things it calls have access
+	dir string
 	dm        map[string]DirectoryTrackerInterface
 	newEntry  func(dir string) (DirectoryTrackerInterface, error)
 	lastPath  lastPath
@@ -74,17 +75,21 @@ const NumTrackerOutstanding = 4
 func NewDirTracker(preserveStructs bool, dir string, newEntry func(string) (DirectoryTrackerInterface, error)) *DirTracker {
 	numOutsanding := NumTrackerOutstanding // FIXME expose this
 	var dt DirTracker
+	dt.dir = dir
 	dt.dm = make(map[string]DirectoryTrackerInterface)
 	dt.newEntry = newEntry
 	dt.tokenChan = makeTokenChan(numOutsanding)
 	dt.wg = new(sync.WaitGroup)
 	dt.errChan = make(chan error)
-	dt.wg.Add(1) // add one for populateDircount
 	dt.finished.Clear()
 	dt.preserveStructs = preserveStructs
-	go dt.populateDircount(dir)
+	return &dt
+}
+func (dt *DirTracker) Start()  *DirTracker {
+	dt.wg.Add(1) // add one for populateDircount
+	go dt.populateDircount(dt.dir)
 	go func() {
-		err := filepath.WalkDir(dir, dt.directoryWalker)
+		err := filepath.WalkDir(dt.dir, dt.directoryWalker)
 		if err != nil {
 			dt.errChan <- err
 		}
@@ -102,10 +107,8 @@ func NewDirTracker(preserveStructs bool, dir string, newEntry func(string) (Dire
 		close(dt.errChan)
 		close(dt.tokenChan)
 	}()
-
-	return &dt
+	return dt
 }
-
 // ErrChan - returns any errors we encounter
 // We retuyrn as a channel as we don't stop on *most* errors
 func (dt *DirTracker) ErrChan() <-chan error {

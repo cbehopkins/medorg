@@ -70,7 +70,7 @@ func recalcTestDirectory(dir string) error {
 		}
 		return NewDirectoryEntry(dir, mkFk)
 	}
-	for err := range NewDirTracker(false, dir, makerFunc).ErrChan() {
+	for err := range NewDirTracker(false, dir, makerFunc).Start().ErrChan() {
 		return fmt.Errorf("Error received on closing:%w", err)
 	}
 	return nil
@@ -129,12 +129,11 @@ func TestDuplicateDetect(t *testing.T) {
 		}
 		return NewDirectoryEntry(dir, mkFk)
 	}
-	net := NewDirTracker(false, srcDir, makerFuncSrc)
-	ec := net.ErrChan()
-	for err := range ec {
+	net := NewDirTracker(false, srcDir, makerFuncSrc).Start()
+	for err := range  net.ErrChan() {
 		t.Error("Error received on closing:", err)
 	}
-	for err := range NewDirTracker(false, destDir, makerFuncDest).ErrChan() {
+	for err := range NewDirTracker(false, destDir, makerFuncDest).Start().ErrChan() {
 		t.Error("Error received on closing:", err)
 	}
 	var lk sync.Mutex
@@ -205,7 +204,7 @@ func TestDuplicateArchivedAtPopulation(t *testing.T) {
 		}
 		return NewDirectoryEntry(dir, mkFk)
 	}
-	for err := range NewDirTracker(false, dirs[0], makerFunc).ErrChan() {
+	for err := range NewDirTracker(false, dirs[0], makerFunc).Start().ErrChan() {
 		t.Error("Error received on closing:", err)
 	}
 
@@ -291,7 +290,7 @@ func TestBackupExtract(t *testing.T) {
 		}
 		return NewDirectoryEntry(dir, mkFk)
 	}
-	for err := range NewDirTracker(false, dirs[0], makerFunc).ErrChan() {
+	for err := range NewDirTracker(false, dirs[0], makerFunc).Start().ErrChan() {
 		t.Error("Error received on closing:", err)
 	}
 	dt := AutoVisitFilesInDirectories([]string{dirs[0]}, nil)
@@ -436,10 +435,10 @@ func TestBackupSrcHasDuplicateFiles(t *testing.T) {
 		}
 		return NewDirectoryEntry(dir, mkFk)
 	}
-	for err := range NewDirTracker(false, srcDir, makerFuncSrc).ErrChan() {
+	for err := range NewDirTracker(false, srcDir, makerFuncSrc).Start().ErrChan() {
 		t.Error("Error received on closing:", err)
 	}
-	for err := range NewDirTracker(false, destDir, makerFuncDest).ErrChan() {
+	for err := range NewDirTracker(false, destDir, makerFuncDest).Start().ErrChan() {
 		t.Error("Error received on closing:", err)
 	}
 	var lk sync.Mutex
