@@ -107,7 +107,9 @@ func (de DirectoryEntry) worker() {
 			go func(dir, file string, d fs.DirEntry) {
 				log.Println("Worker called for ", dir, file)
 				de.errorChan <- de.dm.Visitor(dir, file, d)
-				wi.callback()
+				if wi.callback != nil {
+					wi.callback()
+				}
 				de.activeFiles.Done()
 			}(wi.dir, wi.file, wi.d)
 		case <-de.closeChan:

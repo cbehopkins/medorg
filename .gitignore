@@ -3,13 +3,14 @@
 *.a
 *.so
 
-.md5_list.xml
+.medorg.xml
 bob
 
 # Folders
 _obj
 _test
 .idea
+.vscode
 
 # Architecture specific extensions/prefixes
 *.[568vq]
@@ -29,3 +30,4 @@ _testmain.go
 
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
+*.log

@@ -4,17 +4,15 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"io/fs"
 	"log"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/pprof"
 	"syscall"
 
 	"github.com/cbehopkins/medorg"
-	"github.com/vbauerster/mpb/v8"
-	"github.com/vbauerster/mpb/v8/decor"
 )
 
 func setupLoggingToFile(filename string) (*os.File, error) {
@@ -49,125 +47,43 @@ func isDir(fn string) bool {
 	return stat.IsDir()
 }
 
-type barDirHandler struct {
-	dirBar               *mpb.Bar
-	theMap               map[string]*mpb.Bar
-	progressBars         *mpb.Progress
-	suppressProgressBars bool
-}
-
-func NewBarDirHandler(suppressProgressBars bool) *barDirHandler {
-	progressBars := mpb.New()
-	bh := barDirHandler{}
-	bh.suppressProgressBars = suppressProgressBars
-	bh.progressBars = progressBars
-	bh.dirBar = bh.progressBars.AddBar(
-		0,
-		mpb.PrependDecorators(decor.Name("Dirs")),
-		mpb.AppendDecorators(decor.CountersNoUnit("%d / %d")),
-	)
-	bh.theMap = make(map[string]*mpb.Bar)
-	return &bh
-}
-func (bh *barDirHandler) OpenDir(path string) {
-	if bh.suppressProgressBars {
-		return
-	}
-	bh.theMap[path] = bh.progressBars.AddBar(
-		0,
-		mpb.PrependDecorators(decor.Name(path)),
-		mpb.AppendDecorators(decor.CountersNoUnit("%d / %d")),
-	)
-}
-func (bh *barDirHandler) CloseDir(path string) {
-	if bh.suppressProgressBars {
-		return
-	}
-	bh.theMap[path].Abort(true)
-	bh.theMap[path].Wait()
-	delete(bh.theMap, path)
-}
-func getFileSize(filePath string) (int64, error) {
-    fileInfo, err := os.Stat(filePath)
-    if err != nil {
-        return 0, err
-    }
-    return fileInfo.Size(), nil
-}
-// Define a struct that embeds the ReadCloser
-type customReadCloser struct {
-    io.ReadCloser
-	md5CalcBar *mpb.Bar
-	name string
-}
-
-// Implement the Read method to delegate to the embedded ReadCloser
-func (crc *customReadCloser) Read(p []byte) (n int, err error) {
-    i, err :=  crc.ReadCloser.Read(p)
-	crc.md5CalcBar.IncrBy(i)
-	return i, err
-}
-
-// Implement the Close method to perform additional actions
-func (crc *customReadCloser) Close() error {
-    defer func() {
-		crc.md5CalcBar.Abort(true)
-		crc.md5CalcBar.Wait()
-    }()
-    return crc.ReadCloser.Close()
-}
-
-func (bh *barDirHandler) FileVisitor(dir_tracker *medorg.DirTracker, directory, file string, dm medorg.DirectoryMap) *mpb.Bar {
-	if bh.suppressProgressBars {
-		return nil
-	}
-	bh.dirBar.SetCurrent(dir_tracker.Value())
-	bh.dirBar.SetTotal(dir_tracker.Total(), false)
-	_, ok := bh.theMap[directory]
-	if !ok {
-		panic("Path not found: " + directory)
-	}
-	bh.theMap[directory].SetTotal(int64(dm.Len()), false)
-	bh.theMap[directory].Increment()
-
-	fileSize, _ := getFileSize(directory + "/" + file)
-	md5CalcBar := bh.progressBars.AddBar(fileSize,
-		mpb.BarRemoveOnComplete(),
-		mpb.PrependDecorators(
-			decor.Name("Calculating MD5: " + file),
-			decor.CountersKibiByte("% .2f / % .2f"),
-		),
-		mpb.AppendDecorators(
-			decor.Percentage(),
-		),)
-	return  md5CalcBar
-}
 
 func main() {
 	var directories []string
 
 	var scrubflg = flag.Bool("scrub", false, "Scruball backup labels from src records")
-
 	var calcCnt = flag.Int("calc", 2, "Max Number of MD5 calculators")
 	var delflg = flag.Bool("delete", false, "Delete duplicated Files")
 	var mvdflg = flag.Bool("mvd", false, "Move Detect")
 	var rnmflg = flag.Bool("rename", false, "Auto Rename Files")
 	var rclflg = flag.Bool("recalc", false, "Recalculate all checksums")
 	var valflg = flag.Bool("validate", false, "Validate all checksums")
-
 	var conflg = flag.Bool("conc", false, "Concentrate files together in same directory")
-
+    // var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
 	var logFilePath = flag.String("logfile", "", "Path to log file")
 	flag.Parse()
+	
+	cpuprofilePath := "./cpu.prof"
+	var cpuprofile = &cpuprofilePath
+	if *cpuprofile != "" {
+        f, err := os.Create(*cpuprofile)
+        if err != nil {
+            log.Fatal(err)
+        }
+        pprof.StartCPUProfile(f)
+        defer pprof.StopCPUProfile()
+    }
+
 	suppressProgressBars := false
 	// Set up signal handling for Ctrl+C
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-	shutdown := false
+	shutdownChan := make(chan struct{})
+
 	go func() {
 		<-sigChan
 		fmt.Println("\nCtrl-C received, shutting down...")
-		shutdown = true
+		close(shutdownChan)
 	}()
 	///////////////////////////////////
 	// Setup logging
@@ -225,20 +141,23 @@ func main() {
 	tokenBuffer := makeCalcTokens(calcCnt)
 	defer close(tokenBuffer)
 	var dir_tracker *medorg.DirTracker
-	pbs := NewBarDirHandler(suppressProgressBars)
+	progBar := medorg.NewBarDirHandler(suppressProgressBars)
 	visitor := func(dm medorg.DirectoryMap, directory, file string, d fs.DirEntry) error {
-		if shutdown {
-			return medorg.ErrShutdown
-		}
+		select {
+        case <-shutdownChan:
+            return medorg.ErrShutdown
+        default:
+        }
 		if file == medorg.Md5FileName {
 			return nil
 		}
 		fc := func(fs *medorg.FileStruct) error {
-			mpbBar := pbs.FileVisitor(dir_tracker, directory, file, dm)
-			defer func() {
-				mpbBar.Abort(true)
-				mpbBar.Wait()
-			}()
+			select {
+			case <-shutdownChan:
+				return medorg.ErrShutdown
+			default:
+			}
+			readCloserWrap := progBar.FileVisitor(dir_tracker, directory, file, dm)
 			info, err := d.Info()
 			if err != nil {
 				return err
@@ -276,10 +195,12 @@ func main() {
 			defer func() { 
 				tokenBuffer <- struct{}{}
 			 }()
-
-			err = fs.UpdateChecksum(*rclflg, func(r io.ReadCloser) io.ReadCloser {
-				return &customReadCloser{r, mpbBar, file}
-			})
+			 select {
+			case <-shutdownChan:
+				return medorg.ErrShutdown
+			default:
+			}
+			err = fs.UpdateChecksum(*rclflg, readCloserWrap)
 			if errors.Is(err, medorg.ErrIOError) {
 				fmt.Println("Received an IO error calculating checksum ", fs.Name, err)
 				return nil
@@ -300,9 +221,17 @@ func main() {
 	}
 
 	makerFunc := func(dir string) (medorg.DirectoryTrackerInterface, error) {
-		if shutdown {return nil, medorg.ErrShutdown}
+		select {
+        case <-shutdownChan:
+            return nil, medorg.ErrShutdown
+        default:
+        }
 		mkFk := func(dir string) (medorg.DirectoryEntryInterface, error) {
-			if shutdown {return nil, medorg.ErrShutdown}
+			select {
+			case <-shutdownChan:
+				return nil,  medorg.ErrShutdown
+			default:
+			}
 			dm, err := medorg.DirectoryMapFromDir(dir)
 			if err != nil {
 				return dm, err
@@ -322,17 +251,25 @@ func main() {
 	}
 
 	for _, dir := range directories {
-		if shutdown {continue}
+		dir, err := filepath.Abs(dir)
+		if err != nil {
+			log.Fatalf("Failed to resolve path: %v", err)
+		}
+		select {
+        case <-shutdownChan:
+            continue
+        default:
+        }
 		if *conflg {
 			con = &medorg.Concentrator{BaseDir: dir}
 		}
 		dir_tracker = medorg.NewDirTracker(dir, makerFunc)
 		dir_tracker.PreserveStructs = false
 		dir_tracker.OpenDirectoryCallback = func(path string, de medorg.DirectoryTrackerInterface) {
-			pbs.OpenDir(path)
+			progBar.OpenDir(path)
 		}
 		dir_tracker.CloseDirectoryCallback = func(path string, de medorg.DirectoryTrackerInterface) {
-			pbs.CloseDir(path)
+			progBar.CloseDir(path)
 		}
 		errChan := dir_tracker.Start().ErrChan()
 

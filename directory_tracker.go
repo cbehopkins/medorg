@@ -185,8 +185,7 @@ func (dt *DirTracker) populateDircount(dir string) {
 	defer dt.wg.Done()
 	err := filepath.WalkDir(dir, dt.directoryWalkerPopulateDircount)
 	if err != nil {
-		// FIXME Question: I did eveything else on this with atomics - is this correct?
-		dt.directoryCountTotal = -1
+		atomic.StoreInt64(&dt.directoryCountTotal, -1)
 		return
 	}
 }
@@ -264,9 +263,9 @@ func (dt *DirTracker) directoryWalker(path string, d fs.DirEntry, err error) err
 
 	// Grab an IO token
 	<-dt.tokenChan
-	returnToken := func() {
+	defer func() {
 		dt.tokenChan <- struct{}{}
-	}
+	}()
 
 	de, err := dt.getDirectoryEntry(dir)
 	if err != nil {
@@ -275,7 +274,7 @@ func (dt *DirTracker) directoryWalker(path string, d fs.DirEntry, err error) err
 	if de == nil {
 		return fmt.Errorf("%w::%s", errorMissingDe, path)
 	}
-	de.VisitFile(dir, file, d, returnToken)
+	de.VisitFile(dir, file, d, nil)
 	return nil
 }
 
