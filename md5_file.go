@@ -21,16 +21,16 @@ func (md *Md5File) append(fs FileStruct) {
 	md.Files = append(md.Files, fs)
 }
 
-// func (md Md5File) String() string {
-// 	txt, err := xml.MarshalIndent(md, "", "  ")
-// 	switch err {
-// 	case nil:
-// 	case io.EOF:
-// 	default:
-// 		log.Fatal("Unknown Error Marshalling Md5File:", err)
-// 	}
-// 	return string(txt)
-// }
+//	func (md Md5File) String() string {
+//		txt, err := xml.MarshalIndent(md, "", "  ")
+//		switch err {
+//		case nil:
+//		case io.EOF:
+//		default:
+//			log.Fatal("Unknown Error Marshalling Md5File:", err)
+//		}
+//		return string(txt)
+//	}
 func supressXmlUnmarshallErrors(err error) error {
 	xse := &xml.SyntaxError{}
 	switch true {

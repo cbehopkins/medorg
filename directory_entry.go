@@ -2,6 +2,7 @@ package medorg
 
 import (
 	"io/fs"
+	"log"
 	"sync"
 )
 
@@ -76,6 +77,7 @@ func (de DirectoryEntry) ErrChan() <-chan error {
 
 // Close the directory
 func (de DirectoryEntry) Close() {
+	log.Println("DirectoryEntry.Close", de.dir)
 	close(de.closeChan)
 }
 
@@ -93,13 +95,17 @@ func (de DirectoryEntry) Start() error {
 	return nil
 }
 func (de DirectoryEntry) worker() {
-	defer close(de.errorChan)
+	defer func() {
+		log.Println("DirectoryEntry.worker closing", de.dir)
+		close(de.errorChan)
+	}()
 
 	// allow file paths to be sent to us for processing
 	for {
 		select {
 		case wi := <-de.workItems:
 			go func(dir, file string, d fs.DirEntry) {
+				log.Println("Worker called for ", dir, file)
 				de.errorChan <- de.dm.Visitor(dir, file, d)
 				wi.callback()
 				de.activeFiles.Done()

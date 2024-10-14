@@ -90,7 +90,9 @@ func AutoVisitFilesInDirectories(
 	}
 	retArray := make([]*DirTracker, len(directories))
 	for i, targetDir := range directories {
-		retArray[i] = NewDirTracker(true, targetDir, makerFunc).Start()
+		tmp := NewDirTracker(targetDir, makerFunc)
+		tmp.PreserveStructs = true
+		retArray[i] = tmp.Start()
 	}
 	return retArray
 }

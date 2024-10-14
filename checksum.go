@@ -23,7 +23,7 @@ type DirectoryMapMod func(DirectoryMap, string)
 // Md5FileName is the filename we use to save the data in
 const Md5FileName = ".medorg.xml"
 
-//ErrSkipCheck Reports a checksum that we have skipped producing
+// ErrSkipCheck Reports a checksum that we have skipped producing
 var ErrSkipCheck = errors.New("skipping Checksum")
 
 // NewChannels creates a channel based method for creating checksums
@@ -38,7 +38,7 @@ func NewChannels() (inputChan chan FileStruct, outputChan chan FileStruct, close
 func md5Calcer(inputChan chan FileStruct, outputChan chan FileStruct, closedChan chan struct{}) {
 	for itm := range inputChan {
 		// Calculate the MD5 here and send it
-		cks, err := CalcMd5File(itm.directory, itm.Name)
+		cks, err := CalcMd5File(itm.directory, itm.Name, nil)
 		if err != nil {
 			log.Fatal("Calculation error", err)
 		} else {
@@ -102,15 +102,21 @@ func ReturnChecksumString(h hash.Hash) string {
 }
 
 // CalcMd5File calculates the checksum for a specified filename
-func CalcMd5File(directory, fn string) (string, error) {
+func CalcMd5File(directory, fn string, readCloserWrap func (r io.ReadCloser) io.ReadCloser) (string, error) {
 	fp := filepath.Join(directory, fn)
 	f, err := os.Open(fp)
 	if err != nil {
 		return "", err
 	}
-	defer func() { _ = f.Close() }()
+	var fh io.ReadCloser
+	if readCloserWrap != nil {
+		fh = readCloserWrap(f)
+	} else {
+		fh = f
+	}
+	defer func() { _ = fh.Close() }()
 	h := md5.New()
-	if _, err := io.Copy(h, f); err != nil {
+	if _, err := io.Copy(h, fh); err != nil {
 		return "", err
 	}
 	return ReturnChecksumString(h), nil

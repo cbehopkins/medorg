@@ -10,7 +10,8 @@ import (
 // It is used to determine if we have gone out of scope
 type lastPath struct {
 	sync.Mutex
-	path string
+	path      string
+	callbacks map[string]func(string)
 }
 
 func isChildPath(ref, candidate string) (bool, error) {
@@ -37,32 +38,37 @@ func (p *lastPath) Set(path string) {
 	defer p.Unlock()
 	p.path = path
 }
-func (p *lastPath) Closer(path string, closerFunc func(string)) error {
+func (p *lastPath) Visit(path string, closerFunc func(string)) error {
 	// The job of this is to work out if we have gone out of scope
 	// i.e. close /fred/bob if we have received /fred/steve
 	// but do not close /fred or /fred/bob when we receive /fred/bob/steve
 	// But also, not doing anything is fine!
-
-	defer p.Set(path)
-	prevPath := p.Get()
-	if prevPath == "" {
-		return nil
+	p.Lock()
+	defer p.Unlock()
+	if p.callbacks == nil {
+		p.callbacks = make(map[string]func(string))
 	}
-	// FIXME make it possbile to select this/another/default to this
-	shouldClose := func(path string) (bool, error) {
-		isChild, err := isChildPath(path, prevPath)
+	defer func() {
+		p.path = path
+		p.callbacks[path] = closerFunc
+	}()
+
+	toCall := make([]string, 0)
+	for candPath := range p.callbacks {
+		// True for /bob/fred and /bob
+		// False for /bob/fred and /bob/steve
+		isChild, err := isChildPath(path, candPath)
 		if err != nil {
-			return false, err
+			continue
 		}
-
-		return !isChild, nil
+		if !isChild {
+			// We are done with it
+			toCall = append(toCall, candPath)
+		}
 	}
-	cl, err := shouldClose(path)
-	if err != nil {
-		return err
-	}
-	if cl && closerFunc != nil {
-		closerFunc(prevPath)
+	for _, candPath := range toCall {
+		p.callbacks[candPath](candPath)
+		delete(p.callbacks, candPath)
 	}
 	return nil
 }

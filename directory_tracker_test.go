@@ -91,7 +91,7 @@ func TestDirectoryTrackerAgainstMock(t *testing.T) {
 			makerFunc := func(dir string) (DirectoryTrackerInterface, error) {
 				return newMockDtType(), nil
 			}
-			errChan := NewDirTracker(false, root, makerFunc).Start().ErrChan()
+			errChan := NewDirTracker(root, makerFunc).Start().ErrChan()
 			for err := range errChan {
 				t.Error(err)
 			}
@@ -141,7 +141,7 @@ func TestDirectoryTrackerSpawning(t *testing.T) {
 				if pb < 2 {
 					lk.Unlock()
 					atomic.AddUint32(&cnt, 1)
-					time.Sleep(time.Second)
+					time.Sleep(10 * time.Millisecond)
 
 					lk.Lock()
 				}
@@ -162,7 +162,7 @@ func TestDirectoryTrackerSpawning(t *testing.T) {
 				mdt.visiter = visiter
 				return mdt, nil
 			}
-			errChan := NewDirTracker(false, root, makerFunc).Start().ErrChan()
+			errChan := NewDirTracker(root, makerFunc).Start().ErrChan()
 			for err := range errChan {
 				t.Error(err)
 			}

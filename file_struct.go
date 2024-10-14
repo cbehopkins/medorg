@@ -2,12 +2,15 @@ package medorg
 
 import (
 	"errors"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 )
+
 var ErrRecalced = errors.New("File checksum has been recalculated")
+
 // FileStruct contains all the properties associated with a file
 type FileStruct struct {
 	XMLName   struct{} `xml:"fr"`
@@ -150,12 +153,13 @@ func (fs FileStruct) Changed(info fs.FileInfo) (bool, error) {
 	}
 	return false, nil
 }
+
 // UpdateChecksum makes the tea
-func (fs *FileStruct) UpdateChecksum(forceUpdate bool) error {
+func (fs *FileStruct) UpdateChecksum(forceUpdate bool, readCloserWrap func (r io.ReadCloser) io.ReadCloser) error {
 	if !forceUpdate && (fs.Checksum != "") {
 		return nil
 	}
-	cks, err := CalcMd5File(fs.directory, fs.Name)
+	cks, err := CalcMd5File(fs.directory, fs.Name, readCloserWrap)
 	if err != nil {
 		return err
 	}
@@ -167,9 +171,10 @@ func (fs *FileStruct) UpdateChecksum(forceUpdate bool) error {
 	fs.BackupDest = []string{}
 	return nil
 }
+
 // ValidateChecksum checks if the checksum is correct
 func (fs *FileStruct) ValidateChecksum() error {
-	cks, err := CalcMd5File(fs.directory, fs.Name)
+	cks, err := CalcMd5File(fs.directory, fs.Name, nil)
 	if err != nil {
 		return err
 	}

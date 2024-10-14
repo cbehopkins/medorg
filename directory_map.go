@@ -70,7 +70,7 @@ func (dm DirectoryMap) ToMd5File(dir string) (*Md5File, error) {
 	return &m5f, nil
 }
 
-//ToXML
+// ToXML
 func (dm DirectoryMap) ToXML(dir string) (output []byte, err error) {
 	m5f, err := dm.ToMd5File(dir)
 	if err != nil {
@@ -284,7 +284,7 @@ func (dm DirectoryMap) UpdateChecksum(directory, file string, forceUpdate bool) 
 	}
 	log.Println("Updating vchecksum for", directory, file)
 	fc := func(fs *FileStruct) error {
-		return fs.UpdateChecksum(forceUpdate)
+		return fs.UpdateChecksum(forceUpdate, nil)
 	}
 	return dm.RunFsFc(directory, file, fc)
 }
@@ -314,6 +314,7 @@ func (dm DirectoryMap) Persist(directory string) error {
 		dm.lock.Lock()
 		defer dm.lock.Unlock()
 		if !*dm.stale {
+			log.Println("No need to write out the directory map", directory)
 			return true, nil
 		}
 		*dm.stale = false
@@ -334,6 +335,8 @@ func (dm DirectoryMap) Persist(directory string) error {
 	default:
 		return fmt.Errorf("unknown Error Marshalling Xml:%w", err)
 	}
+	log.Println("Writing out directory map", directory)
+
 	return md5FileWrite(directory, ba)
 }
 

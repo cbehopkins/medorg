@@ -11,7 +11,7 @@ import (
 )
 
 var errorMissingDe = errors.New("missing de when evaluating directory")
-
+var ErrShutdown = errors.New("shutdown")
 type DirectoryTrackerInterface interface {
 	ErrChan() <-chan error
 	Start() error
@@ -44,14 +44,16 @@ type DirTracker struct {
 	directoryCountVisited int64
 	// We do not lock the dm map as we only access it in a single threaded manner
 	// i.e. only the directory walker or things it calls have access
-	dir string
-	dm        map[string]DirectoryTrackerInterface
-	newEntry  func(dir string) (DirectoryTrackerInterface, error)
-	lastPath  lastPath
-	tokenChan chan struct{}
-	wg        *sync.WaitGroup
-	errChan   chan error
-	preserveStructs bool
+	dir                    string
+	dm                     map[string]DirectoryTrackerInterface
+	newEntry               func(dir string) (DirectoryTrackerInterface, error)
+	lastPath               lastPath
+	tokenChan              chan struct{}
+	wg                     *sync.WaitGroup
+	errChan                chan error
+	PreserveStructs        bool
+	OpenDirectoryCallback  func(string, DirectoryTrackerInterface)
+	CloseDirectoryCallback func(string, DirectoryTrackerInterface)
 
 	finished finishedB
 }
@@ -72,7 +74,7 @@ const NumTrackerOutstanding = 4
 // That new entry will then have its visitor called for each file in that directory
 // At some later time, we will then close the directory
 // There are no guaranetees about when this will happen
-func NewDirTracker(preserveStructs bool, dir string, newEntry func(string) (DirectoryTrackerInterface, error)) *DirTracker {
+func NewDirTracker(dir string, newEntry func(string) (DirectoryTrackerInterface, error)) *DirTracker {
 	numOutsanding := NumTrackerOutstanding // FIXME expose this
 	var dt DirTracker
 	dt.dir = dir
@@ -82,10 +84,9 @@ func NewDirTracker(preserveStructs bool, dir string, newEntry func(string) (Dire
 	dt.wg = new(sync.WaitGroup)
 	dt.errChan = make(chan error)
 	dt.finished.Clear()
-	dt.preserveStructs = preserveStructs
 	return &dt
 }
-func (dt *DirTracker) Start()  *DirTracker {
+func (dt *DirTracker) Start() *DirTracker {
 	dt.wg.Add(1) // add one for populateDircount
 	go dt.populateDircount(dt.dir)
 	go func() {
@@ -97,18 +98,20 @@ func (dt *DirTracker) Start()  *DirTracker {
 			val.Close()
 		}
 		dt.wg.Wait()
-		if dt.Total() != dt.Value() {
-			// FIXME I'm not sure panic is correct here
-			// If the file system changes while we are walking, we may not get the correct count
-			// Helpful for debugging though
-			panic("hadn't actually finished")
-		}
+		// if dt.Total() != dt.Value() {
+		// 	// FIXME I'm not sure panic is correct here
+		// 	// If the file system changes while we are walking, we may not get the correct count
+		// 	// Helpful for debugging though
+		// 	panic("hadn't actually finished")
+		// }
 		dt.finished.Set()
+		log.Println("Closing Dir Tracker ErrChan", dt.dir)
 		close(dt.errChan)
 		close(dt.tokenChan)
 	}()
 	return dt
 }
+
 // ErrChan - returns any errors we encounter
 // We retuyrn as a channel as we don't stop on *most* errors
 func (dt *DirTracker) ErrChan() <-chan error {
@@ -144,6 +147,7 @@ func (dt *DirTracker) runChild(de DirectoryTrackerInterface) {
 	}
 	dt.wg.Done()
 }
+
 // serviceChild - copy errors from the child to the parent
 func (dt *DirTracker) serviceChild(de DirectoryTrackerInterface) {
 	for err := range de.ErrChan() {
@@ -174,6 +178,7 @@ func (dt *DirTracker) getDirectoryEntry(path string) (DirectoryTrackerInterface,
 	go dt.serviceChild(de)
 	return de, nil
 }
+
 // populateDircount - populate the directory count
 // i.e. how many directories we have to visit
 func (dt *DirTracker) populateDircount(dir string) {
@@ -185,7 +190,6 @@ func (dt *DirTracker) populateDircount(dir string) {
 		return
 	}
 }
-
 
 func (dt *DirTracker) directoryWalkerPopulateDircount(path string, d fs.DirEntry, err error) error {
 	if err != nil {
@@ -204,29 +208,36 @@ func (dt *DirTracker) directoryWalkerPopulateDircount(path string, d fs.DirEntry
 	}
 	return nil
 }
-func (dt *DirTracker) handleDirectory(path string) error{
+func (dt *DirTracker) handleDirectory(path string) error {
 	if isHiddenDirectory(path) {
 		return filepath.SkipDir
 	}
 	log.Println("visiting dir", path, dt.Value(), "of", dt.Total())
 	atomic.AddInt64(&dt.directoryCountVisited, 1)
 	closerFunc := func(pt string) {
-		// FIXME we will want this back when we are not revisiting
+		log.Println("Closing", pt)
 		de, ok := dt.dm[pt]
-		if ok {
-			de.Close()
+		if dt.CloseDirectoryCallback != nil {
+			dt.CloseDirectoryCallback(pt, de)
 		}
-		delete(dt.dm, pt)
+		if !dt.PreserveStructs {
+			if ok {
+				de.Close()
+			}
+			delete(dt.dm, pt)
+		}
 	}
-	if dt.preserveStructs {
-		closerFunc = nil}
-	dt.lastPath.Closer(path, closerFunc)
+
+	dt.lastPath.Visit(path, closerFunc)
 	de, err := dt.getDirectoryEntry(path)
 	if err != nil {
 		return fmt.Errorf("%w::%s", err, path)
 	}
 	if de == nil {
 		return fmt.Errorf("%w::%s", errorMissingDe, path)
+	}
+	if dt.OpenDirectoryCallback != nil {
+		dt.OpenDirectoryCallback(path, de)
 	}
 	return nil
 }

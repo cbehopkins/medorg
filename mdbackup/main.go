@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/cbehopkins/medorg"
-	pb "github.com/cbehopkins/pb/v3"
+	pb "github.com/cheggaaa/pb/v3"
 	bytesize "github.com/inhies/go-bytesize"
 )
 
@@ -65,7 +65,7 @@ func poolCopier(src, dst medorg.Fpath, pool *pb.Pool, wg *sync.WaitGroup) error 
 
 	pool.Add(myBar)
 	myBar.Start()
-	defer pool.Remove(myBar)
+	// defer pool.Remove(myBar)
 	closeChan := make(chan struct{})
 	defer func() { close(closeChan) }()
 	wg.Add(1)
@@ -86,17 +86,17 @@ func poolCopier(src, dst medorg.Fpath, pool *pb.Pool, wg *sync.WaitGroup) error 
 	return medorg.CopyFile(src, dst)
 }
 func topRegisterFunc(dt *medorg.DirTracker, pool *pb.Pool, wg *sync.WaitGroup) {
-	removeFunc := func(pb *pb.ProgressBar) {
-		err := pool.Remove(pb)
-		if err != nil {
-			log.Println("Failed to remove bar::", err)
-		}
-		wg.Done()
-	}
+	// removeFunc := func(pb *pb.ProgressBar) {
+	// 	// err := pool.Remove(pb)
+	// 	// if err != nil {
+	// 	// 	log.Println("Failed to remove bar::", err)
+	// 	// }
+	// 	wg.Done()
+	// }
 
-	bar := pb.RegisterProgressable(dt, removeFunc)
-	pool.Add(bar)
-	wg.Add(1)
+	// bar := pb.RegisterProgressable(dt, removeFunc)
+	// pool.Add(bar)
+	// wg.Add(1)
 }
 
 func visitFilesUpdatingProgressBar(pool *pb.Pool, directories []string,
