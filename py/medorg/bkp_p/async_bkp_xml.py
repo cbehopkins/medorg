@@ -190,7 +190,7 @@ class AsyncBkpXml:
 
     def _validate_xml(self, root):
         if not self.schema.validate(root):
-            log_msg = f"XML validation error: {self.schema.error_log}"
+            log_msg = f"XML validation error: {self.path}::{self.schema.error_log}"
             _log.error(log_msg)
             raise AsyncBkpXmlError(log_msg)
 

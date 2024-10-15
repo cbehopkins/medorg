@@ -18,6 +18,7 @@ aiosqlite="0.20.0"
 pytest = "^8.3.3"
 black = "^24.8.0"
 rich = "^13.0.0"
+greenlet = "^3.0.0"
 
 [tool.poetry-dynamic-versioning]
 enable = true
