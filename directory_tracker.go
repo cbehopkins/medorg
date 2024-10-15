@@ -9,6 +9,7 @@ import (
 	"sync"
 	"sync/atomic"
 )
+const NumTrackerOutstanding = 8
 
 var errorMissingDe = errors.New("missing de when evaluating directory")
 var ErrShutdown = errors.New("shutdown")
@@ -54,6 +55,7 @@ type DirTracker struct {
 	PreserveStructs        bool
 	OpenDirectoryCallback  func(string, DirectoryTrackerInterface)
 	CloseDirectoryCallback func(string, DirectoryTrackerInterface)
+	ShutdownChan		   <-chan struct{}
 
 	finished finishedB
 }
@@ -66,7 +68,6 @@ func makeTokenChan(numOutsanding int) chan struct{} {
 	return tokenChan
 }
 
-const NumTrackerOutstanding = 4
 
 // NewDirTracker does what it says
 // a dir tracker will walk the supplied directory
@@ -244,6 +245,11 @@ func (dt *DirTracker) directoryWalker(path string, d fs.DirEntry, err error) err
 	if err != nil {
 		return err
 	}
+	select {
+	case <-dt.ShutdownChan:
+		return ErrShutdown
+	default:
+	}
 	if d.IsDir() {
 		return dt.handleDirectory(path)
 	}
@@ -261,18 +267,26 @@ func (dt *DirTracker) directoryWalker(path string, d fs.DirEntry, err error) err
 		dir = dir[:len(dir)-1]
 	}
 
+	select {
+	case <-dt.ShutdownChan:
+		return ErrShutdown
 	// Grab an IO token
-	<-dt.tokenChan
-	defer func() {
-		dt.tokenChan <- struct{}{}
-	}()
-
+	case <-dt.tokenChan:
+		defer func() {
+			dt.tokenChan <- struct{}{}
+		}()
+	}
 	de, err := dt.getDirectoryEntry(dir)
 	if err != nil {
 		return fmt.Errorf("%w::%s", err, path)
 	}
 	if de == nil {
 		return fmt.Errorf("%w::%s", errorMissingDe, path)
+	}
+	select {
+	case <-dt.ShutdownChan:
+		return ErrShutdown
+	default:
 	}
 	de.VisitFile(dir, file, d, nil)
 	return nil

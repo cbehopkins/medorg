@@ -95,10 +95,14 @@ func (dm *DirectoryMap) FromXML(input []byte) (dir string, err error) {
 // Add adds a file struct to the dm
 func (dm DirectoryMap) Add(fs FileStruct) {
 	dm.lock.Lock()
+	defer dm.lock.Unlock()
 	fn := fs.Name
+	val, ok := dm.mp[fn]
+	if ok && val.FullEqual(fs) {
+			return
+		}
 	dm.mp[fn] = fs
 	*dm.stale = true
-	dm.lock.Unlock()
 }
 
 // Rm Removes a filename from the dm
@@ -324,7 +328,7 @@ func (dm DirectoryMap) Persist(directory string) error {
 		return false, nil
 	}
 
-	if ret, err := prepare(); ret { // sneaky trick to save messing with defer locks
+	if done, err := prepare(); done { // sneaky trick to save messing with defer locks
 		return err
 	}
 	// Write out a new Xml from the structure

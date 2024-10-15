@@ -188,7 +188,7 @@ func TestDuplicateArchivedAtPopulation(t *testing.T) {
 		if !ok {
 			return fmt.Errorf("%w:%s", errMissingTestFile, fn)
 		}
-		if fs.HasTag(backupLabelName) {
+		if fs.HasBd(backupLabelName) {
 			lk.Lock()
 			expectedDuplicates--
 			lk.Unlock()
@@ -258,12 +258,12 @@ func TestBackupExtract(t *testing.T) {
 		if !ok {
 			return errors.New("Missing file")
 		}
-		if fs.HasTag(backupLabelName) {
+		if fs.HasBd(backupLabelName) {
 			lk.Lock()
 			defer lk.Unlock()
 			if numDuplicates > 0 {
 				numDuplicates--
-				fs.AddTag(altBackupLabelName)
+				fs.AddBd(altBackupLabelName)
 				t.Log("Pretending", fn, "has additionally been backed up to alt location")
 				dm.Add(fs)
 				return nil
@@ -273,7 +273,7 @@ func TestBackupExtract(t *testing.T) {
 			defer lk.Unlock()
 			if numExtra > 0 {
 				numExtra--
-				fs.AddTag(altBackupLabelName)
+				fs.AddBd(altBackupLabelName)
 				extraMap[fs.Path()] = struct{}{}
 				t.Log("Pretending", fn, "has been backed up to alternate location")
 				dm.Add(fs)

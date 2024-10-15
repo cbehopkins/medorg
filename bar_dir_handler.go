@@ -9,6 +9,9 @@ import (
 	"github.com/vbauerster/mpb/v8"
 	"github.com/vbauerster/mpb/v8/decor"
 )
+type ReadCloserWrap func(r io.ReadCloser, fileSize int64) io.ReadCloser
+
+
 type barDirHandler struct {
 	dirBar               *mpb.Bar
 	theMap               map[string]*mpb.Bar
@@ -64,13 +67,7 @@ func (bh *barDirHandler) CloseDir(path string) {
 	bh.theMap[path].Wait()
 	delete(bh.theMap, path)
 }
-func getFileSize(filePath string) (int64, error) {
-    fileInfo, err := os.Stat(filePath)
-    if err != nil {
-        return 0, err
-    }
-    return fileInfo.Size(), nil
-}
+
 // Define a struct that embeds the ReadCloser
 type customReadCloser struct {
     io.ReadCloser
@@ -107,25 +104,15 @@ func countImmediateDirectories(path string) (int, error) {
     }
     return count, nil
 }
-func (bh *barDirHandler) FileVisitor(dir_tracker *DirTracker, directory, file string, dm DirectoryMap) func (r io.ReadCloser) io.ReadCloser {
+
+func (bh *barDirHandler) FileVisitor(dir_tracker *DirTracker, directory, file string, dm DirectoryMap) ReadCloserWrap {
 	if bh.suppressProgressBars {
 		return nil
 	}
 	bh.dirBar.SetCurrent(dir_tracker.Value())
 	bh.dirBar.SetTotal(dir_tracker.Total(), false)
 
-	bh.mapLock.Lock()
-	defer bh.mapLock.Unlock()
-	ourDirHandler, ok := bh.theMap[directory]
-	if !ok {
-		panic("Path not found: " + directory)
-	}
-	if ourDirHandler == nil {
-		panic("DirHandler is nil")
-	}
-
-	return func(r io.ReadCloser) io.ReadCloser {
-		fileSize, _ := getFileSize(directory + "/" + file)
+	return func(r io.ReadCloser, fileSize int64) io.ReadCloser {
 		md5CalcBar := bh.progressBars.AddBar(fileSize,
 			mpb.BarRemoveOnComplete(),
 			mpb.PrependDecorators(

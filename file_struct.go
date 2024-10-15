@@ -2,7 +2,6 @@ package medorg
 
 import (
 	"errors"
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -78,6 +77,21 @@ func (fs FileStruct) Equal(ca FileStruct) bool {
 	}
 	return (fs.Size == ca.Size) && (fs.Checksum == ca.Checksum)
 }
+func stringArrayEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i, v := range a {
+		if v != b[i] {
+			return false
+		}
+	}
+	return true
+}
+// FullEqual test two file structs to see if we consider them exactly equivalent
+func (fs FileStruct) FullEqual(ca FileStruct) bool {
+	return (fs.Size == ca.Size) && (fs.Checksum == ca.Checksum) && (fs.Mtime == ca.Mtime) && (fs.Name == ca.Name) && (fs.directory == ca.directory) && (stringArrayEqual(fs.BackupDest, ca.BackupDest)) && stringArrayEqual(fs.Tags, ca.Tags)
+}
 
 // NewFileStruct returns a populated file struct with
 // the file properties set as read from file
@@ -105,7 +119,7 @@ func (fs *FileStruct) FromStat(directory string, fn string, fsi os.FileInfo) (Fi
 	return *fs, nil
 }
 
-func (fs FileStruct) indexTag(tag string) int {
+func (fs FileStruct) indexBd(tag string) int {
 	for i, v := range fs.BackupDest {
 		if v == tag {
 			return i
@@ -114,14 +128,14 @@ func (fs FileStruct) indexTag(tag string) int {
 	return -1
 }
 
-// HasTag return true is the tag is already in ArchivedAt
-func (fs FileStruct) HasTag(tag string) bool {
-	return fs.indexTag(tag) >= 0
+// HasBd return true is the tag is already in ArchivedAt
+func (fs FileStruct) HasBd(tag string) bool {
+	return fs.indexBd(tag) >= 0
 }
 
 // Add a tag to the fs, return true if it was modified
-func (fs *FileStruct) AddTag(tag string) bool {
-	if fs.HasTag(tag) {
+func (fs *FileStruct) AddBd(tag string) bool {
+	if fs.HasBd(tag) {
 		return false
 	}
 	fs.BackupDest = append(fs.BackupDest, tag)
@@ -129,8 +143,8 @@ func (fs *FileStruct) AddTag(tag string) bool {
 }
 
 // Remove a tag from the fs, return true if it was modified
-func (fs *FileStruct) RemoveTag(tag string) bool {
-	index := fs.indexTag(tag)
+func (fs *FileStruct) RemoveBd(tag string) bool {
+	index := fs.indexBd(tag)
 	if index < 0 {
 		return false
 	}
@@ -155,8 +169,9 @@ func (fs FileStruct) Changed(info fs.FileInfo) (bool, error) {
 }
 
 // UpdateChecksum makes the tea
-func (fs *FileStruct) UpdateChecksum(forceUpdate bool, readCloserWrap func (r io.ReadCloser) io.ReadCloser) error {
+func (fs *FileStruct) UpdateChecksum(forceUpdate bool, readCloserWrap ReadCloserWrap) error {
 	if !forceUpdate && (fs.Checksum != "") {
+		// Return early if we don't need to update the checksum
 		return nil
 	}
 	cks, err := CalcMd5File(fs.directory, fs.Name, readCloserWrap)
@@ -173,8 +188,8 @@ func (fs *FileStruct) UpdateChecksum(forceUpdate bool, readCloserWrap func (r io
 }
 
 // ValidateChecksum checks if the checksum is correct
-func (fs *FileStruct) ValidateChecksum() error {
-	cks, err := CalcMd5File(fs.directory, fs.Name, nil)
+func (fs *FileStruct) ValidateChecksum(readCloserWrap ReadCloserWrap) error {
+	cks, err := CalcMd5File(fs.directory, fs.Name, readCloserWrap)
 	if err != nil {
 		return err
 	}

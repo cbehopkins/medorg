@@ -47,7 +47,6 @@ func isDir(fn string) bool {
 	return stat.IsDir()
 }
 
-
 func main() {
 	var directories []string
 
@@ -59,20 +58,18 @@ func main() {
 	var rclflg = flag.Bool("recalc", false, "Recalculate all checksums")
 	var valflg = flag.Bool("validate", false, "Validate all checksums")
 	var conflg = flag.Bool("conc", false, "Concentrate files together in same directory")
-    // var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
+	var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
 	var logFilePath = flag.String("logfile", "", "Path to log file")
 	flag.Parse()
-	
-	cpuprofilePath := "./cpu.prof"
-	var cpuprofile = &cpuprofilePath
+
 	if *cpuprofile != "" {
-        f, err := os.Create(*cpuprofile)
-        if err != nil {
-            log.Fatal(err)
-        }
-        pprof.StartCPUProfile(f)
-        defer pprof.StopCPUProfile()
-    }
+		f, err := os.Create(*cpuprofile)
+		if err != nil {
+			log.Fatal(err)
+		}
+		pprof.StartCPUProfile(f)
+		defer pprof.StopCPUProfile()
+	}
 
 	suppressProgressBars := false
 	// Set up signal handling for Ctrl+C
@@ -82,7 +79,7 @@ func main() {
 
 	go func() {
 		<-sigChan
-		fmt.Println("\nCtrl-C received, shutting down...")
+		log.Println("Ctrl-C received, shutting down...")
 		close(shutdownChan)
 	}()
 	///////////////////////////////////
@@ -111,17 +108,7 @@ func main() {
 	// Run AutoFix
 	var AF *medorg.AutoFix
 	if *rnmflg {
-		var xc *medorg.XMLCfg
-		if xmcf := medorg.XmConfig(); xmcf != "" {
-			// FIXME should we be casting to string here or fixing the interfaces?
-			xc = medorg.NewXMLCfg(string(xmcf))
-		} else {
-			fmt.Println("no config file found")
-			fn := filepath.Join(string(medorg.HomeDir()), medorg.Md5FileName)
-			xc = medorg.NewXMLCfg(fn)
-		}
-		AF = medorg.NewAutoFix(xc.Af)
-		AF.DeleteFiles = *delflg
+		AF = configAutofix(AF, *delflg)
 	}
 
 	///////////////////////////////////
@@ -143,20 +130,10 @@ func main() {
 	var dir_tracker *medorg.DirTracker
 	progBar := medorg.NewBarDirHandler(suppressProgressBars)
 	visitor := func(dm medorg.DirectoryMap, directory, file string, d fs.DirEntry) error {
-		select {
-        case <-shutdownChan:
-            return medorg.ErrShutdown
-        default:
-        }
 		if file == medorg.Md5FileName {
 			return nil
 		}
-		fc := func(fs *medorg.FileStruct) error {
-			select {
-			case <-shutdownChan:
-				return medorg.ErrShutdown
-			default:
-			}
+		fsBuilder := func(fs *medorg.FileStruct) error {
 			readCloserWrap := progBar.FileVisitor(dir_tracker, directory, file, dm)
 			info, err := d.Info()
 			if err != nil {
@@ -166,7 +143,6 @@ func main() {
 			if err != nil {
 				return err
 			}
-
 			if *scrubflg {
 				if len(fs.BackupDest) > 0 {
 					changed = true
@@ -175,8 +151,8 @@ func main() {
 			}
 			if *valflg {
 				<-tokenBuffer
-				defer func() { tokenBuffer <- struct{}{} }()
-				err = fs.ValidateChecksum()
+				err = fs.ValidateChecksum(readCloserWrap)
+				tokenBuffer <- struct{}{}
 				if errors.Is(err, medorg.ErrRecalced) {
 					fmt.Println("Had to recalculate a checksum", fs.Name)
 					return nil
@@ -190,15 +166,13 @@ func main() {
 			}
 
 			fs.FromStat(directory, file, info)
-			// Grab a compute token
-			<-tokenBuffer
-			defer func() { 
-				tokenBuffer <- struct{}{}
-			 }()
-			 select {
+			select {
 			case <-shutdownChan:
 				return medorg.ErrShutdown
-			default:
+			case <-tokenBuffer:
+				defer func() {
+					tokenBuffer <- struct{}{}
+				}()
 			}
 			err = fs.UpdateChecksum(*rclflg, readCloserWrap)
 			if errors.Is(err, medorg.ErrIOError) {
@@ -207,7 +181,7 @@ func main() {
 			}
 			return err
 		}
-		err := dm.RunFsFc(directory, file, fc)
+		err := dm.RunFsFc(directory, file, fsBuilder)
 		if err != nil {
 			return err
 		}
@@ -221,17 +195,7 @@ func main() {
 	}
 
 	makerFunc := func(dir string) (medorg.DirectoryTrackerInterface, error) {
-		select {
-        case <-shutdownChan:
-            return nil, medorg.ErrShutdown
-        default:
-        }
 		mkFk := func(dir string) (medorg.DirectoryEntryInterface, error) {
-			select {
-			case <-shutdownChan:
-				return nil,  medorg.ErrShutdown
-			default:
-			}
 			dm, err := medorg.DirectoryMapFromDir(dir)
 			if err != nil {
 				return dm, err
@@ -256,14 +220,15 @@ func main() {
 			log.Fatalf("Failed to resolve path: %v", err)
 		}
 		select {
-        case <-shutdownChan:
-            continue
-        default:
-        }
+		case <-shutdownChan:
+			continue
+		default:
+		}
 		if *conflg {
 			con = &medorg.Concentrator{BaseDir: dir}
 		}
 		dir_tracker = medorg.NewDirTracker(dir, makerFunc)
+		dir_tracker.ShutdownChan = shutdownChan
 		dir_tracker.PreserveStructs = false
 		dir_tracker.OpenDirectoryCallback = func(path string, de medorg.DirectoryTrackerInterface) {
 			progBar.OpenDir(path)
@@ -274,12 +239,29 @@ func main() {
 		errChan := dir_tracker.Start().ErrChan()
 
 		for err := range errChan {
-			if errors.Is(err, medorg.ErrShutdown) { continue}
+			if errors.Is(err, medorg.ErrShutdown) {
+				continue
+			}
 			fmt.Println("Error received while walking:", dir, err)
 			os.Exit(2)
 		}
 	}
 	fmt.Println("Finished walking")
+}
+
+func configAutofix(AF *medorg.AutoFix, delflg bool) *medorg.AutoFix {
+	var xc *medorg.XMLCfg
+	if xmcf := medorg.XmConfig(); xmcf != "" {
+
+		xc = medorg.NewXMLCfg(string(xmcf))
+	} else {
+		fmt.Println("no config file found")
+		fn := filepath.Join(string(medorg.HomeDir()), medorg.Md5FileName)
+		xc = medorg.NewXMLCfg(fn)
+	}
+	AF = medorg.NewAutoFix(xc.Af)
+	AF.DeleteFiles = delflg
+	return AF
 }
 
 func makeCalcTokens(calcCnt *int) chan struct{} {

@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
-	"time"
 )
 
 // Debug if true if we're debugging
@@ -100,9 +99,15 @@ func appendXML(directory string, fsA []FileStruct) {
 func ReturnChecksumString(h hash.Hash) string {
 	return base64.StdEncoding.WithPadding(base64.NoPadding).EncodeToString([]byte(h.Sum(nil)))
 }
-
+func getFileSize(filePath string) (int64, error) {
+    fileInfo, err := os.Stat(filePath)
+    if err != nil {
+        return 0, err
+    }
+    return fileInfo.Size(), nil
+}
 // CalcMd5File calculates the checksum for a specified filename
-func CalcMd5File(directory, fn string, readCloserWrap func (r io.ReadCloser) io.ReadCloser) (string, error) {
+func CalcMd5File(directory, fn string, readCloserWrap ReadCloserWrap) (string, error) {
 	fp := filepath.Join(directory, fn)
 	f, err := os.Open(fp)
 	if err != nil {
@@ -110,7 +115,11 @@ func CalcMd5File(directory, fn string, readCloserWrap func (r io.ReadCloser) io.
 	}
 	var fh io.ReadCloser
 	if readCloserWrap != nil {
-		fh = readCloserWrap(f)
+		fileSize, err := getFileSize(directory + "/" + fn)
+		if err != nil {
+			return "", err
+		}
+		fh = readCloserWrap(f, fileSize)
 	} else {
 		fh = f
 	}
@@ -125,131 +134,131 @@ func CalcMd5File(directory, fn string, readCloserWrap func (r io.ReadCloser) io.
 // Calculator is useful where we get streams of bytes in (e.g. from the network)
 // We expose an io.Writer
 // close the trigger chanel then wait for the writes to finish
-func Calculator(fp string) (iw io.Writer, trigger chan struct{}, wg *sync.WaitGroup) {
-	trigger = make(chan struct{})
-	wg = new(sync.WaitGroup)
-	iw = md5Calc(trigger, wg, fp)
-	return
-}
-func md5CalcInternal(h hash.Hash, wgl *sync.WaitGroup, fpl string, trigger chan struct{}) {
-	directory, fn := filepath.Split(fpl)
-	//FIXME error prop
-	dm, _ := DirectoryMapFromDir(directory)
-	completeCalc(trigger, directory, fn, h, dm)
-	// FIXME
-	_ = dm.Persist(directory)
-	wgl.Done()
-}
-func completeCalc(trigger chan struct{}, directory string, fn string, h hash.Hash, dm DirectoryMap) {
-	tr := logSlow("CompleteCalc" + fn)
-	<-trigger
-	defer close(tr)
-	fs, err := NewFileStruct(directory, fn)
-	if err != nil {
-		log.Fatal("Error in filename to calc", err)
-	}
-	fs.Checksum = ReturnChecksumString(h)
-	dm.Add(fs)
-}
+// func Calculator(fp string) (iw io.Writer, trigger chan struct{}, wg *sync.WaitGroup) {
+// 	trigger = make(chan struct{})
+// 	wg = new(sync.WaitGroup)
+// 	iw = md5Calc(trigger, wg, fp)
+// 	return
+// }
+// func md5CalcInternal(h hash.Hash, wgl *sync.WaitGroup, fpl string, trigger chan struct{}) {
+// 	directory, fn := filepath.Split(fpl)
+// 	//FIXME error prop
+// 	dm, _ := DirectoryMapFromDir(directory)
+// 	completeCalc(trigger, directory, fn, h, dm)
+// 	// FIXME
+// 	_ = dm.Persist(directory)
+// 	wgl.Done()
+// }
+// func completeCalc(trigger chan struct{}, directory string, fn string, h hash.Hash, dm DirectoryMap) {
+// 	tr := logSlow("CompleteCalc" + fn)
+// 	<-trigger
+// 	defer close(tr)
+// 	fs, err := NewFileStruct(directory, fn)
+// 	if err != nil {
+// 		log.Fatal("Error in filename to calc", err)
+// 	}
+// 	fs.Checksum = ReturnChecksumString(h)
+// 	dm.Add(fs)
+// }
 
 // CalcBuffer holds onto writing the directory until later
 // Intermittantly writes
-type CalcBuffer struct {
-	sync.Mutex
-	buff   map[string]*DirectoryMap
-	closer chan struct{}
-	wg     sync.WaitGroup
-}
+// type CalcBuffer struct {
+// 	sync.Mutex
+// 	buff   map[string]*DirectoryMap
+// 	closer chan struct{}
+// 	wg     sync.WaitGroup
+// }
 
-// NewCalcBuffer return a calc buffer
-func NewCalcBuffer() *CalcBuffer {
-	itm := new(CalcBuffer)
-	itm.closer = make(chan struct{})
-	itm.buff = make(map[string]*DirectoryMap)
-	return itm
-}
+// // NewCalcBuffer return a calc buffer
+// func NewCalcBuffer() *CalcBuffer {
+// 	itm := new(CalcBuffer)
+// 	itm.closer = make(chan struct{})
+// 	itm.buff = make(map[string]*DirectoryMap)
+// 	return itm
+// }
 
-// Close the calcbuffer and write everything out
-func (cb *CalcBuffer) Close() {
-	close(cb.closer)
-	cb.wg.Add(1)
-	cb.wg.Done()
-	cb.wg.Wait()
-	for dir, dm := range cb.buff {
-		// FIXME
-		_ = dm.Persist(dir)
-	}
-}
-func md5Calc(trigger chan struct{}, wg *sync.WaitGroup, fp string) (iw io.Writer) {
-	h := md5.New()
-	iw = io.Writer(h)
-	wg.Add(1)
-	go md5CalcInternal(h, wg, fp, trigger)
-	return
-}
+// // Close the calcbuffer and write everything out
+// func (cb *CalcBuffer) Close() {
+// 	close(cb.closer)
+// 	cb.wg.Add(1)
+// 	cb.wg.Done()
+// 	cb.wg.Wait()
+// 	for dir, dm := range cb.buff {
+// 		// FIXME
+// 		_ = dm.Persist(dir)
+// 	}
+// }
+// func md5Calc(trigger chan struct{}, wg *sync.WaitGroup, fp string) (iw io.Writer) {
+// 	h := md5.New()
+// 	iw = io.Writer(h)
+// 	wg.Add(1)
+// 	go md5CalcInternal(h, wg, fp, trigger)
+// 	return
+// }
 
 // Calculate the result for the supplied file path
-func (cb *CalcBuffer) Calculate(fp string) (iw io.Writer, trigger chan struct{}) {
-	trigger = make(chan struct{})
-	h := md5.New()
-	iw = io.Writer(h)
-	cb.wg.Add(1)
-	tr := logSlow("Calculate" + fp)
-	go func() {
-		cb.calcer(fp, h, trigger)
-		close(tr)
-		cb.wg.Done()
-	}()
-	return
-}
-func (cb *CalcBuffer) calcer(fp string, h hash.Hash, trigger chan struct{}) {
-	dm, dir, fn := cb.getFp(fp)
-	completeCalc(trigger, dir, fn, h, *dm)
-}
+// func (cb *CalcBuffer) Calculate(fp string) (iw io.Writer, trigger chan struct{}) {
+// 	trigger = make(chan struct{})
+// 	h := md5.New()
+// 	iw = io.Writer(h)
+// 	cb.wg.Add(1)
+// 	tr := logSlow("Calculate" + fp)
+// 	go func() {
+// 		cb.calcer(fp, h, trigger)
+// 		close(tr)
+// 		cb.wg.Done()
+// 	}()
+// 	return
+// }
+// func (cb *CalcBuffer) calcer(fp string, h hash.Hash, trigger chan struct{}) {
+// 	dm, dir, fn := cb.getFp(fp)
+// 	completeCalc(trigger, dir, fn, h, *dm)
+// }
 
-func (cb *CalcBuffer) getFp(fp string) (dm *DirectoryMap, dir, fn string) {
-	dir, fn = filepath.Split(fp)
-	dm = cb.getDir(dir)
-	return
-}
+// func (cb *CalcBuffer) getFp(fp string) (dm *DirectoryMap, dir, fn string) {
+// 	dir, fn = filepath.Split(fp)
+// 	dm = cb.getDir(dir)
+// 	return
+// }
 
 // getDir returns a (cached) DirectoryMap for the directory in question
-func (cb *CalcBuffer) getDir(dir string) (dm *DirectoryMap) {
-	var ok bool
-	cb.Lock()
-	dm, ok = cb.buff[dir]
-	cb.Unlock()
-	if ok {
-		return
-	}
+// func (cb *CalcBuffer) getDir(dir string) (dm *DirectoryMap) {
+// 	var ok bool
+// 	cb.Lock()
+// 	dm, ok = cb.buff[dir]
+// 	cb.Unlock()
+// 	if ok {
+// 		return
+// 	}
 
-	// FIXME error prop
-	dmL, _ := DirectoryMapFromDir(dir)
-	dm = &dmL
-	cb.Lock()
-	cb.buff[dir] = dm
-	cb.Unlock()
-	return
-}
+// 	// FIXME error prop
+// 	dmL, _ := DirectoryMapFromDir(dir)
+// 	dm = &dmL
+// 	cb.Lock()
+// 	cb.buff[dir] = dm
+// 	cb.Unlock()
+// 	return
+// }
 
-func logSlow(fn string) chan struct{} {
-	startTime := time.Now()
-	closeChan := make(chan struct{})
-	go func() {
-		if Debug {
-			log.Println("Started computing:\"", fn, "\"", " At:", startTime)
-			defer log.Println("Finished computing:\"", fn, "\"", " At:", time.Now())
-		}
-		for {
-			select {
-			case <-closeChan:
-				return
-			case <-time.After(time.Minute):
-				if Debug {
-					log.Println("Still Computing:\"", fn, "\"", " After:", time.Since(startTime))
-				}
-			}
-		}
-	}()
-	return closeChan
-}
+// func logSlow(fn string) chan struct{} {
+// 	startTime := time.Now()
+// 	closeChan := make(chan struct{})
+// 	go func() {
+// 		if Debug {
+// 			log.Println("Started computing:\"", fn, "\"", " At:", startTime)
+// 			defer log.Println("Finished computing:\"", fn, "\"", " At:", time.Now())
+// 		}
+// 		for {
+// 			select {
+// 			case <-closeChan:
+// 				return
+// 			case <-time.After(time.Minute):
+// 				if Debug {
+// 					log.Println("Still Computing:\"", fn, "\"", " After:", time.Since(startTime))
+// 				}
+// 			}
+// 		}
+// 	}()
+// 	return closeChan
+// }

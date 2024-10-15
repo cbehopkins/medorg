@@ -94,13 +94,13 @@ func (bdm *backupDupeMap) NewSrcVisitor(
 		}
 		if ok {
 			// Then mark in the source as already backed up
-			_ = fileStruct.AddTag(volumeName)
+			_ = fileStruct.AddBd(volumeName)
 		}
-		if !ok && fileStruct.HasTag(volumeName) {
+		if !ok && fileStruct.HasBd(volumeName) {
 			// FIXME add testcase for this
 			// The case where the file is not present at the dest
 			// but the tag says that it is
-			fileStruct.RemoveTag(volumeName)
+			fileStruct.RemoveBd(volumeName)
 		}
 
 		bdm.Add(fileStruct)
@@ -196,7 +196,7 @@ func extractCopyFiles(srcDir string, dt *DirTracker, volumeName string, register
 	var lk sync.Mutex
 	remainingFiles := fpathListList{}
 	visitFunc := func(dm DirectoryEntryInterface, dir, fn string, fileStruct FileStruct) error {
-		if fileStruct.HasTag(volumeName) {
+		if fileStruct.HasBd(volumeName) {
 			return nil
 		}
 		fp := NewFpath(dir, fn)
@@ -256,10 +256,10 @@ func doACopy(
 	if !ok {
 		return fmt.Errorf("%w: %s, \"%s\" \"%s\"", ErrMissingEntry, file, sd, basename)
 	}
-	_ = src.AddTag(backupLabelName)
+	_ = src.AddBd(backupLabelName)
 	dmSrc.Add(src)
 	dmSrc.Persist(srcDir)
-	_ = src.RemoveTag(backupLabelName)
+	_ = src.RemoveBd(backupLabelName)
 	// Update the destDir with the checksum from the srcDir
 	dmDst, err := DirectoryMapFromDir(destDir)
 	if err != nil {
