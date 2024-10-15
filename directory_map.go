@@ -27,17 +27,23 @@ type DirectoryMap struct {
 	mp    map[string]FileStruct
 	stale *bool
 	// We want to copy the DirectoryMap elsewhere
-	lock *sync.RWMutex
-
+	lock      *sync.RWMutex
+	tokenChan chan struct{}
 	VisitFunc func(dm DirectoryMap, directory, file string, d fs.DirEntry) error
 }
 
 // NewDirectoryMap creates a new dm
-func NewDirectoryMap() *DirectoryMap {
+func NewDirectoryMap(tokenChan chan struct{}) *DirectoryMap {
 	itm := new(DirectoryMap)
 	itm.mp = make(map[string]FileStruct)
 	itm.stale = new(bool)
 	itm.lock = new(sync.RWMutex)
+	itm.tokenChan = tokenChan
+	if tokenChan == nil {
+		// Make this an error at some point
+		itm.tokenChan = make(chan struct{}, 1)
+		itm.tokenChan <- struct{}{}
+	}
 	itm.VisitFunc = func(dm DirectoryMap, directory, file string, d fs.DirEntry) error {
 		return ErrUnimplementedVisitor
 	}
@@ -70,7 +76,7 @@ func (dm DirectoryMap) ToMd5File(dir string) (*Md5File, error) {
 	return &m5f, nil
 }
 
-// ToXML
+// ToXML returns the DirectoryMap as an xml structure
 func (dm DirectoryMap) ToXML(dir string) (output []byte, err error) {
 	m5f, err := dm.ToMd5File(dir)
 	if err != nil {
@@ -79,16 +85,20 @@ func (dm DirectoryMap) ToXML(dir string) (output []byte, err error) {
 	return xml.MarshalIndent(m5f, "", "  ")
 }
 
-// FromXML
+// FromXML reads in the xml structure to construct DirectoryMap/self
 func (dm *DirectoryMap) FromXML(input []byte) (dir string, err error) {
 	var m5f Md5File
 	err = xml.Unmarshal(input, &m5f)
 	if err != nil {
 		return "", err
 	}
+	dm.lock.Lock()
 	for _, val := range m5f.Files {
-		dm.Add(val)
+		dm.mp[val.Name] = val
 	}
+	// After a load from the file system., by definition we are not stale
+	*dm.stale = false
+	dm.lock.Unlock()
 	return m5f.Dir, nil
 }
 
@@ -99,8 +109,8 @@ func (dm DirectoryMap) Add(fs FileStruct) {
 	fn := fs.Name
 	val, ok := dm.mp[fn]
 	if ok && val.FullEqual(fs) {
-			return
-		}
+		return
+	}
 	dm.mp[fn] = fs
 	*dm.stale = true
 }
@@ -134,40 +144,25 @@ func (dm DirectoryMap) Get(fn string) (FileStruct, bool) {
 
 // DirectoryMapFromDir reads in the dirmap from the supplied dir
 // It does not check anything or compute anythiing
-func DirectoryMapFromDir(directory string) (dm DirectoryMap, err error) {
+func DirectoryMapFromDir(directory string, tokenChan chan struct{}) (dm DirectoryMap, err error) {
 	// Read in the xml structure to a map/array
-	dm = *NewDirectoryMap()
+	dm = *NewDirectoryMap(tokenChan)
 	if dm.mp == nil {
 		return dm, errors.New("initialize malfunction")
 	}
 	fn := filepath.Join(directory, Md5FileName)
-	var f *os.File
+	<-dm.tokenChan
 	_, err = os.Stat(fn)
-
 	if errors.Is(err, os.ErrNotExist) {
 		// The MD5 file not existing is not an error,
-		// as long as there are no files in the directory,
-		// or it is the first time we've gone into it
+		// as it may be the first time we've run
+		dm.tokenChan <- struct{}{}
 		return dm, nil
 	}
-	f, err = os.Open(fn)
-
+	err = dm.loadFromFile(fn, directory)
+	dm.tokenChan <- struct{}{}
 	if err != nil {
-		return dm, fmt.Errorf("%w error opening directory map file, %s/%s", err, directory, fn)
-	}
-	byteValue, err := ioutil.ReadAll(f)
-	if err != nil {
-		return
-	}
-	err = f.Close()
-	if err != nil {
-		return
-	}
-	_, err = dm.FromXML(byteValue)
-	err = supressXmlUnmarshallErrors(err)
-
-	if err != nil {
-		return dm, fmt.Errorf("FromXML error \"%w\" on %s", err, directory)
+		return dm, err
 	}
 
 	fc := func(fn string, fs FileStruct) (FileStruct, error) {
@@ -176,6 +171,29 @@ func DirectoryMapFromDir(directory string) (dm DirectoryMap, err error) {
 	}
 
 	return dm, dm.rangeMutate(fc)
+}
+
+func (dm DirectoryMap) loadFromFile(fn string, directory string) error {
+	f, err := os.Open(fn)
+
+	if err != nil {
+		return fmt.Errorf("%w error opening directory map file, %s/%s", err, directory, fn)
+	}
+	byteValue, err := ioutil.ReadAll(f)
+	if err != nil {
+		return err
+	}
+	err = f.Close()
+	if err != nil {
+		return err
+	}
+	_, err = dm.FromXML(byteValue)
+	err = supressXMLUnmarshallErrors(err)
+
+	if err != nil {
+		return fmt.Errorf("FromXML error \"%w\" on %s", err, directory)
+	}
+	return nil
 }
 
 // Stale returns true if the dm has been modified since writted
@@ -241,8 +259,11 @@ func (dm DirectoryMap) rangeMutate(fc func(string, FileStruct) (FileStruct, erro
 		fs, err := fc(fn, v)
 		switch err {
 		case nil:
+			if !dm.mp[fn].FullEqual(fs) {
+				*dm.stale = true
+			}
+			// We may be mutating things not in the full equality set
 			dm.mp[fn] = fs
-			*dm.stale = true
 		case errIgnoreThisMutate:
 		case errDeleteThisEntry:
 			// Have I been writing too much python if I think this is a good idea?
@@ -372,24 +393,28 @@ func (dm DirectoryMap) UpdateValues(directory string, d fs.DirEntry) error {
 	dm.Add(fs)
 	return nil
 }
+
+// Copy the DirectoryMap
 func (dm DirectoryMap) Copy() DirectoryEntryJournalableInterface {
-	cp := NewDirectoryMap()
+	cp := NewDirectoryMap(dm.tokenChan)
 	for k, v := range dm.mp {
 		cp.mp[k] = v
 	}
 	cp.VisitFunc = dm.VisitFunc
 	return cp
 }
-func (dm0 DirectoryMap) Equal(dm DirectoryEntryInterface) bool {
-	dm1 := dm.(*DirectoryMap)
-	dm0.lock.RLock()
-	defer dm0.lock.RUnlock()
+
+// Equal returns true if the two DirectoryMaps are the same
+func (dm DirectoryMap) Equal(dmx DirectoryEntryInterface) bool {
+	dm1 := dmx.(*DirectoryMap)
+	dm.lock.RLock()
+	defer dm.lock.RUnlock()
 	dm1.lock.RLock()
 	defer dm1.lock.RUnlock()
-	if len(dm0.mp) != len(dm1.mp) {
+	if len(dm.mp) != len(dm1.mp) {
 		return false
 	}
-	for k, v := range dm0.mp {
+	for k, v := range dm.mp {
 		v1, ok := dm1.mp[k]
 		if !ok {
 			return false
@@ -399,7 +424,7 @@ func (dm0 DirectoryMap) Equal(dm DirectoryEntryInterface) bool {
 		}
 	}
 	for k, v := range dm1.mp {
-		v1, ok := dm0.mp[k]
+		v1, ok := dm.mp[k]
 		if !ok {
 			return false
 		}
@@ -409,6 +434,9 @@ func (dm0 DirectoryMap) Equal(dm DirectoryEntryInterface) bool {
 	}
 	return true
 }
+
+// Revisit the directory Map with the supplied visitor
+// Only works if you ran previously with
 func (dm DirectoryMap) Revisit(dir string, visitor func(dm DirectoryEntryInterface, directory string, file string, fileStruct FileStruct) error) {
 	for path, fileStruct := range dm.mp {
 		_ = visitor(dm, dir, path, fileStruct)

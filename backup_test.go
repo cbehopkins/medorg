@@ -64,13 +64,13 @@ func recalcForTest(dm DirectoryMap, directory, fn string, d fs.DirEntry) error {
 func recalcTestDirectory(dir string) error {
 	makerFunc := func(dir string) (DirectoryTrackerInterface, error) {
 		mkFk := func(dir string) (DirectoryEntryInterface, error) {
-			dm, err := DirectoryMapFromDir(dir)
+			dm, err := DirectoryMapFromDir(dir, nil)
 			dm.VisitFunc = recalcForTest
 			return dm, err
 		}
 		return NewDirectoryEntry(dir, mkFk)
 	}
-	for err := range NewDirTracker(dir, makerFunc).Start().ErrChan() {
+	for err := range NewDirTracker(dir, makerFunc, nil).Start().ErrChan() {
 		return fmt.Errorf("Error received on closing:%w", err)
 	}
 	return nil
@@ -115,7 +115,7 @@ func TestDuplicateDetect(t *testing.T) {
 	// First we populate the src dir
 	makerFuncDest := func(dir string) (DirectoryTrackerInterface, error) {
 		mkFk := func(dir string) (DirectoryEntryInterface, error) {
-			dm, err := DirectoryMapFromDir(dir)
+			dm, err := DirectoryMapFromDir(dir, nil)
 			dm.VisitFunc = dstTm.aFile
 			return dm, err
 		}
@@ -123,17 +123,17 @@ func TestDuplicateDetect(t *testing.T) {
 	}
 	makerFuncSrc := func(dir string) (DirectoryTrackerInterface, error) {
 		mkFk := func(dir string) (DirectoryEntryInterface, error) {
-			dm, err := DirectoryMapFromDir(dir)
+			dm, err := DirectoryMapFromDir(dir, nil)
 			dm.VisitFunc = srcTm.aFile
 			return dm, err
 		}
 		return NewDirectoryEntry(dir, mkFk)
 	}
-	net := NewDirTracker(srcDir, makerFuncSrc).Start()
+	net := NewDirTracker(srcDir, makerFuncSrc, nil).Start()
 	for err := range net.ErrChan() {
 		t.Error("Error received on closing:", err)
 	}
-	for err := range NewDirTracker(destDir, makerFuncDest).Start().ErrChan() {
+	for err := range NewDirTracker(destDir, makerFuncDest, nil).Start().ErrChan() {
 		t.Error("Error received on closing:", err)
 	}
 	var lk sync.Mutex
@@ -198,13 +198,13 @@ func TestDuplicateArchivedAtPopulation(t *testing.T) {
 
 	makerFunc := func(dir string) (DirectoryTrackerInterface, error) {
 		mkFk := func(dir string) (DirectoryEntryInterface, error) {
-			dm, err := DirectoryMapFromDir(dir)
+			dm, err := DirectoryMapFromDir(dir, nil)
 			dm.VisitFunc = archiveWalkFunc
 			return dm, err
 		}
 		return NewDirectoryEntry(dir, mkFk)
 	}
-	for err := range NewDirTracker(dirs[0], makerFunc).Start().ErrChan() {
+	for err := range NewDirTracker(dirs[0], makerFunc, nil).Start().ErrChan() {
 		t.Error("Error received on closing:", err)
 	}
 
@@ -284,13 +284,13 @@ func TestBackupExtract(t *testing.T) {
 	}
 	makerFunc := func(dir string) (DirectoryTrackerInterface, error) {
 		mkFk := func(dir string) (DirectoryEntryInterface, error) {
-			dm, err := DirectoryMapFromDir(dir)
+			dm, err := DirectoryMapFromDir(dir, nil)
 			dm.VisitFunc = directoryWalker
 			return dm, err
 		}
 		return NewDirectoryEntry(dir, mkFk)
 	}
-	for err := range NewDirTracker(dirs[0], makerFunc).Start().ErrChan() {
+	for err := range NewDirTracker(dirs[0], makerFunc, nil).Start().ErrChan() {
 		t.Error("Error received on closing:", err)
 	}
 	dt := AutoVisitFilesInDirectories([]string{dirs[0]}, nil)
@@ -409,7 +409,7 @@ func TestBackupSrcHasDuplicateFiles(t *testing.T) {
 	if err != nil {
 		t.Error("Failed to copy test files", err)
 	}
-	numberOfDuplicates += 1 // We have just created a duplicate
+	numberOfDuplicates++ // We have just created a duplicate
 	t.Log("Created Test Directories:", dirs)
 	_ = recalcTestDirectory(dirs[0])
 	_ = recalcTestDirectory(dirs[1])
@@ -421,7 +421,7 @@ func TestBackupSrcHasDuplicateFiles(t *testing.T) {
 	// First we populate the src dir
 	makerFuncDest := func(dir string) (DirectoryTrackerInterface, error) {
 		mkFk := func(dir string) (DirectoryEntryInterface, error) {
-			dm, err := DirectoryMapFromDir(dir)
+			dm, err := DirectoryMapFromDir(dir, nil)
 			dm.VisitFunc = dstTm.aFile
 			return dm, err
 		}
@@ -429,16 +429,16 @@ func TestBackupSrcHasDuplicateFiles(t *testing.T) {
 	}
 	makerFuncSrc := func(dir string) (DirectoryTrackerInterface, error) {
 		mkFk := func(dir string) (DirectoryEntryInterface, error) {
-			dm, err := DirectoryMapFromDir(dir)
+			dm, err := DirectoryMapFromDir(dir, nil)
 			dm.VisitFunc = srcTm.aFile
 			return dm, err
 		}
 		return NewDirectoryEntry(dir, mkFk)
 	}
-	for err := range NewDirTracker(srcDir, makerFuncSrc).Start().ErrChan() {
+	for err := range NewDirTracker(srcDir, makerFuncSrc, nil).Start().ErrChan() {
 		t.Error("Error received on closing:", err)
 	}
-	for err := range NewDirTracker(destDir, makerFuncDest).Start().ErrChan() {
+	for err := range NewDirTracker(destDir, makerFuncDest, nil).Start().ErrChan() {
 		t.Error("Error received on closing:", err)
 	}
 	var lk sync.Mutex

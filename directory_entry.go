@@ -120,6 +120,8 @@ func (de DirectoryEntry) worker() {
 		}
 	}
 }
+
+// Revisit the directory with the visitor
 func (de DirectoryEntry) Revisit(dir string, visitor func(dm DirectoryEntryInterface, directory string, file string, fileStruct FileStruct) error) {
 	de.dm.Revisit(dir, visitor)
 }

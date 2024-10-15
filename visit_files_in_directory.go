@@ -6,7 +6,7 @@ import (
 	"sync"
 )
 
-// VisitFilesInDirectories: You should default to using this utility function where you can
+// VisitFilesInDirectories - You should default to using this utility function where you can
 // It's probably what you want!
 // You can supply a visitor and get the fileStruct associated with the file in question
 // Any changes you make to that will be reflected on disk
@@ -49,6 +49,7 @@ func errHandler(
 	return errChan
 }
 
+// AutoVisitFilesInDirectories visit the files in the directories
 func AutoVisitFilesInDirectories(
 	directories []string,
 	someVisitFunc func(dm DirectoryMap, dir, fn string, d fs.DirEntry, fileStruct FileStruct, fileInfo fs.FileInfo) error,
@@ -82,7 +83,7 @@ func AutoVisitFilesInDirectories(
 
 	makerFunc := func(dir string) (DirectoryTrackerInterface, error) {
 		mkFk := func(dir string) (DirectoryEntryInterface, error) {
-			dm, err := DirectoryMapFromDir(dir)
+			dm, err := DirectoryMapFromDir(dir, nil)
 			dm.VisitFunc = visitFunc
 			return dm, err
 		}
@@ -90,7 +91,7 @@ func AutoVisitFilesInDirectories(
 	}
 	retArray := make([]*DirTracker, len(directories))
 	for i, targetDir := range directories {
-		tmp := NewDirTracker(targetDir, makerFunc)
+		tmp := NewDirTracker(targetDir, makerFunc, nil)
 		tmp.PreserveStructs = true
 		retArray[i] = tmp.Start()
 	}

@@ -17,8 +17,6 @@ import (
 // Only used in TB at the moment
 var Debug bool
 
-type DirectoryMapMod func(DirectoryMap, string)
-
 // Md5FileName is the filename we use to save the data in
 const Md5FileName = ".medorg.xml"
 
@@ -79,7 +77,7 @@ func managerWorker(inputChan chan FileStruct, wg *sync.WaitGroup) {
 // appendXML - append items to the existing Xml File
 func appendXML(directory string, fsA []FileStruct) {
 	// FIXME error prop
-	dm, _ := DirectoryMapFromDir(directory)
+	dm, _ := DirectoryMapFromDir(directory, nil)
 
 	// Add in the items in the input
 	for _, fs := range fsA {
@@ -100,12 +98,13 @@ func ReturnChecksumString(h hash.Hash) string {
 	return base64.StdEncoding.WithPadding(base64.NoPadding).EncodeToString([]byte(h.Sum(nil)))
 }
 func getFileSize(filePath string) (int64, error) {
-    fileInfo, err := os.Stat(filePath)
-    if err != nil {
-        return 0, err
-    }
-    return fileInfo.Size(), nil
+	fileInfo, err := os.Stat(filePath)
+	if err != nil {
+		return 0, err
+	}
+	return fileInfo.Size(), nil
 }
+
 // CalcMd5File calculates the checksum for a specified filename
 func CalcMd5File(directory, fn string, readCloserWrap ReadCloserWrap) (string, error) {
 	fp := filepath.Join(directory, fn)

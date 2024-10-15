@@ -14,6 +14,7 @@ var ErrIncorrectFirstDirectory = errors.New("incorrect first")
 // ErrFirstDirNotSeen is returned when we visit a file before the first directory is visited
 var ErrFirstDirNotSeen = errors.New("not yet seen first concentrate dir")
 
+// Concentrator is a struct that will move all files to a single directory
 type Concentrator struct {
 	BaseDir string
 	dm      *DirectoryMap

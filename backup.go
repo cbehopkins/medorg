@@ -22,26 +22,27 @@ var errMissingCopyEntry = errors.New("copying a file without an entry")
 // ErrDummyCopy Return this from your copy function to skip the effects of copying on the md5 files
 var ErrDummyCopy = errors.New("not really copying, it's all good though")
 
-// Export of the generic IO error from syscall
+// ErrIOError convenience of the generic IO error from syscall
 var ErrIOError = syscall.Errno(5) // I don't like this, but don't know a better way
-// Export of no space left on device from syscall
+// ErrNoSpace convenience of no space left on device from syscall
 var ErrNoSpace = syscall.Errno(28)
 
-type backupKey struct {
+// BackupKey is a unique key for a file
+type BackupKey struct {
 	size     int64
 	checksum string
 }
 type backupDupeMap struct {
 	sync.Mutex
-	dupeMap map[backupKey]Fpath
+	dupeMap map[BackupKey]Fpath
 }
 
 // Add an entry to the map
 func (bdm *backupDupeMap) Add(fs FileStruct) {
-	key := backupKey{fs.Size, fs.Checksum}
+	key := BackupKey{fs.Size, fs.Checksum}
 	bdm.Lock()
 	if bdm.dupeMap == nil {
-		bdm.dupeMap = make(map[backupKey]Fpath)
+		bdm.dupeMap = make(map[BackupKey]Fpath)
 	}
 	bdm.dupeMap[key] = Fpath(fs.Path())
 	bdm.Unlock()
@@ -56,7 +57,7 @@ func (bdm *backupDupeMap) Len() int {
 }
 
 // Remove an entry from the dumap
-func (bdm *backupDupeMap) Remove(key backupKey) {
+func (bdm *backupDupeMap) Remove(key BackupKey) {
 	if bdm.dupeMap == nil {
 		return
 	}
@@ -66,7 +67,7 @@ func (bdm *backupDupeMap) Remove(key backupKey) {
 }
 
 // Get an item from the map
-func (bdm *backupDupeMap) Get(key backupKey) (Fpath, bool) {
+func (bdm *backupDupeMap) Get(key BackupKey) (Fpath, bool) {
 	if bdm.dupeMap == nil {
 		return "", false
 	}
@@ -213,6 +214,7 @@ func extractCopyFiles(srcDir string, dt *DirTracker, volumeName string, register
 	return remainingFiles, nil
 }
 
+// FileCopier is a function that copies a file from src to dst
 type FileCopier func(src, dst Fpath) error
 
 func doACopy(
@@ -248,7 +250,7 @@ func doACopy(
 	if err != nil {
 		return err
 	}
-	dmSrc, err := DirectoryMapFromDir(sd)
+	dmSrc, err := DirectoryMapFromDir(sd, nil)
 	if err != nil {
 		return err
 	}
@@ -261,7 +263,7 @@ func doACopy(
 	dmSrc.Persist(srcDir)
 	_ = src.RemoveBd(backupLabelName)
 	// Update the destDir with the checksum from the srcDir
-	dmDst, err := DirectoryMapFromDir(destDir)
+	dmDst, err := DirectoryMapFromDir(destDir, nil)
 	if err != nil {
 		return err
 	}
@@ -336,6 +338,7 @@ func doCopies(
 	return nil
 }
 
+// BackupRunner will backup files from srcDir to destDir
 func BackupRunner(
 	xc *XMLCfg,
 	maxNumBackups int,

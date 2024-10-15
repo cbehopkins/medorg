@@ -12,6 +12,8 @@ type Fpath string
 func (f Fpath) String() string {
 	return string(f)
 }
+
+// NewFpath creates a new Fpath
 func NewFpath(directory, fn string) Fpath {
 	return Fpath(filepath.Join(directory, fn))
 }

@@ -59,7 +59,7 @@ func main() {
 
 	makerFunc := func(dir string) (medorg.DirectoryTrackerInterface, error) {
 		mkFk := func(dir string) (medorg.DirectoryEntryInterface, error) {
-			dm, err := medorg.DirectoryMapFromDir(dir)
+			dm, err := medorg.DirectoryMapFromDir(dir, nil)
 			if err != nil {
 				return dm, err
 			}
@@ -88,7 +88,7 @@ func main() {
 	}
 	defer fh.Close()
 	for _, dir := range directories {
-		errChan := medorg.NewDirTracker(dir, makerFunc).Start().ErrChan()
+		errChan := medorg.NewDirTracker(dir, makerFunc, nil).Start().ErrChan()
 		for err := range errChan {
 			fmt.Println("Error received while walking:", dir, err)
 			os.Exit(2)

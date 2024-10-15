@@ -46,7 +46,9 @@ func NewXMLCfg(fn string) *XMLCfg {
 	}
 	return itm
 }
-func (xc *XMLCfg) WriteXmlCfg() error {
+
+// WriteXMLCfg writes the config to an xml file
+func (xc *XMLCfg) WriteXMLCfg() error {
 	data, err := xml.MarshalIndent(xc, "", "  ")
 	if err != nil {
 		return err
@@ -68,6 +70,8 @@ func (xc *XMLCfg) FromXML(input []byte) (err error) {
 	}
 	return
 }
+
+// HasLabel checks if a label exists
 func (xc *XMLCfg) HasLabel(label string) bool {
 	for _, v := range xc.VolumeLabels {
 		if label == v {
@@ -77,7 +81,7 @@ func (xc *XMLCfg) HasLabel(label string) bool {
 	return false
 }
 
-// Add a volume label
+// AddLabel Add a volume label
 // returns false if the label already exists
 func (xc *XMLCfg) AddLabel(label string) bool {
 	if xc.HasLabel(label) {

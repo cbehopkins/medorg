@@ -9,10 +9,16 @@ import (
 	"sync"
 	"sync/atomic"
 )
+
+// NumTrackerOutstanding is the number of outstanding directory trackers
 const NumTrackerOutstanding = 8
 
 var errorMissingDe = errors.New("missing de when evaluating directory")
+
+// ErrShutdown is returned when have caught a shutdown request
 var ErrShutdown = errors.New("shutdown")
+
+// DirectoryTrackerInterface is an interface for a directory entry
 type DirectoryTrackerInterface interface {
 	ErrChan() <-chan error
 	Start() error
@@ -40,6 +46,8 @@ func (f *finishedB) Clear() {
 	atomic.StoreUint32(&f.cnt, 0)
 }
 
+// DirTracker - a directory tracker
+// Walk a directory and track what you find
 type DirTracker struct {
 	directoryCountTotal   int64
 	directoryCountVisited int64
@@ -55,7 +63,7 @@ type DirTracker struct {
 	PreserveStructs        bool
 	OpenDirectoryCallback  func(string, DirectoryTrackerInterface)
 	CloseDirectoryCallback func(string, DirectoryTrackerInterface)
-	ShutdownChan		   <-chan struct{}
+	ShutdownChan           <-chan struct{}
 
 	finished finishedB
 }
@@ -68,26 +76,31 @@ func makeTokenChan(numOutsanding int) chan struct{} {
 	return tokenChan
 }
 
-
 // NewDirTracker does what it says
 // a dir tracker will walk the supplied directory
 // for each directory it finds on its walk it will create a newEntry
 // That new entry will then have its visitor called for each file in that directory
 // At some later time, we will then close the directory
 // There are no guaranetees about when this will happen
-func NewDirTracker(dir string, newEntry func(string) (DirectoryTrackerInterface, error)) *DirTracker {
-	numOutsanding := NumTrackerOutstanding // FIXME expose this
+func NewDirTracker(dir string, newEntry func(string) (DirectoryTrackerInterface, error), tokenChan chan struct{}) *DirTracker {
 	var dt DirTracker
 	dt.dir = dir
 	dt.dm = make(map[string]DirectoryTrackerInterface)
 	dt.newEntry = newEntry
-	dt.tokenChan = makeTokenChan(numOutsanding)
+	dt.tokenChan = tokenChan
 	dt.wg = new(sync.WaitGroup)
 	dt.errChan = make(chan error)
 	dt.finished.Clear()
 	return &dt
 }
+
+// Start - start the directory tracker
 func (dt *DirTracker) Start() *DirTracker {
+	shouldClose := false
+	if dt.tokenChan == nil {
+		dt.tokenChan = makeTokenChan(NumTrackerOutstanding)
+		shouldClose = true
+	}
 	dt.wg.Add(1) // add one for populateDircount
 	go dt.populateDircount(dt.dir)
 	go func() {
@@ -108,7 +121,9 @@ func (dt *DirTracker) Start() *DirTracker {
 		dt.finished.Set()
 		log.Println("Closing Dir Tracker ErrChan", dt.dir)
 		close(dt.errChan)
-		close(dt.tokenChan)
+		if shouldClose {
+			close(dt.tokenChan)
+		}
 	}()
 	return dt
 }
@@ -134,7 +149,7 @@ func (dt *DirTracker) Finished() bool {
 	return dt.finished.Get()
 }
 
-// Finished Channel - have we finished yet?
+// FinishedChan - have we finished yet? (as a channel)
 func (dt *DirTracker) FinishedChan() <-chan struct{} {
 	return dt.finished.fc
 }
@@ -190,12 +205,17 @@ func (dt *DirTracker) populateDircount(dir string) {
 		return
 	}
 }
-
+func (dt *DirTracker) isDir(d fs.DirEntry) bool {
+	<-dt.tokenChan
+	defer func() { dt.tokenChan <- struct{}{} }()
+	return d.IsDir()
+}
 func (dt *DirTracker) directoryWalkerPopulateDircount(path string, d fs.DirEntry, err error) error {
 	if err != nil {
 		return err
 	}
-	if d.IsDir() {
+
+	if dt.isDir(d) {
 		if isHiddenDirectory(path) {
 			return filepath.SkipDir
 		}
@@ -250,7 +270,7 @@ func (dt *DirTracker) directoryWalker(path string, d fs.DirEntry, err error) err
 		return ErrShutdown
 	default:
 	}
-	if d.IsDir() {
+	if dt.isDir(d) {
 		return dt.handleDirectory(path)
 	}
 	dir, file := filepath.Split(path)

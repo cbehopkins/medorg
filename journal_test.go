@@ -38,7 +38,7 @@ func populateDirectoryStuff(dirDepth, fileCnt int) directoryTestStuff {
 func directoryMapFromStuff(path string, dts *directoryTestStuff, deChan chan<- DirectoryEntry) error {
 
 	mkFk := func(path string) (DirectoryEntryInterface, error) {
-		dm := NewDirectoryMap()
+		dm := NewDirectoryMap(nil)
 		for _, fs := range dts.Files {
 			dm.mp[fs.Name] = fs
 		}

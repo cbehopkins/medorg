@@ -52,9 +52,11 @@ func (mdt mockDtType) VisitFile(dir, file string, d fs.DirEntry, callback func()
 	if mdt.visiter != nil {
 		mdt.visiter(dir, file)
 	}
-	callback()
+	if callback != nil {
+		callback()
+	}
 }
-func (dt mockDtType) Revisit(dir string, fileVisitor func(dm DirectoryEntryInterface, dir, fn string, fileStruct FileStruct) error) {
+func (mdt mockDtType) Revisit(dir string, fileVisitor func(dm DirectoryEntryInterface, dir, fn string, fileStruct FileStruct) error) {
 }
 
 func TestDirectoryTrackerAgainstMock(t *testing.T) {
@@ -91,7 +93,7 @@ func TestDirectoryTrackerAgainstMock(t *testing.T) {
 			makerFunc := func(dir string) (DirectoryTrackerInterface, error) {
 				return newMockDtType(), nil
 			}
-			errChan := NewDirTracker(root, makerFunc).Start().ErrChan()
+			errChan := NewDirTracker(root, makerFunc, nil).Start().ErrChan()
 			for err := range errChan {
 				t.Error(err)
 			}
@@ -162,7 +164,7 @@ func TestDirectoryTrackerSpawning(t *testing.T) {
 				mdt.visiter = visiter
 				return mdt, nil
 			}
-			errChan := NewDirTracker(root, makerFunc).Start().ErrChan()
+			errChan := NewDirTracker(root, makerFunc, nil).Start().ErrChan()
 			for err := range errChan {
 				t.Error(err)
 			}

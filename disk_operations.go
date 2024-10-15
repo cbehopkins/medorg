@@ -45,14 +45,14 @@ func FileExist(directory, fn string) bool {
 func MvFile(srcDir, srcFn, dstDir, dstFn string) error {
 	var srcDm, dstDm DirectoryMap
 	var err error
-	srcDm, err = DirectoryMapFromDir(srcDir)
+	srcDm, err = DirectoryMapFromDir(srcDir, nil)
 	if err != nil {
 		return err
 	}
 	if srcDir == dstDir {
 		dstDm = srcDm
 	} else {
-		dstDm, err = DirectoryMapFromDir(dstDir)
+		dstDm, err = DirectoryMapFromDir(dstDir, nil)
 		if err != nil {
 			return err
 		}
@@ -262,6 +262,7 @@ func XmConfig() Fpath {
 	return Fpath(fn)
 }
 
+// ConfigPath return the location of the xml config file, with default behaviour
 func ConfigPath(file string) string {
 	fn := filepath.Join(string(HomeDir()), "home", file)
 	if _, err := os.Stat(fn); os.IsNotExist(err) {

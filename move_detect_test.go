@@ -102,13 +102,13 @@ func checkChecksums(dm DirectoryMap, directory, fn string, d fs.DirEntry) error 
 func checkTestDirectoryChecksums(dir string) error {
 	makerFunc := func(dir string) (DirectoryTrackerInterface, error) {
 		mkFk := func(dir string) (DirectoryEntryInterface, error) {
-			dm, err := DirectoryMapFromDir(dir)
+			dm, err := DirectoryMapFromDir(dir, nil)
 			dm.VisitFunc = checkChecksums
 			return dm, err
 		}
 		return NewDirectoryEntry(dir, mkFk)
 	}
-	errChan := NewDirTracker(dir, makerFunc).Start().ErrChan()
+	errChan := NewDirTracker(dir, makerFunc, nil).Start().ErrChan()
 	for err := range errChan {
 		for range errChan {
 		}

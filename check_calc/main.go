@@ -125,8 +125,9 @@ func main() {
 	///////////////////////////////////
 	// Run the main walk
 	var con *medorg.Concentrator
-	tokenBuffer := makeCalcTokens(calcCnt)
-	defer close(tokenBuffer)
+	cpuTokens := makeCalcTokens(*calcCnt)
+	ioTokens := makeCalcTokens(16)
+	defer close(cpuTokens)
 	var dir_tracker *medorg.DirTracker
 	progBar := medorg.NewBarDirHandler(suppressProgressBars)
 	visitor := func(dm medorg.DirectoryMap, directory, file string, d fs.DirEntry) error {
@@ -135,7 +136,9 @@ func main() {
 		}
 		fsBuilder := func(fs *medorg.FileStruct) error {
 			readCloserWrap := progBar.FileVisitor(dir_tracker, directory, file, dm)
+			<-ioTokens
 			info, err := d.Info()
+			ioTokens <- struct{}{}
 			if err != nil {
 				return err
 			}
@@ -150,9 +153,9 @@ func main() {
 				}
 			}
 			if *valflg {
-				<-tokenBuffer
+				<-cpuTokens
 				err = fs.ValidateChecksum(readCloserWrap)
-				tokenBuffer <- struct{}{}
+				cpuTokens <- struct{}{}
 				if errors.Is(err, medorg.ErrRecalced) {
 					fmt.Println("Had to recalculate a checksum", fs.Name)
 					return nil
@@ -169,9 +172,9 @@ func main() {
 			select {
 			case <-shutdownChan:
 				return medorg.ErrShutdown
-			case <-tokenBuffer:
+			case <-cpuTokens:
 				defer func() {
-					tokenBuffer <- struct{}{}
+					cpuTokens <- struct{}{}
 				}()
 			}
 			err = fs.UpdateChecksum(*rclflg, readCloserWrap)
@@ -196,7 +199,7 @@ func main() {
 
 	makerFunc := func(dir string) (medorg.DirectoryTrackerInterface, error) {
 		mkFk := func(dir string) (medorg.DirectoryEntryInterface, error) {
-			dm, err := medorg.DirectoryMapFromDir(dir)
+			dm, err := medorg.DirectoryMapFromDir(dir, ioTokens)
 			if err != nil {
 				return dm, err
 			}
@@ -227,7 +230,7 @@ func main() {
 		if *conflg {
 			con = &medorg.Concentrator{BaseDir: dir}
 		}
-		dir_tracker = medorg.NewDirTracker(dir, makerFunc)
+		dir_tracker = medorg.NewDirTracker(dir, makerFunc, ioTokens)
 		dir_tracker.ShutdownChan = shutdownChan
 		dir_tracker.PreserveStructs = false
 		dir_tracker.OpenDirectoryCallback = func(path string, de medorg.DirectoryTrackerInterface) {
@@ -264,9 +267,9 @@ func configAutofix(AF *medorg.AutoFix, delflg bool) *medorg.AutoFix {
 	return AF
 }
 
-func makeCalcTokens(calcCnt *int) chan struct{} {
-	tokenBuffer := make(chan struct{}, *calcCnt)
-	for i := 0; i < *calcCnt; i++ {
+func makeCalcTokens(calcCnt int) chan struct{} {
+	tokenBuffer := make(chan struct{}, calcCnt)
+	for i := 0; i < calcCnt; i++ {
 		tokenBuffer <- struct{}{}
 	}
 	return tokenBuffer

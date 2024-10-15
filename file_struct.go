@@ -8,6 +8,7 @@ import (
 	"strings"
 )
 
+// ErrRecalced is raised if the file checksum has been recalculated
 var ErrRecalced = errors.New("File checksum has been recalculated")
 
 // FileStruct contains all the properties associated with a file
@@ -66,8 +67,8 @@ func (fs FileStruct) Path() Fpath {
 }
 
 // Key to use when indexing into map for comparisons
-func (fs FileStruct) Key() backupKey {
-	return backupKey{fs.Size, fs.Checksum}
+func (fs FileStruct) Key() BackupKey {
+	return BackupKey{fs.Size, fs.Checksum}
 }
 
 // Equal test two file structs to see if we consider them equivalent
@@ -88,9 +89,11 @@ func stringArrayEqual(a, b []string) bool {
 	}
 	return true
 }
+
 // FullEqual test two file structs to see if we consider them exactly equivalent
 func (fs FileStruct) FullEqual(ca FileStruct) bool {
-	return (fs.Size == ca.Size) && (fs.Checksum == ca.Checksum) && (fs.Mtime == ca.Mtime) && (fs.Name == ca.Name) && (fs.directory == ca.directory) && (stringArrayEqual(fs.BackupDest, ca.BackupDest)) && stringArrayEqual(fs.Tags, ca.Tags)
+	// Directory is intentionally excluded as it is not something that makes it into the xml
+	return (fs.Size == ca.Size) && (fs.Checksum == ca.Checksum) && (fs.Mtime == ca.Mtime) && (fs.Name == ca.Name) && (stringArrayEqual(fs.BackupDest, ca.BackupDest)) && stringArrayEqual(fs.Tags, ca.Tags)
 }
 
 // NewFileStruct returns a populated file struct with
@@ -133,7 +136,7 @@ func (fs FileStruct) HasBd(tag string) bool {
 	return fs.indexBd(tag) >= 0
 }
 
-// Add a tag to the fs, return true if it was modified
+// AddBd Add a tag to the fs, return true if it was modified
 func (fs *FileStruct) AddBd(tag string) bool {
 	if fs.HasBd(tag) {
 		return false
@@ -142,7 +145,7 @@ func (fs *FileStruct) AddBd(tag string) bool {
 	return true
 }
 
-// Remove a tag from the fs, return true if it was modified
+// RemoveBd Remove a tag from the fs, return true if it was modified
 func (fs *FileStruct) RemoveBd(tag string) bool {
 	index := fs.indexBd(tag)
 	if index < 0 {

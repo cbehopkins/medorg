@@ -61,8 +61,8 @@ func makeFile(directory string) string {
 func TestMd5(t *testing.T) {
 	// Check the MD5 creation mechanism
 
-	tmp_filename := makeFile(".")
-	defer os.Remove(tmp_filename) // clean up
+	tmpFilename := makeFile(".")
+	defer os.Remove(tmpFilename) // clean up
 
 	// So get us a channel to send the files to be md5'd to
 	// This returns 2 channels, one that files to be checked should be sent to
@@ -75,7 +75,7 @@ func TestMd5(t *testing.T) {
 	// In the final application this will be the only thing that can update the xml files
 	wg := newXMLManager(toUpdateXML)
 
-	toMd5Chan <- FileStruct{Name: tmp_filename, directory: "."}
+	toMd5Chan <- FileStruct{Name: tmpFilename, directory: "."}
 	log.Println("Sent the file to check")
 	close(toMd5Chan)
 	log.Println("Waiting for channel to close")
@@ -88,14 +88,14 @@ func TestSelfCompat(t *testing.T) {
 	fileToUse := "checksum_test.go"
 	_ = md5FileWrite(".", nil)
 
-	dm := *NewDirectoryMap()
+	dm := *NewDirectoryMap(nil)
 	toMd5Chan, toUpdateXML, closedChan := NewChannels()
 	wg := newXMLManager(toUpdateXML)
 	toMd5Chan <- FileStruct{Name: fileToUse, directory: "."}
 	close(toMd5Chan)
 	<-closedChan
 	wg.Wait()
-	dm, err := DirectoryMapFromDir(".")
+	dm, err := DirectoryMapFromDir(".", nil)
 	if err != nil {
 		t.Error(err)
 	}
@@ -126,7 +126,7 @@ func TestPerlCompat(t *testing.T) {
 	}
 	log.Println("Command Run")
 
-	dm, err := DirectoryMapFromDir(".")
+	dm, err := DirectoryMapFromDir(".", nil)
 	if err != nil {
 		t.Error(err)
 	}
@@ -139,14 +139,14 @@ func TestPerlCompat(t *testing.T) {
 		t.Error("Missing Checksum from perl version")
 	}
 	_ = os.Remove("./" + Md5FileName)
-	dm = *NewDirectoryMap()
+	dm = *NewDirectoryMap(nil)
 	toMd5Chan, toUpdateXML, closedChan := NewChannels()
 	wg := newXMLManager(toUpdateXML)
 	toMd5Chan <- FileStruct{Name: fileToUse, directory: "."}
 	close(toMd5Chan)
 	<-closedChan
 	wg.Wait()
-	dm, err = DirectoryMapFromDir(".")
+	dm, err = DirectoryMapFromDir(".", nil)
 	if err != nil {
 		t.Error(err)
 	}

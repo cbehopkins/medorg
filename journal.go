@@ -195,7 +195,7 @@ func (jo *Journal) FromReader(fd io.Reader) error {
 		jo.location = make(map[string]int)
 	}
 	fc := func(ip string) error {
-		de := NewDirectoryMap()
+		de := NewDirectoryMap(nil)
 		dir, err := de.FromXML([]byte(ip))
 		if err != nil {
 			return err
@@ -206,8 +206,9 @@ func (jo *Journal) FromReader(fd io.Reader) error {
 	return slupReadFunc(fd, fc)
 }
 
-func (jo0 Journal) Equals(jo1 Journal, missingFunc func(DirectoryEntryJournalableInterface, string) error) error {
-	if len(jo0.location) != len(jo1.location) {
+// Equals compares two journals, calling a function on missing entries
+func (jo Journal) Equals(jo1 Journal, missingFunc func(DirectoryEntryJournalableInterface, string) error) error {
+	if len(jo.location) != len(jo1.location) {
 		return errJournalValidLen
 	}
 	refJ := jo1
@@ -220,10 +221,10 @@ func (jo0 Journal) Equals(jo1 Journal, missingFunc func(DirectoryEntryJournalabl
 		}
 		return nil
 	}
-	err := jo0.Range(fc)
+	err := jo.Range(fc)
 	if err != nil {
 		return err
 	}
-	refJ = jo0
+	refJ = jo
 	return jo1.Range(fc)
 }

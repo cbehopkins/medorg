@@ -31,7 +31,7 @@ func (md *Md5File) append(fs FileStruct) {
 //		}
 //		return string(txt)
 //	}
-func supressXmlUnmarshallErrors(err error) error {
+func supressXMLUnmarshallErrors(err error) error {
 	xse := &xml.SyntaxError{}
 	switch true {
 	case err == nil:

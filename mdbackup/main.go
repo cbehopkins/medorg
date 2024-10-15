@@ -188,7 +188,7 @@ func main() {
 	}
 	defer func() {
 		fmt.Println("Saving out config")
-		err := xc.WriteXmlCfg()
+		err := xc.WriteXMLCfg()
 		if err != nil {
 			fmt.Println("Error while saving config file", err)
 		}

@@ -21,6 +21,7 @@ import (
 // Finally we need to update the user's master config file with a list of those we have historically picked
 // just so that we don't accidentally (very improbable) resuse the same label
 
+// VolumeCfg has the volume information
 type VolumeCfg struct {
 	XMLName struct{} `xml:"vol"`
 	Label   string   `xml:"label"`
@@ -126,6 +127,8 @@ func (vc VolumeCfg) Persist() error {
 	}
 	return nil
 }
+
+// GenerateNewVolumeLabel generate a new label for the volume
 func (vc *VolumeCfg) GenerateNewVolumeLabel(xc *XMLCfg) error {
 	for {
 		vc.Label = RandStringBytesMaskImprSrcSB(8)
