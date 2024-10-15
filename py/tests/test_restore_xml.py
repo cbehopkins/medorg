@@ -96,7 +96,7 @@ def test_restore_directory_to_xml():
 @pytest.mark.asyncio
 async def test_restore_context_to_xml():
     # Create a RestoreContext instance
-    restore_context = RestoreContext(bdsa=None)
+    restore_context = RestoreContext()
 
     # Manually build the file structure
     restore_directory = RestoreDirectory(name="src1")
@@ -253,7 +253,7 @@ async def test_restore_context_from_xml():
     restore_context = RestoreContext.from_element(element)
 
     # Expected RestoreContext instance
-    expected_restore_context = RestoreContext(bdsa=None)
+    expected_restore_context = RestoreContext()
     sub_directory = RestoreDirectory(name="dir1")
     sub_directory.add_file(
         RestoreFile(

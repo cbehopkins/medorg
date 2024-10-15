@@ -10,8 +10,8 @@ from unittest import mock
 import pytest
 from click.testing import CliRunner
 
-from medorg.bkp_p import XML_NAME
 from medorg.cli.medback import cli
+from medorg.common import XML_NAME
 from medorg.restore.structs import (RestoreContext, RestoreDirectory,
                                     RestoreFile)
 from medorg.volume_id.volume_id import VolumeIdSrc
@@ -218,6 +218,9 @@ def test_delete_src_files_between_backups(tmp_path: Path, example_files):
     for file in files_to_delete:
         file.unlink()
 
+    runner.invoke(cli, ["restore-stats", "--session-db", session_db])
+    assert result.exit_code == 0, f"target Error: {result.output}"
+
     runner.invoke(cli, ["update", "--session-db", session_db])
     assert result.exit_code == 0, f"target Error: {result.output}"
 
@@ -304,7 +307,7 @@ def restore_context_from_example_files(tmp_path, example_files) -> RestoreContex
             example_file.content,
             example_file.calculate_md5(),
         )
-    rc = RestoreContext(bdsa=None)
+    rc = RestoreContext()
     rc.file_structure["my_path"] = root_directory
     return rc
 

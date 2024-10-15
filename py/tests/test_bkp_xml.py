@@ -6,9 +6,9 @@ import pytest
 from aiopath import AsyncPath
 from lxml import etree
 
-from medorg.bkp_p import XML_NAME
 from medorg.bkp_p.async_bkp_xml import AsyncBkpXml, AsyncBkpXmlManager
 from medorg.bkp_p.backup_xml_walker import BackupXmlWalker
+from medorg.common import XML_NAME
 from medorg.common.bkp_file import BkpFile
 
 

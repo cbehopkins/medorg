@@ -205,7 +205,7 @@ async def test_build_file_structure(
             )
 
         # Create an instance of RestoreContext and build the file structure
-        restore_context = RestoreContext(db_session)
-        file_structure = await restore_context.build_file_structure()
+        restore_context = RestoreContext()
+        file_structure = await restore_context.build_file_structure(db_session)
     # And check it matches what we expect
     assert file_structure == reference_restore_context

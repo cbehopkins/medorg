@@ -183,6 +183,8 @@ async def test_query_missing_multi_dest(tmp_path):
         assert len(files) == 1
         files = await query_files_without_dest(db_session, my_other_dest)
         assert len(files) == 2
+        report = await db_session.count_files_by_backup_dest_length()
+        assert report == {1: 3, 2: 1}
 
 
 @pytest.mark.asyncio
@@ -345,9 +347,9 @@ async def test_dummy_bkp_source_files_deleted(tmp_path):
     db_handler = DatabaseHandler(tmp_path)
     await db_handler.create_session()
     # We a first backup run with some source files
-    my_source_files_0 = set(["file_0", "file_1", "file_2"])
+    my_source_files_0 = {"file_0", "file_1", "file_2"}
     # a second backup run with different files
-    my_source_files_1 = set(["file_1", "file_2", "file_3", "file_4", "file_5"])
+    my_source_files_1 = {"file_1", "file_2", "file_3", "file_4", "file_5"}
     # Note: file_0 missing
     missing_files = my_source_files_0 - my_source_files_1
     assert len(missing_files) == 1

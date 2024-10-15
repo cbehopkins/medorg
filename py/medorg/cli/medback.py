@@ -1,9 +1,13 @@
+from collections import defaultdict
 import os
 from pathlib import Path
 from typing import IO
 
 import click
 from aiopath import AsyncPath
+from rich.console import Console
+from rich.table import Table
+
 
 from medorg.bkp_p.async_bkp_xml import AsyncBkpXml, AsyncBkpXmlManager
 from medorg.bkp_p.backup_xml_walker import BackupXmlWalker
@@ -14,10 +18,27 @@ from medorg.cli.runners import (copy_best_files, create_update_db_file_entries,
                                 writeback_db_file_entries)
 from medorg.common.bkp_file import BkpFile
 from medorg.common.file_utils import async_copy_file
-from medorg.common.types import BackupSrc
+from medorg.common.types import BackupFile, BackupSrc
+
+
 from medorg.database.database_handler import DatabaseHandler
 from medorg.restore.structs import RestoreContext
 from medorg.volume_id.volume_id import VolumeIdSrc
+def bytes_to_human_readable(byte_count: int) -> str:
+    """Convert a byte count into a human-readable format (e.g., KiB, MiB, GiB).
+
+    Args:
+        byte_count (int): The number of bytes.
+
+    Returns:
+        str: The human-readable format of the byte count.
+    """
+    suffixes = ["B", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB", "ZiB", "YiB"]
+    i = 0
+    while byte_count >= 1024 and i < len(suffixes) - 1:
+        byte_count /= 1024.0
+        i += 1
+    return f"{byte_count:.2f} {suffixes[i]}"
 
 
 @click.group()
@@ -26,7 +47,86 @@ def cli():
     pass
 
 
-@cli.command()
+@click.command()
+@click.option(
+    "--session-db",
+    required=False,
+    type=click.Path(),
+    help="Path to the session database.",
+)
+@coro
+async def backup_stats(session_db: Path) -> None:
+    """Display backup statistics.
+    That is, how well are our source files backed up
+
+    Args:
+        session_db (Path): Path to the session database.
+    """
+    db_handler = DatabaseHandler(session_db)
+    console = Console()
+    await db_handler.create_session()
+
+    async with db_handler.session_scope() as db_session:
+        table = Table(title="Backup Statistics")
+        table.add_column(
+            "Number of Destinations", justify="right", style="cyan", no_wrap=True
+        )
+        table.add_column("File Count", justify="right", style="magenta")
+
+        backup_stats = db_session.count_files_by_backup_dest_length()
+        for num_destinations, dest_count in backup_stats.items():
+            table.add_row(str(num_destinations), str(dest_count))
+
+        console.print(table)
+        table = Table(title="Backup Statistics")
+        table.add_column(
+            "Number of Destinations", justify="right", style="cyan", no_wrap=True
+        )
+        table.add_column("Total Size (bytes)", justify="right", style="magenta")
+
+        backup_stats = db_session.size_files_by_backup_dest_length()
+        for num_destinations, total_size in backup_stats.items():
+            table.add_row(str(num_destinations), bytes_to_human_readable(total_size))
+
+        console.print(table)
+
+
+@click.command()
+@click.option(
+    "--session-db",
+    required=False,
+    type=click.Path(),
+    help="Path to the session database.",
+)
+@coro
+async def restore_stats(session_db: Path) -> None:
+    """Display restore statistics.
+
+    Args:
+        session_db (Path): Path to the session database.
+    """
+    console = Console()
+    db_handler = DatabaseHandler(session_db)
+    await db_handler.create_session()
+
+    async with db_handler.session_scope() as db_session:
+        missing_files_count = 0
+        table = Table(title="Backup Statistics")
+        dest_count_table = defaultdict(int)
+        async for file in db_session.missing_files():
+            missing_files_count += 1
+            for dest in file.backup_dest:
+                dest_count_table[dest.name] += 1
+
+    table.add_column("Destination", justify="right", style="cyan", no_wrap=True)
+    table.add_column("File Count", justify="right", style="magenta")
+    for dest, count in dest_count_table.items():
+        table.add_row(dest, str(count))
+    console.print(table)
+    console.print(f"Missing files: {missing_files_count}")
+
+
+@click.command()
 @click.option(
     "--session-db",
     required=False,
@@ -42,7 +142,8 @@ def cli():
 @coro
 async def populate(session_db: Path, target_dir: Path) -> None:
     """Populate the database with files from a target directory.
-
+    This uses the inforation we have restored from the Restore context
+    (Or what was already in the session file) to populate the files
 
     Args:
         session_db (Path): Path to the session database.
@@ -86,6 +187,8 @@ async def populate(session_db: Path, target_dir: Path) -> None:
 @coro
 async def add_restore_context(session_db: Path, restore_file: IO) -> None:
     """Add a restore context to the backup database.
+    A restore context contains the file structure of the files we have backed up
+    This command populates the database with what we expect to exist
 
     Args:
         session_db (Path): Path to the session database.
@@ -106,6 +209,36 @@ async def add_restore_context(session_db: Path, restore_file: IO) -> None:
         # Implement the logic to add the restore context
         await db_session.add_restore_context(restore_context)
         print(f"Restore context for {restore_file} added to the database.")
+
+
+@click.command()
+@click.option(
+    "--session-db",
+    required=False,
+    type=click.Path(),
+    help="Path to the session database.",
+)
+@click.option(
+    "--restore-file",
+    required=True,
+    type=click.Path(),
+    help="Path to restore File",
+)
+@coro
+async def write_restore_context(session_db: Path, restore_file: Path) -> None:
+    """Write a restore context from the backup database.
+
+    Args:
+        session_db (Path): Path to the session database.
+        restore_file (Path): Path to file to write the restore context to.
+    """
+
+    db_handler = DatabaseHandler(session_db)
+    await db_handler.create_session()
+    async with db_handler.session_scope() as db_session:
+        restore_context = RestoreContext()
+        await restore_context.build_file_structure(db_session)
+        restore_file.write_text(restore_context.to_xml_string())
 
 
 @click.command()
@@ -172,26 +305,19 @@ async def discover(session_db: Path | None, target_dir: Path) -> None:
     type=click.Path(),
     help="Directory path to backup to.",
 )
-@click.option(
-    "--initialised",
-    is_flag=True,
-    help="The destination directory is expected to be initialised.",
-)
 @coro
-async def target(
-    session_db: Path | None, target_dir: Path, initialised: bool = False
-) -> None:
+async def target(session_db: Path | None, target_dir: Path) -> None:
     """target a destination for backup
+    Run this command after populating the database with files
+    to copy the files to the destination
 
     Args:
         session_db (Path): Path to the session database.
         target_dir (Path): Directory path to backup to.
-        initialised (bool): If true, the destination directory is expected to be initialised.
     """
     if not target_dir.exists():
         raise click.ClickException(f"{target_dir} does not exist")
 
-    # FIXME make use of initialised
     vid_awaitable = VolumeIdSrc(target_dir).avolume_id
     db_handler = DatabaseHandler(session_db)
     await db_handler.create_session()
@@ -257,9 +383,11 @@ async def add_src(session_db: Path | None, src_dir: Path) -> None:
         for src in await db_session.aquery_generator(BackupSrc):
             print(f"{src.path=} exists")
 
-
+cli.add_command(backup_stats)
+cli.add_command(restore_stats)
 cli.add_command(populate)
 cli.add_command(add_restore_context)
+cli.add_command(write_restore_context)
 cli.add_command(discover)
 cli.add_command(target)
 cli.add_command(update)

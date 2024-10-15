@@ -1,11 +1,12 @@
 import asyncio
+from collections import Counter, defaultdict
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Iterable, Sequence
+from typing import Any, AsyncGenerator, Awaitable, Callable, Iterable, Sequence
 
 from aiopath import AsyncPath
-from sqlalchemy import desc, select
+from sqlalchemy import desc, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.expression import BinaryExpression, Select, and_
 
@@ -192,6 +193,42 @@ class Bdsa(AsyncSessionWrapper):
             ~BackupFile.backup_dest.any(BackupDest.name == dest_name),
             order_by=desc(BackupFile.size),
         )
+
+    async def missing_files(self) -> AsyncGenerator[BackupFile, None]:
+        file: BackupFile
+        for file in await self.aquery_generator(BackupFile):
+            file_path = AsyncPath(file.src_path) / file.filename
+            if not await file_path.exists():
+                yield file
+
+    async def count_files_by_backup_dest_length(self) -> dict[int, int]:
+        """Count the number of files grouped by the length of their backup_dest field.
+
+        Returns:
+            dict[int, int]: A dictionary where the key is the length of the backup_dest field,
+                            and the value is the number of files with that length.
+        """
+        async with self._lock:
+            result = await self.session.execute(select(BackupFile))
+        lengths = (len(bkp_file.backup_dest) for bkp_file in result.unique().scalars())
+
+        return dict(Counter(lengths))
+
+    async def size_files_by_backup_dest_length(self) -> dict[int, int]:
+        """Count the number of files grouped by the length of their backup_dest field.
+
+        Returns:
+            dict[int, int]: A dictionary where the key is the number of destinations backed up to,
+                            and the value is the total size of files with that number of destinations.
+        """
+        async with self._lock:
+            result = await self.session.execute(select(BackupFile))
+
+        size_by_length = defaultdict(int)
+        for bkp_file in bkp_file in result.unique().scalars():
+            length = len(bkp_file.backup_dest)
+            size_by_length[length] += bkp_file.size
+        return size_by_length
 
     async def update_file(self, src_file: BkpFile, src_dir: AsyncPath) -> BackupFile:
         """Update the database with the specified BkpFile Object

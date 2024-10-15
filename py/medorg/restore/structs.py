@@ -102,12 +102,12 @@ class RestoreDirectory:
 class RestoreContext:
     # FIXME define a bdsa protocol
     # FIXME add __str__ and __repr__ methods
-    def __init__(self, bdsa: Any):
-        self.bdsa = bdsa  # FIXME this shoould not be part of the class - it should be passed into build_file_structure
+    def __init__(self):
+        # self.bdsa = bdsa  # FIXME this shoould not be part of the class - it should be passed into build_file_structure
         self.file_structure: dict[str, RestoreDirectory] = {}
 
-    async def build_file_structure(self) -> dict[str, RestoreDirectory]:
-        for backup_file in await self.bdsa.aquery_generator(BackupFile):
+    async def build_file_structure(self, bdsa: Any) -> dict[str, RestoreDirectory]:
+        for backup_file in await bdsa.aquery_generator(BackupFile):
             src_path = backup_file.src_path
             path = Path(backup_file.filename)
             parts = list(path.parts)
@@ -154,7 +154,7 @@ class RestoreContext:
 
     @staticmethod
     def from_element(element: etree.Element) -> "RestoreContext":
-        context = RestoreContext(bdsa=None)  # bdsa is not needed for from_xml
+        context = RestoreContext()  # bdsa is not needed for from_xml
         for rc_element in element.findall("rc"):
             src_path = rc_element.get("src_path")
             rc = RestoreDirectory(name=src_path)

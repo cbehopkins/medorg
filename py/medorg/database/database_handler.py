@@ -43,7 +43,7 @@ class DatabaseHandler:
     @property
     async def db_path(self) -> AsyncPath:
         if self.db_directory is None:
-            self.db_directory = AsyncPath.home() / ".bkp_base"
+            self.db_directory = await AsyncPath.home() / ".bkp_base"
         else:
             self.db_directory = AsyncPath(self.db_directory)
 

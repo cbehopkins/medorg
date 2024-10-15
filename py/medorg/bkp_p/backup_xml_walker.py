@@ -6,7 +6,7 @@ from typing import AsyncIterable, Awaitable, Callable, Iterator, Optional
 
 from aiopath import AsyncPath
 
-from medorg.bkp_p import XML_NAME
+from medorg.common import RESERVED_NAMES, XML_NAME
 
 from .async_bkp_xml import AsyncBkpXml, AsyncBkpXmlManager
 
@@ -65,8 +65,9 @@ class BackupXmlWalker(AsyncBkpXmlManager):
             return (entry, stat_result_i)
 
         async for entry in entries:
-            if entry.name == XML_NAME:
-                xml_file = entry
+            if entry.name in RESERVED_NAMES:
+                if entry.name == XML_NAME:
+                    xml_file = entry
                 continue
             the_list.append(append_task(entry))
         entry_stats = asyncio.as_completed(the_list)

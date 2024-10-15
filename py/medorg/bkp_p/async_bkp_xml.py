@@ -8,10 +8,9 @@ from xml.sax.saxutils import escape
 from aiopath import AsyncPath
 from lxml import etree
 
+from medorg.common import XML_NAME
 from medorg.common.bkp_file import BkpFile
 from medorg.common.checksum import async_calculate_md5
-
-from . import XML_NAME
 
 _log = logging.getLogger(__name__)
 

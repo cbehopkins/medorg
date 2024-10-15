@@ -15,7 +15,7 @@ from tests.database_helpers import query_all_files
 
 @pytest.fixture
 def restore_context() -> RestoreContext:
-    restore_context = RestoreContext(bdsa=None)
+    restore_context = RestoreContext()
     restore_directory1 = RestoreDirectory("src1")
     restore_directory2 = RestoreDirectory("src2")
 
