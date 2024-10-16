@@ -53,7 +53,7 @@ def test_example_xml(tmp_path):
     """
     )
     axml = AsyncBkpXml(path=tmp_path)
-    axml.root = axml._root_from_string(example)
+    axml.root = axml._tree_from_string(example)
     axml._validate_xml(axml.root)
     assert axml["file1.txt"].size == 100
     assert axml["file1.txt"].bkp_dests == {

@@ -170,14 +170,15 @@ class AsyncBkpXml:
     async def _root_from_file_path(self):
         try:
             result: str = await self.xml_path.read_text()
-            root = self._root_from_string(result)
+            root = self._tree_from_string(result)
             self._validate_xml(root)
+            self._validate_values(root)
             return root
         except Exception as e:
             _log.error(f"Failed to read XML from {self.xml_path}: {e}")
             return etree.Element("dr")
 
-    def _root_from_string(self, xml_str: str):
+    def _tree_from_string(self, xml_str: str):
         try:
             tree = etree.XML(xml_str, self.parser)
             assert tree is not None
@@ -193,6 +194,15 @@ class AsyncBkpXml:
             log_msg = f"XML validation error: {self.path}::{self.schema.error_log}"
             _log.error(log_msg)
             raise AsyncBkpXmlError(log_msg)
+
+    def _validate_values(self, root):
+        for file in root.findall(".//fr"):
+            if (
+                (not file.attrib["mtime"])
+                or (file.attrib["size"] is None)
+                or (not file.attrib["checksum"])
+            ):
+                raise AsyncBkpXmlError(f"Missing values in {self.xml_path}::{file}")
 
     def _lkup_elem(self, key: str) -> etree.Element:
         escaped_key = escape(key)

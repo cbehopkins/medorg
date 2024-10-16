@@ -360,7 +360,8 @@ async def test_dummy_bkp_source_files_deleted(tmp_path):
             name=file_path.name,
             file_path=file_path,
             size=0,
-            mtime=0,
+            mtime=1,
+            md5="some string",
         )
 
     # Okay, pass 1!

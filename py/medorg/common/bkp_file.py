@@ -26,6 +26,7 @@ class BkpFile:
         file_elem.set("mtime", str(self.mtime))
         file_elem.set("size", str(self.size))
         if not self.md5:
+            self.file_path = Path(self.file_path)
             if not self.file_path.is_file():
                 raise FileNotFoundError(f"File {self.file_path} not found")
             self.md5 = calculate_md5(str(self.file_path))

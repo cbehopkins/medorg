@@ -21,7 +21,11 @@ async def async_copy():
 
 async def async_copy_file(src: AsyncPath, dest: AsyncPath):
     # FIXME find an awaitable version of this
-    shutil.copy2(str(src), str(dest))
+    try:
+        shutil.copy2(str(src), str(dest))
+    except Exception as e:
+        print(e)
+        raise
 
 
 def path_from_dirs(dirs, file):

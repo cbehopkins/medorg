@@ -150,6 +150,9 @@ async def _backup_file(
     file_entry: BackupFile,
     bkp_xmls: AsyncBkpXmlManager,
 ):
+    if not await src_file_path.is_file():
+        _log.error(f"File {src_file_path} not found in _backup_file")
+        return
     assert (
         not file_entry.visited
     ), "When backing up the file, it should not have been visited already"
@@ -189,6 +192,8 @@ async def _backup_file(
         return
     assert current_file_data_dest.mtime != "None"
     assert current_file_data_dest.size != "None"
+    assert current_file_data_dest.mtime is not None
+    assert current_file_data_dest.size is not None
     bkp_xml_dest[dest_file_path.name] = current_file_data_dest
     # Backup successful, update the visited flag
     file_entry.visited = 1
