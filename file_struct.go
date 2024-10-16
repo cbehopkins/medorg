@@ -17,7 +17,7 @@ type FileStruct struct {
 	Checksum string `xml:"checksum,attr"`
 
 	Mtime      int64    `xml:"mtime,attr,omitempty"`
-	Size       int64    `xml:"size,attr,omitempty"`
+	Size       int64    `xml:"size,attr"`
 	Tags       []string `xml:"tag,omitempty"`
 	BackupDest []string `xml:"bd,omitempty"`
 }
