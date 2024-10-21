@@ -425,7 +425,9 @@ async def update(session_db: Path | None) -> None:
         # This will query the the database for the source directories
         # Then for each source directory, it will scan the directory for changes
         # creating/updating the .xml files for the changes
-        src_list = [str(src.path) for src in await db_session.aquery_generator(BackupSrc)]
+        src_list = [
+            str(src.path) for src in await db_session.aquery_generator(BackupSrc)
+        ]
         # Yes I know - but the query can timeout
         # Which then causes sqlalchemy.exc.MissingGreenlet
         # So fetch the useful data from the query first
