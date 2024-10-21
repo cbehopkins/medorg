@@ -4,8 +4,7 @@ import pytest
 
 from medorg.common.bkp_file import BkpFile
 from medorg.database.database_handler import DatabaseHandler
-from medorg.restore.structs import (RestoreContext, RestoreDirectory,
-                                    RestoreFile)
+from medorg.restore.structs import RestoreContext, RestoreDirectory, RestoreFile
 from tests.database_helpers import add_file
 
 

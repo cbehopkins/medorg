@@ -6,13 +6,18 @@ from pathlib import Path
 from typing import Any, AsyncGenerator, Awaitable, Callable, Iterable, Sequence
 
 from aiopath import AsyncPath
-from sqlalchemy import desc, select, func
+from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.expression import BinaryExpression, Select, and_
 
 from medorg.common.bkp_file import BkpFile
-from medorg.common.types import (BackupDest, BackupFile, BackupSrc,
-                                 DatabaseBase, VolumeId)
+from medorg.common.types import (
+    BackupDest,
+    BackupFile,
+    BackupSrc,
+    DatabaseBase,
+    VolumeId,
+)
 from medorg.restore.structs import RestoreContext, RestoreDirectory
 
 _log = logging.getLogger(__name__)
@@ -91,6 +96,7 @@ class AsyncSessionWrapper:
             tasks.append(task)
         results = await asyncio.gather(*tasks)
         return results
+
     # For test mocking
     def _session_add(self, obj: DatabaseBase):
         self.session.add(obj)
@@ -98,6 +104,10 @@ class AsyncSessionWrapper:
     async def add(self, obj: DatabaseBase):
         async with self._lock:
             self._session_add(obj)
+            await self.session.commit()
+
+    async def commit(self):
+        async with self._lock:
             await self.session.commit()
 
     async def filter(

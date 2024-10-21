@@ -12,8 +12,7 @@ from click.testing import CliRunner
 
 from medorg.cli.medback import cli
 from medorg.common import XML_NAME
-from medorg.restore.structs import (RestoreContext, RestoreDirectory,
-                                    RestoreFile)
+from medorg.restore.structs import RestoreContext, RestoreDirectory, RestoreFile
 from medorg.volume_id.volume_id import VolumeIdSrc
 
 
@@ -33,6 +32,7 @@ class ExampleFile:
         if len(tmp) == 24 and tmp[22:24] == b"==":
             return tmp[:22].decode("utf-8")
         return tmp.decode("utf-8")
+
 
 TestFiles = tuple[list[ExampleFile], set[Path]]
 
@@ -73,7 +73,7 @@ def test_cli_add_src_update(tmp_path: Path, example_files: TestFiles) -> None:
     for dir_ in subdirs:
         result = runner.invoke(
             cli,
-            ["add-src", "--session-db", session_db, "--src-dir", str(tmp_path / dir_)],
+            ["add-src", "--session-db", session_db, str(tmp_path / dir_)],
         )
         assert result.exit_code == 0, f"Error: {result.output}"
     result = runner.invoke(cli, ["update", "--session-db", session_db])
@@ -128,7 +128,7 @@ def test_target_discovery(tmp_path: Path, example_files: TestFiles) -> None:
     for dir_ in subdirs:
         result = runner.invoke(
             cli,
-            ["add-src", "--session-db", session_db, "--src-dir", str(tmp_path / dir_)],
+            ["add-src", "--session-db", session_db, str(tmp_path / dir_)],
         )
         assert result.exit_code == 0, f"Error: {result.output}"
     result = runner.invoke(cli, ["update", "--session-db", session_db])
@@ -167,7 +167,7 @@ def test_target_backup_some_files(mock_copy, tmp_path: Path, example_files) -> N
     for dir_ in subdirs:
         result = runner.invoke(
             cli,
-            ["add-src", "--session-db", session_db, "--src-dir", str(tmp_path / dir_)],
+            ["add-src", "--session-db", session_db, str(tmp_path / dir_)],
         )
         assert result.exit_code == 0, f"add-src Error: {result.output}"
     result = runner.invoke(cli, ["update", "--session-db", session_db])
@@ -204,7 +204,7 @@ def test_delete_src_files_between_backups(tmp_path: Path, example_files):
     for dir_ in subdirs:
         result = runner.invoke(
             cli,
-            ["add-src", "--session-db", session_db, "--src-dir", str(tmp_path / dir_)],
+            ["add-src", "--session-db", session_db, str(tmp_path / dir_)],
         )
         assert result.exit_code == 0, f"target Error: {result.output}"
     result = runner.invoke(cli, ["update", "--session-db", session_db])
@@ -243,7 +243,7 @@ def test_create_new_files_in_source(tmp_path: Path, example_files):
     for dir_ in subdirs:
         result = runner.invoke(
             cli,
-            ["add-src", "--session-db", session_db, "--src-dir", str(tmp_path / dir_)],
+            ["add-src", "--session-db", session_db, str(tmp_path / dir_)],
         )
         assert result.exit_code == 0, f"add-src Error: {result.output}"
     result = runner.invoke(cli, ["update", "--session-db", session_db])

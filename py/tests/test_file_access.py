@@ -13,10 +13,13 @@ from lxml import etree
 
 from medorg.bkp_p.async_bkp_xml import AsyncBkpXml
 from medorg.bkp_p.backup_xml_walker import BackupXmlWalker
-from medorg.cli.runners import (backup_files, create_update_db_file_entries,
-                                remove_unvisited_files_from_database,
-                                update_source_directory_entries,
-                                writeback_db_file_entries)
+from medorg.cli.runners import (
+    backup_files,
+    create_update_db_file_entries,
+    remove_unvisited_files_from_database,
+    update_source_directory_entries,
+    writeback_db_file_entries,
+)
 from medorg.common import XML_NAME
 from medorg.common.async_walker import walk
 from medorg.common.bkp_file import BkpFile, calculate_md5

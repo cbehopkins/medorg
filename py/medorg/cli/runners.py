@@ -1,5 +1,4 @@
 import asyncio
-import datetime
 import logging
 import os
 from copy import copy
@@ -45,10 +44,18 @@ async def create_update_db_file_entries(
     ):
         bkp_file: BkpFile = bkp_xml[entry.name]
         backup_file: BackupFile = await session.update_file(bkp_file, src_dir=src_dir_i)
+        if not backup_file.md5_hash:
+            msg = f"Missing md5 hash {backup_file}"
+            _log.error(msg)
+            raise RuntimeError(msg)
+        if not backup_file.timestamp:
+            msg = f"Missing timestamp {backup_file}"
+            _log.error(msg)
+            raise RuntimeError(msg)
         backup_file.visited = 1
 
     walker = BackupXmlWalker(src_dir_i)
-    await walker.go_walk(walker=my_walker)
+    await walker.go_walk(walker=my_walker, on_dir_close=session.commit)
 
 
 async def remove_unvisited_files_from_database(session: Bdsa):

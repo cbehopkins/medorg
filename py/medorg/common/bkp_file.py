@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+import os
 from pathlib import Path
 from typing import Self
 
@@ -14,12 +15,21 @@ class BkpFile:
     """This is our representation of a file in our XML_FILE
     You know the one we have one per directory.
     """
+
     name: str = None
     file_path: Path = None
     size: int = None
     mtime: int = None
     md5: Checksum = ""
     bkp_dests: set[VolumeId] = field(default_factory=set)
+
+    def to_xml(self) -> str:
+        file_elem = etree.Element()
+        self.update_file_elem(file_elem)
+        return etree.tounicode(file_elem, pretty_print=True)
+
+    def update_stat_result(self, stat_result_i: os.stat_result):
+        current_size = stat_result_i.st_size
 
     def update_file_elem(self, file_elem: etree.Element) -> Self:
         file_elem.set("fname", str(self.name))

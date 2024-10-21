@@ -42,6 +42,7 @@ class Counter:
         async with self._condition:
             await self._condition.wait_for(lambda: self._value == 0)
 
+
 BKP_XML_SCHEMA = """
     <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
         <!-- Define a complex type for the bd element -->
@@ -107,6 +108,7 @@ class AsyncBkpXml:
 
     @staticmethod
     def _same_stats(cand: BkpFile, sr: stat_result):
+        # sourcery skip: assign-if-exp, boolean-if-exp-identity, reintroduce-else, remove-unnecessary-cast
         if cand.mtime != int(sr.st_mtime):
             return False
         if cand.size != sr.st_size:
@@ -205,7 +207,7 @@ class AsyncBkpXml:
                 raise AsyncBkpXmlError(f"Missing values in {self.xml_path}::{file}")
 
     def _lkup_elem(self, key: str) -> etree.Element:
-        escaped_key = escape(key)
+        escaped_key = key
         if "'" in escaped_key and '"' in escaped_key:
             # Replace single quotes with &apos; and use double quotes around the attribute value
             escaped_key = escaped_key.replace("'", "&apos;")
@@ -246,6 +248,9 @@ class AsyncBkpXml:
             name = file.attrib["fname"]
             if name not in file_set:
                 file.getparent().remove(file)
+
+    def __str__(self) -> str:
+        return etree.tounicode(self.root, pretty_print=True)
 
     async def commit(self) -> None:
         try:

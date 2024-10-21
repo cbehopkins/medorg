@@ -1,21 +1,27 @@
 from collections import defaultdict
+import logging
+import logging.config
 import os
 from pathlib import Path
-from typing import IO
+from typing import IO, Optional
 
 import click
 from aiopath import AsyncPath
 from rich.console import Console
+from rich.logging import RichHandler
 from rich.table import Table
 
 
 from medorg.bkp_p.async_bkp_xml import AsyncBkpXml, AsyncBkpXmlManager
 from medorg.bkp_p.backup_xml_walker import BackupXmlWalker
 from medorg.cli import VERSION, coro
-from medorg.cli.runners import (copy_best_files, create_update_db_file_entries,
-                                remove_unvisited_files_from_database,
-                                update_source_directory_entries,
-                                writeback_db_file_entries)
+from medorg.cli.runners import (
+    copy_best_files,
+    create_update_db_file_entries,
+    remove_unvisited_files_from_database,
+    update_source_directory_entries,
+    writeback_db_file_entries,
+)
 from medorg.common.bkp_file import BkpFile
 from medorg.common.file_utils import async_copy_file
 from medorg.common.types import BackupFile, BackupSrc
@@ -24,6 +30,62 @@ from medorg.common.types import BackupFile, BackupSrc
 from medorg.database.database_handler import DatabaseHandler
 from medorg.restore.structs import RestoreContext
 from medorg.volume_id.volume_id import VolumeIdSrc
+
+
+class ColourLevelFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        colour = self._record_colour(record.levelno)
+        markup = f"[{colour}] \\[{record.levelname}] [/{colour}]"
+        return markup + logging.Formatter.format(self, record)
+
+    def _record_colour(self, levelno: int) -> str:
+        colour = "blue"
+        if levelno >= logging.INFO:
+            colour = "bold green"
+        if levelno >= logging.WARNING:
+            colour = "bold dark_orange"
+        if levelno >= logging.ERROR:
+            colour = "bold red"
+        return colour
+
+
+DEFAULT_LOGGING_SETUP = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "simple": {"format": "[%(levelname)s] %(message)s"},
+        "detailed": {
+            "format": "[%(levelname)s|%(module)s|L%(lineno)d] %(asctime)s: %(message)s",
+            "datefmt": "%Y-%m-%dT%H:%M:%S%z",
+        },
+        "myFormatter": {
+            "()": "medorg.cli.medback.ColourLevelFormatter",
+            "format": " %(message)s",
+        },
+    },
+    "handlers": {
+        "stdout": {
+            "class": "rich.logging.RichHandler",
+            "level": "CRITICAL",
+            "formatter": "myFormatter",
+            "show_level": False,
+            "markup": True,
+        },
+        "null": {
+            "class": "logging.NullHandler",
+        },
+    },
+    "loggers": {"root": {"level": "DEBUG", "handlers": ["null"]}},
+}
+LOGGING_FILE_HANDLER = {
+    "class": "logging.FileHandler",
+    "level": "DEBUG",
+    "formatter": "detailed",
+    "mode": "w",
+    "filename": "",
+}
+
+
 def bytes_to_human_readable(byte_count: int) -> str:
     """Convert a byte count into a human-readable format (e.g., KiB, MiB, GiB).
 
@@ -42,9 +104,19 @@ def bytes_to_human_readable(byte_count: int) -> str:
 
 
 @click.group()
+@click.option("--log-level", default="CRITICAL")
+@click.option("--log-file", default=None)
 @click.version_option(VERSION)
-def cli():
-    pass
+def cli(log_level: Optional[str], log_file: Optional[str]):
+    logging_setup = DEFAULT_LOGGING_SETUP.copy()
+    if log_level:
+        logging_setup["handlers"]["stdout"]["level"] = logging.getLevelName(log_level)
+    if log_file:
+        logging_setup["handlers"]["file"] = LOGGING_FILE_HANDLER.copy()
+        logging_setup["handlers"]["file"]["filename"] = str(log_file)
+        logging_setup["loggers"]["root"]["handlers"].append("file")
+    logging.config.dictConfig(logging_setup)
+    logging.basicConfig(level="INFO", handlers=[RichHandler()])
 
 
 @click.command()
@@ -344,16 +416,22 @@ async def update(session_db: Path | None) -> None:
     Args:
         session_db (Path): Path to the session database.
     """
+    click.echo("Running Update")
     db_handler = DatabaseHandler(session_db)
     await db_handler.create_session()
+    click.echo("Session Created")
     async with db_handler.session_scope() as db_session:
         # Implement the logic to update the session database
         # This will query the the database for the source directories
         # Then for each source directory, it will scan the directory for changes
         # creating/updating the .xml files for the changes
-        for src in await db_session.aquery_generator(BackupSrc):
+        src_list = [str(src.path) for src in await db_session.aquery_generator(BackupSrc)]
+        # Yes I know - but the query can timeout
+        # Which then causes sqlalchemy.exc.MissingGreenlet
+        # So fetch the useful data from the query first
+        for src in src_list:
+            click.echo(f"Updating entries for {src}")
             await create_update_db_file_entries(db_session, src)
-
         await remove_unvisited_files_from_database(db_session)
 
 
@@ -364,24 +442,28 @@ async def update(session_db: Path | None) -> None:
     type=click.Path(),
     help="Path to the session database. (Defaults to usimg ~/.bkp_base)",
 )
-@click.option(
-    "--src-dir", required=True, type=click.Path(), help="Directory path to backup."
+@click.argument(
+    "src_dirs",
+    nargs=-1,
+    type=click.Path(),
 )
 @coro
-async def add_src(session_db: Path | None, src_dir: Path) -> None:
+async def add_src(session_db: Path | None, src_dirs: list[Path]) -> None:
     """Add a Source directory for backup to our backup database
     This will add the directory to the database and scan it for changes
 
     Args:
         session_db (Path | None): _description_
-        src_dir (Path): _description_
+        src_dirs (list[Path]): List of directory paths to backup.
     """
     db_handler = DatabaseHandler(session_db)
     await db_handler.create_session()
     async with db_handler.session_scope() as db_session:
-        await db_session.add_src_dir(src_dir)
+        for src_dir in src_dirs:
+            await db_session.add_src_dir(src_dir)
         for src in await db_session.aquery_generator(BackupSrc):
             print(f"{src.path=} exists")
+
 
 cli.add_command(backup_stats)
 cli.add_command(restore_stats)
