@@ -261,7 +261,7 @@ class Bdsa(AsyncSessionWrapper):
                 entry.backup_dest = fetched_tags
         if not (src_file.md5 and src_file.mtime):
             raise ValueError(
-                f"MD5 and mtime must be set in the BkpFile object:{src_file}"
+                f"MD5 and mtime must be set in the BkpFile object:{src_dir}/{src_file}"
             )
         entry.size = src_file.size
         entry.md5_hash = src_file.md5
