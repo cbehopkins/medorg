@@ -8,8 +8,7 @@ from medorg.common.bkp_file import BkpFile
 from medorg.common.types import BackupFile
 from medorg.database.bdsa import Bdsa
 from medorg.database.database_handler import DatabaseHandler
-from medorg.restore.structs import (RestoreContext, RestoreDirectory,
-                                    RestoreFile)
+from medorg.restore.structs import RestoreContext, RestoreDirectory, RestoreFile
 from tests.database_helpers import query_all_files
 
 

@@ -13,30 +13,34 @@ from .async_bkp_xml import AsyncBkpXml, AsyncBkpXmlManager
 _log = logging.getLogger(__name__)
 
 
-async def process_file(file_path, directory_data):
-    # Replace this with your custom processing logic for each file
-    print(f"Processing file: {file_path}, Directory Data: {directory_data}")
-    await asyncio.sleep(1)  # Simulate some asynchronous processing
-
-
-# Example directory callback for preprocessing
-async def directory_callback(current_path, directory_data):
-    print(f"Preprocessing directory: {current_path}")
-    # Replace this with your custom preprocessing logic
-    return f"Data for {current_path}"
-
-
 DirWalker = Callable[
     [AsyncPath, AsyncPath, os.stat_result, AsyncBkpXml], Optional[Awaitable]
 ]
 entryStat = tuple[AsyncPath, os.stat_result]
 entryStats = list[entryStat]
+
+
 class BackupXmlWalker(AsyncBkpXmlManager):
     def __init__(self, root: os.PathLike):
-        self.root = AsyncPath(root)
+        self.root_dir = AsyncPath(root)
+        self._lock = asyncio.Lock()
+        self._counter = 0
 
-    async def go_walk(self, walker: DirWalker):
+    async def _incr_cnt(self, val: int) -> None:
+        async with self._lock:
+            self._counter += val
+
+    async def _decr_cnt(self, val: int) -> None:
+        async with self._lock:
+            self._counter -= val
+        assert self._counter >= 0
+
+    async def go_walk(
+        self, walker: DirWalker, on_dir_close: Callable[[], None] | None = None
+    ):
         await self._walk_directory(walker)
+        if on_dir_close:
+            await on_dir_close()
 
     @staticmethod
     async def _create_xml(directory: AsyncPath) -> AsyncBkpXml:
@@ -122,7 +126,7 @@ class BackupXmlWalker(AsyncBkpXmlManager):
 
     async def _walk_directory(self, callback: DirWalker):
         async def walk(current_path: AsyncPath):
-
+            print(f"Visiting:{current_path}")
             # Asynchronously list all files and subdirectories using aiopath's glob
             entries = current_path.glob(
                 "*"
@@ -131,22 +135,46 @@ class BackupXmlWalker(AsyncBkpXmlManager):
             file_entries, dir_entries = await self._visit_files_and_dirs(
                 entries=entries, bkp_xml=bkp_xml
             )
-
+            file_names_list = [entry for entry, _ in file_entries]
+            file_names_set = set(file_names_list)
+            if len(file_names_list) != len(file_names_set):
+                _log.warning(
+                    f"Duplicate file names in {current_path}::{file_names_list}"
+                )
             tasks = []
             if callback:
                 for entry, stat_result_i in file_entries:
+                    if entry not in file_names_set:
+                        # Skip duplicates
+                        continue
+                    file_names_set.remove(entry)
                     task = callback(current_path, entry, stat_result_i, bkp_xml)
                     if task:
                         tasks.append(task)
 
-            for entry, _ in dir_entries:
-                tasks.append(walk(entry))
-
             # Wait for all file processing tasks to complete
+            await self._incr_cnt(len(tasks))
             await asyncio.gather(*tasks)
+            await self._decr_cnt(len(tasks))
+
             await bkp_xml.commit()
+            del bkp_xml
+            tasks.clear()
+            for entry, _ in dir_entries:
+                # Not bothering to lock as it's not critical
+                if self._counter > 200:
+                    await walk(entry)
+                else:
+                    tasks.append(walk(entry))
+            if not tasks:
+                return
+            # Wait for all file processing tasks to complete
+            await self._incr_cnt(len(tasks))
+            for task in asyncio.as_completed(tasks):
+                await task
+                await self._decr_cnt(1)
 
         # Start the directory walk
-        walk_path = await self.root.resolve(strict=True)
+        walk_path = await self.root_dir.resolve(strict=True)
         _log.debug(f"Starting directory walk at: {walk_path}")
         await walk(walk_path)

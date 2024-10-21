@@ -12,8 +12,7 @@ from click.testing import CliRunner
 
 from medorg.cli.medback import cli
 from medorg.common import XML_NAME
-from medorg.restore.structs import (RestoreContext, RestoreDirectory,
-                                    RestoreFile)
+from medorg.restore.structs import RestoreContext, RestoreDirectory, RestoreFile
 from medorg.volume_id.volume_id import VolumeIdSrc
 
 
@@ -33,6 +32,7 @@ class ExampleFile:
         if len(tmp) == 24 and tmp[22:24] == b"==":
             return tmp[:22].decode("utf-8")
         return tmp.decode("utf-8")
+
 
 TestFiles = tuple[list[ExampleFile], set[Path]]
 

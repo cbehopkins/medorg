@@ -6,13 +6,18 @@ from pathlib import Path
 from typing import Any, AsyncGenerator, Awaitable, Callable, Iterable, Sequence
 
 from aiopath import AsyncPath
-from sqlalchemy import desc, select, func
+from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.expression import BinaryExpression, Select, and_
 
 from medorg.common.bkp_file import BkpFile
-from medorg.common.types import (BackupDest, BackupFile, BackupSrc,
-                                 DatabaseBase, VolumeId)
+from medorg.common.types import (
+    BackupDest,
+    BackupFile,
+    BackupSrc,
+    DatabaseBase,
+    VolumeId,
+)
 from medorg.restore.structs import RestoreContext, RestoreDirectory
 
 _log = logging.getLogger(__name__)
@@ -91,6 +96,7 @@ class AsyncSessionWrapper:
             tasks.append(task)
         results = await asyncio.gather(*tasks)
         return results
+
     # For test mocking
     def _session_add(self, obj: DatabaseBase):
         self.session.add(obj)
@@ -98,6 +104,10 @@ class AsyncSessionWrapper:
     async def add(self, obj: DatabaseBase):
         async with self._lock:
             self._session_add(obj)
+            await self.session.commit()
+
+    async def commit(self):
+        async with self._lock:
             await self.session.commit()
 
     async def filter(
@@ -243,10 +253,11 @@ class Bdsa(AsyncSessionWrapper):
             file_path = src_file.file_path.relative_to(src_dir)
         else:
             file_path = src_file.file_path
+        _log.info(f"Querying for filename:{file_path}")
         entry: BackupFile = await self.aquery_one(
             BackupFile, BackupFile.filename == str(file_path)
         )
-
+        _log.info(f"Query of {file_path} Found: {entry}")
         add_entry = entry is None
         fetched_tags: list[BackupDest] = await self._query_dest_tags(src_file.bkp_dests)
         if add_entry:
@@ -261,7 +272,7 @@ class Bdsa(AsyncSessionWrapper):
                 entry.backup_dest = fetched_tags
         if not (src_file.md5 and src_file.mtime):
             raise ValueError(
-                f"MD5 and mtime must be set in the BkpFile object:{src_dir}/{src_file}"
+                f"MD5 and mtime must be set in the BkpFile object:{src_file}"
             )
         entry.size = src_file.size
         entry.md5_hash = src_file.md5
@@ -270,6 +281,7 @@ class Bdsa(AsyncSessionWrapper):
         entry.src_path = str(src_dir)
         if add_entry:
             async with self._lock:
+                _log.info(f"Adding {entry} for {file_path}")
                 self._session_add(entry)
         return entry
 
