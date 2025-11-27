@@ -10,7 +10,7 @@ from aiopath import AsyncPath
 from rich.console import Console
 from rich.logging import RichHandler
 from rich.table import Table
-
+from InquirerPy import prompt
 
 from medorg.bkp_p.async_bkp_xml import AsyncBkpXml, AsyncBkpXmlManager
 from medorg.bkp_p.backup_xml_walker import BackupXmlWalker
@@ -407,33 +407,40 @@ async def target(session_db: Path | None, target_dir: Path) -> None:
     "--session-db",
     required=False,
     type=click.Path(),
-    help="Path to the session database. (Defaults to usimg ~/.bkp_base)",
+    help="Path to the session database. (Defaults to using ~/.bkp_base)",
 )
+@click.option("--interactive", is_flag=True, help="Run the update in interactive mode.")
 @coro
-async def update(session_db: Path | None) -> None:
+async def update(session_db: Path | None, interactive: bool) -> None:
     """Update the session database
 
     Args:
         session_db (Path): Path to the session database.
+        interactive (bool): Run the update in interactive mode.
     """
-    click.echo("Running Update")
     db_handler = DatabaseHandler(session_db)
     await db_handler.create_session()
-    click.echo("Session Created")
     async with db_handler.session_scope() as db_session:
-        # Implement the logic to update the session database
-        # This will query the the database for the source directories
-        # Then for each source directory, it will scan the directory for changes
-        # creating/updating the .xml files for the changes
-        src_list = [
-            str(src.path) for src in await db_session.aquery_generator(BackupSrc)
-        ]
-        # Yes I know - but the query can timeout
-        # Which then causes sqlalchemy.exc.MissingGreenlet
-        # So fetch the useful data from the query first
-        for src in src_list:
-            click.echo(f"Updating entries for {src}")
+        sources = [src async for src in db_session.aquery_generator(BackupSrc)]
+
+        if interactive:
+            choices = [{"name": str(src), "value": src} for src in sources]
+            questions = [
+                {
+                    "type": "checkbox",
+                    "message": "Select sources to update",
+                    "name": "selected_sources",
+                    "choices": choices,
+                }
+            ]
+            answers = prompt(questions)
+            selected_sources = answers.get("selected_sources", [])
+        else:
+            selected_sources = sources
+
+        for src in selected_sources:
             await create_update_db_file_entries(db_session, src)
+
         await remove_unvisited_files_from_database(db_session)
 
 

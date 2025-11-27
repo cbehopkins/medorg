@@ -7,7 +7,7 @@ authors = ["Chris Hopkins <cbehopkins@gmail.com>"]
 
 [tool.poetry.dependencies]
 python = "^3.12"
-click = "^8.0.0"
+click = "^8.2.0"
 aiofiles="23.2.1"
 aiopath="^0.7.0"
 isort="5.13.2"
@@ -19,6 +19,7 @@ pytest = "^8.3.3"
 black = "^24.8.0"
 rich = "^13.0.0"
 greenlet = "^3.0.0"
+InquirerPy = "^0.3.0"
 
 [tool.poetry-dynamic-versioning]
 enable = true
