@@ -4,6 +4,7 @@
 *.so
 
 .md5_list.xml
+.medorg.xml
 bob
 
 # Folders
