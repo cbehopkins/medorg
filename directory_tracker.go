@@ -44,12 +44,12 @@ type DirTracker struct {
 	directoryCountVisited int64
 	// We do not lock the dm map as we only access it in a single threaded manner
 	// i.e. only the directory walker or things it calls have access
-	dm        map[string]DirectoryTrackerInterface
-	newEntry  func(dir string) (DirectoryTrackerInterface, error)
-	lastPath  lastPath
-	tokenChan chan struct{}
-	wg        *sync.WaitGroup
-	errChan   chan error
+	dm              map[string]DirectoryTrackerInterface
+	newEntry        func(dir string) (DirectoryTrackerInterface, error)
+	lastPath        lastPath
+	tokenChan       chan struct{}
+	wg              *sync.WaitGroup
+	errChan         chan error
 	preserveStructs bool
 
 	finished finishedB
@@ -141,6 +141,7 @@ func (dt *DirTracker) runChild(de DirectoryTrackerInterface) {
 	}
 	dt.wg.Done()
 }
+
 // serviceChild - copy errors from the child to the parent
 func (dt *DirTracker) serviceChild(de DirectoryTrackerInterface) {
 	for err := range de.ErrChan() {
@@ -171,6 +172,7 @@ func (dt *DirTracker) getDirectoryEntry(path string) (DirectoryTrackerInterface,
 	go dt.serviceChild(de)
 	return de, nil
 }
+
 // populateDircount - populate the directory count
 // i.e. how many directories we have to visit
 func (dt *DirTracker) populateDircount(dir string) {
@@ -182,7 +184,6 @@ func (dt *DirTracker) populateDircount(dir string) {
 		return
 	}
 }
-
 
 func (dt *DirTracker) directoryWalkerPopulateDircount(path string, d fs.DirEntry, err error) error {
 	if err != nil {
@@ -201,7 +202,7 @@ func (dt *DirTracker) directoryWalkerPopulateDircount(path string, d fs.DirEntry
 	}
 	return nil
 }
-func (dt *DirTracker) handleDirectory(path string) error{
+func (dt *DirTracker) handleDirectory(path string) error {
 	if isHiddenDirectory(path) {
 		return filepath.SkipDir
 	}
@@ -216,7 +217,8 @@ func (dt *DirTracker) handleDirectory(path string) error{
 		delete(dt.dm, pt)
 	}
 	if dt.preserveStructs {
-		closerFunc = nil}
+		closerFunc = nil
+	}
 	dt.lastPath.Closer(path, closerFunc)
 	de, err := dt.getDirectoryEntry(path)
 	if err != nil {
