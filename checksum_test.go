@@ -11,7 +11,7 @@ import (
 )
 
 func TestB2B(t *testing.T) {
-	//Back to Back check
+	// Back to Back check
 	// uses current directory as an example
 	// Just reads in the directory, creates an XML
 	// Representation then reads in that XML representation
@@ -33,14 +33,15 @@ func TestB2B(t *testing.T) {
 
 	marshelled, err := xml.MarshalIndent(bob, "", "  ")
 	if err != nil {
-		log.Fatal("marshall error", err)
+		t.Fatal("marshall error", err)
 	}
 	var fred Md5File
 	err = xml.Unmarshal([]byte(marshelled), &fred)
 	if err != nil {
-		log.Fatal("um error", err)
+		t.Fatal("um error", err)
 	}
 }
+
 func makeFile(directory string) string {
 	// FIXME it would be quicker to calculate the checksum here
 	// while it's an in memory object
@@ -48,16 +49,17 @@ func makeFile(directory string) string {
 	rand.Read(buff)
 	tmpfile, err := ioutil.TempFile(directory, "example")
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
 	if _, err := tmpfile.Write(buff); err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
 	if err := tmpfile.Close(); err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
 	return tmpfile.Name()
 }
+
 func TestMd5(t *testing.T) {
 	// Check the MD5 creation mechanism
 
@@ -84,6 +86,7 @@ func TestMd5(t *testing.T) {
 	wg.Wait()
 	log.Println("All done")
 }
+
 func TestSelfCompat(t *testing.T) {
 	fileToUse := "checksum_test.go"
 	_ = md5FileWrite(".", nil)
@@ -101,13 +104,14 @@ func TestSelfCompat(t *testing.T) {
 	}
 	v, ok := dm.Get(fileToUse)
 	if !ok {
-		log.Fatal(fileToUse, " is gone!!!", dm)
+		t.Fatal(fileToUse, " is gone!!!", dm)
 	}
 	newChecksum := v.Checksum
 	if newChecksum == "" {
-		log.Fatal("Missing Checksum from go version")
+		t.Fatal("Missing Checksum from go version")
 	}
 }
+
 func TestPerlCompat(t *testing.T) {
 	perlScript := "/home/cbh/home/script/perl/file_check.pl"
 	if _, err := os.Stat(perlScript); os.IsNotExist(err) {

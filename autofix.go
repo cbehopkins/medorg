@@ -142,7 +142,7 @@ func (af AutoFix) ResolveTwo(fsOne, fsTwo FileStruct) (FileStruct, bool) {
 	score1 := scoreName(fsOne.Directory(), fsOne.Name, fsTwo.Directory(), fsTwo.Name)
 	score2 := scoreName(fsTwo.Directory(), fsTwo.Name, fsOne.Directory(), fsOne.Name)
 
-	//log.Println("Score1:", score1,"Score2:", score2)
+	// log.Println("Score1:", score1,"Score2:", score2)
 
 	if swapFile(score1, score2) {
 		if Debug {
@@ -171,6 +171,7 @@ func (af AutoFix) stripNumber(fn string) (string, bool) {
 	}
 	return fn, false
 }
+
 func (af AutoFix) stripRegEx(fn string) (newFn string, modified bool) {
 	newFn = fn
 	doWork := true
@@ -195,6 +196,7 @@ func (af AutoFix) stripRegEx(fn string) (newFn string, modified bool) {
 	}
 	return
 }
+
 func potentialFilename(directory, fn, extension string, i int) (string, bool) {
 	pfn := fn + "(" + strconv.Itoa(i) + ")" + extension
 	_, err := os.Stat(filepath.Join(directory, pfn))
@@ -248,7 +250,8 @@ func (af AutoFix) CheckRename(fs FileStruct) (FileStruct, bool) {
 				fp := fsNew.Path()
 				fss, err := os.Stat(string(fp))
 				if os.IsNotExist(err) {
-					log.Fatal("File we have moved to does not exist", fp)
+					log.Printf("Error: file we moved to does not exist: %s", fp)
+					return fs, false
 				}
 				fsNew.Mtime = fss.ModTime().Unix()
 			}

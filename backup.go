@@ -165,7 +165,6 @@ func (bs backScanner) scanBackupDirectories(
 		return nil, err
 	}
 
-	// panic("yes we finished scanning")
 	calcCnt := 2
 	tokenBuffer := makeTokenChan(calcCnt)
 	defer close(tokenBuffer)

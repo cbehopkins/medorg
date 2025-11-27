@@ -7,7 +7,7 @@ import (
 
 func TestRename0(t *testing.T) {
 	testMode = true
-	var DomainList = []string{
+	DomainList := []string{
 		"(.*)_calc",
 	}
 
@@ -15,10 +15,10 @@ func TestRename0(t *testing.T) {
 	fs := FileStruct{Name: "test_calc.flv"}
 	fs, mod := AF.CheckRename(fs)
 	if mod {
-		log.Fatal("Modified while disabled", fs)
+		t.Fatal("Modified while disabled", fs)
 	} else {
 		if fs.Name != "test_calc.flv" {
-			log.Fatal("Name was modified", fs)
+			t.Fatal("Name was modified", fs)
 		}
 	}
 	AF.RenameFiles = true
@@ -26,7 +26,7 @@ func TestRename0(t *testing.T) {
 	if mod {
 		log.Println("FS is now", fs)
 	} else {
-		log.Fatal("Not modified", fs)
+		t.Fatal("Not modified", fs)
 	}
 }
 
@@ -38,7 +38,7 @@ type renameStruct struct {
 
 func TestRename1(t *testing.T) {
 	testMode = true
-	var DomainList = []string{
+	DomainList := []string{
 		"(.*)_calc",
 		"(.*)_bob_(.*)",
 	}
@@ -68,10 +68,10 @@ func TestRename1(t *testing.T) {
 			if fs.Name == fn1 {
 				log.Println("FS is now", fn0, fn1)
 			} else {
-				log.Fatal("Incorrectly modified:", fn0, fn1, fs.Name)
+				t.Fatal("Incorrectly modified:", fn0, fn1, fs.Name)
 			}
 		} else {
-			log.Fatal("Not modified", fn0, fn1, fs.Name)
+			t.Fatal("Not modified", fn0, fn1, fs.Name)
 		}
 	}
 }

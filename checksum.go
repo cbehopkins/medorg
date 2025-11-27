@@ -23,7 +23,7 @@ type DirectoryMapMod func(DirectoryMap, string)
 // Md5FileName is the filename we use to save the data in
 const Md5FileName = ".medorg.xml"
 
-//ErrSkipCheck Reports a checksum that we have skipped producing
+// ErrSkipCheck Reports a checksum that we have skipped producing
 var ErrSkipCheck = errors.New("skipping Checksum")
 
 // NewChannels creates a channel based method for creating checksums
@@ -40,10 +40,11 @@ func md5Calcer(inputChan chan FileStruct, outputChan chan FileStruct, closedChan
 		// Calculate the MD5 here and send it
 		cks, err := CalcMd5File(itm.directory, itm.Name)
 		if err != nil {
-			log.Fatal("Calculation error", err)
-		} else {
-			log.Println("Calculation for", itm.Name, " complete")
+			log.Printf("Calculation error for %s: %v", itm.Name, err)
+			// Skip this file and continue processing
+			continue
 		}
+		log.Println("Calculation for", itm.Name, " complete")
 		itm.Checksum = cks
 		outputChan <- itm
 	}
@@ -69,7 +70,8 @@ func newXMLManager(inputChan chan FileStruct) *sync.WaitGroup {
 func managerWorker(inputChan chan FileStruct, wg *sync.WaitGroup) {
 	for fs := range inputChan {
 		if fs.directory == "" {
-			log.Fatal("Empty Directory description")
+			log.Printf("Error: empty directory description for file %s, skipping", fs.Name)
+			continue
 		}
 		appendXML(fs.directory, []FileStruct{fs})
 	}
@@ -88,7 +90,8 @@ func appendXML(directory string, fsA []FileStruct) {
 		if fs.directory == directory {
 			dm.Add(fs)
 		} else {
-			log.Fatal("directories are incorrect", fs.directory, directory)
+			log.Printf("Warning: directory mismatch, expected %s but got %s, skipping file %s", directory, fs.directory, fs.Name)
+			continue
 		}
 	}
 	// FIXME
@@ -125,22 +128,25 @@ func Calculator(fp string) (iw io.Writer, trigger chan struct{}, wg *sync.WaitGr
 	iw = md5Calc(trigger, wg, fp)
 	return
 }
+
 func md5CalcInternal(h hash.Hash, wgl *sync.WaitGroup, fpl string, trigger chan struct{}) {
 	directory, fn := filepath.Split(fpl)
-	//FIXME error prop
+	// FIXME error prop
 	dm, _ := DirectoryMapFromDir(directory)
 	completeCalc(trigger, directory, fn, h, dm)
 	// FIXME
 	_ = dm.Persist(directory)
 	wgl.Done()
 }
+
 func completeCalc(trigger chan struct{}, directory string, fn string, h hash.Hash, dm DirectoryMap) {
 	tr := logSlow("CompleteCalc" + fn)
 	<-trigger
 	defer close(tr)
 	fs, err := NewFileStruct(directory, fn)
 	if err != nil {
-		log.Fatal("Error in filename to calc", err)
+		log.Printf("Error creating FileStruct for %s/%s: %v, skipping", directory, fn, err)
+		return
 	}
 	fs.Checksum = ReturnChecksumString(h)
 	dm.Add(fs)
@@ -174,6 +180,7 @@ func (cb *CalcBuffer) Close() {
 		_ = dm.Persist(dir)
 	}
 }
+
 func md5Calc(trigger chan struct{}, wg *sync.WaitGroup, fp string) (iw io.Writer) {
 	h := md5.New()
 	iw = io.Writer(h)
@@ -196,6 +203,7 @@ func (cb *CalcBuffer) Calculate(fp string) (iw io.Writer, trigger chan struct{})
 	}()
 	return
 }
+
 func (cb *CalcBuffer) calcer(fp string, h hash.Hash, trigger chan struct{}) {
 	dm, dir, fn := cb.getFp(fp)
 	completeCalc(trigger, dir, fn, h, *dm)

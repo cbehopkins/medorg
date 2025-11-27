@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"log"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -31,7 +30,7 @@ func md5FileWrite(directory string, ba []byte) error {
 	if ba == nil || (len(ba) == 0) {
 		return nil
 	}
-	return ioutil.WriteFile(fn, ba, 0600)
+	return ioutil.WriteFile(fn, ba, 0o600)
 }
 
 // FileExist tests if a file exists in a convenient fashion
@@ -80,13 +79,14 @@ func MvFile(srcDir, srcFn, dstDir, dstFn string) error {
 
 	return nil
 }
+
 func createDestDirectoryAsNeeded(dst string) error {
 	dir := filepath.Dir(dst)
 	stat, err := os.Stat(dir)
 	if err == nil && stat.IsDir() {
 		return nil
 	}
-	return os.MkdirAll(dir, 0777)
+	return os.MkdirAll(dir, 0o777)
 }
 
 // CopyFile copies a file from src to dst. If src and dst files exist, and are
@@ -127,6 +127,7 @@ func CopyFile(src, dst Fpath) (err error) {
 	}
 	return copyFileContents(srcs, dsts)
 }
+
 func rmFilename(fn Fpath) error {
 	fns := string(fn)
 	if _, err := os.Stat(fns); err == nil {
@@ -236,10 +237,13 @@ func Readln(r *bufio.Reader) (string, error) {
 }
 
 // HomeDir returns the user's home directory
+// Panics if unable to determine home directory (critical system error)
 func HomeDir() Fpath {
 	usr, err := user.Current()
 	if err != nil {
-		log.Fatal(err)
+		// This is a critical system error that should never happen in normal operation
+		// Using panic here as this is called during initialization and there's no recovery
+		panic(fmt.Sprintf("unable to get user home directory: %v", err))
 	}
 	return Fpath(usr.HomeDir)
 }

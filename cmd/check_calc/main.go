@@ -12,25 +12,26 @@ import (
 )
 
 func isDir(fn string) bool {
-    stat, err := os.Stat(fn)
-    if err != nil {
-        return false
-    }
-    return stat.IsDir()
+	stat, err := os.Stat(fn)
+	if err != nil {
+		return false
+	}
+	return stat.IsDir()
 }
+
 func main() {
 	var directories []string
 
-	var scrubflg = flag.Bool("scrub", false, "Scruball backup labels from src records")
+	scrubflg := flag.Bool("scrub", false, "Scruball backup labels from src records")
 
-	var calcCnt = flag.Int("calc", 2, "Max Number of MD5 calculators")
-	var delflg = flag.Bool("delete", false, "Delete duplicated Files")
-	var mvdflg = flag.Bool("mvd", false, "Move Detect")
-	var rnmflg = flag.Bool("rename", false, "Auto Rename Files")
-	var rclflg = flag.Bool("recalc", false, "Recalculate all checksums")
-	var valflg = flag.Bool("validate", false, "Validate all checksums")
+	calcCnt := flag.Int("calc", 2, "Max Number of MD5 calculators")
+	delflg := flag.Bool("delete", false, "Delete duplicated Files")
+	mvdflg := flag.Bool("mvd", false, "Move Detect")
+	rnmflg := flag.Bool("rename", false, "Auto Rename Files")
+	rclflg := flag.Bool("recalc", false, "Recalculate all checksums")
+	valflg := flag.Bool("validate", false, "Validate all checksums")
 
-	var conflg = flag.Bool("conc", false, "Concentrate files together in same directory")
+	conflg := flag.Bool("conc", false, "Concentrate files together in same directory")
 	flag.Parse()
 	if flag.NArg() > 0 {
 		for _, fl := range flag.Args() {
@@ -45,13 +46,22 @@ func main() {
 	var AF *medorg.AutoFix
 	if *rnmflg {
 		var xc *medorg.XMLCfg
+		var err error
 		if xmcf := medorg.XmConfig(); xmcf != "" {
 			// FIXME should we be casting to string here or fixing the interfaces?
-			xc = medorg.NewXMLCfg(string(xmcf))
+			xc, err = medorg.NewXMLCfg(string(xmcf))
+			if err != nil {
+				fmt.Println("Error loading config file:", err)
+				os.Exit(5)
+			}
 		} else {
 			fmt.Println("no config file found")
 			fn := filepath.Join(string(medorg.HomeDir()), medorg.Md5FileName)
-			xc = medorg.NewXMLCfg(fn)
+			xc, err = medorg.NewXMLCfg(fn)
+			if err != nil {
+				fmt.Println("Error creating config file:", err)
+				os.Exit(5)
+			}
 		}
 		AF = medorg.NewAutoFix(xc.Af)
 		AF.DeleteFiles = *delflg

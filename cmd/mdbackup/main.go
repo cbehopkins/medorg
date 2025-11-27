@@ -29,8 +29,10 @@ const (
 )
 
 // FIXME
-var MaxBackups = 2
-var AF *medorg.AutoFix
+var (
+	MaxBackups = 2
+	AF         *medorg.AutoFix
+)
 
 func isDir(fn string) bool {
 	stat, err := os.Stat(fn)
@@ -56,6 +58,7 @@ func sizeOf(fn string) int {
 	}
 	return int(fs)
 }
+
 func poolCopier(src, dst medorg.Fpath, pool *pb.Pool, wg *sync.WaitGroup) error {
 	myBar := new(pb.ProgressBar)
 	myBar.Set("prefix", fmt.Sprint(string(src), ":"))
@@ -85,6 +88,7 @@ func poolCopier(src, dst medorg.Fpath, pool *pb.Pool, wg *sync.WaitGroup) error 
 
 	return medorg.CopyFile(src, dst)
 }
+
 func topRegisterFunc(dt *medorg.DirTracker, pool *pb.Pool, wg *sync.WaitGroup) {
 	removeFunc := func(pb *pb.ProgressBar) {
 		err := pool.Remove(pb)
@@ -160,9 +164,11 @@ func main() {
 	///////////////////////////////////
 	// Logging setup
 	os.Remove(LOGFILENAME)
-	f, err := os.OpenFile(LOGFILENAME, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	f, err := os.OpenFile(LOGFILENAME, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0o666)
 	if err != nil {
-		log.Fatalf("error opening file: %v", err)
+		fmt.Printf("error opening log file: %v\n", err)
+		retcode = 1
+		return
 	}
 	defer f.Close()
 
@@ -175,11 +181,22 @@ func main() {
 	var xc *medorg.XMLCfg
 	if xmcf := medorg.XmConfig(); xmcf != "" {
 		// FIXME should we be casting to string here or fixing the interfaces?
-		xc = medorg.NewXMLCfg(string(xmcf))
+		var err error
+		xc, err = medorg.NewXMLCfg(string(xmcf))
+		if err != nil {
+			fmt.Println("Error loading config file:", err)
+			retcode = ExitNoConfig
+			return
+		}
 	} else {
 		fmt.Println("no config file found")
 		fn := filepath.Join(string(medorg.HomeDir()), "/.medorg.xml")
-		xc = medorg.NewXMLCfg(fn)
+		xc, err = medorg.NewXMLCfg(fn)
+		if err != nil {
+			fmt.Println("Error creating config file:", err)
+			retcode = ExitNoConfig
+			return
+		}
 	}
 	if xc == nil {
 		fmt.Println("Unable to get config")
@@ -196,11 +213,11 @@ func main() {
 
 	///////////////////////////////////
 	// Command line argument processing
-	var tagflg = flag.Bool("tag", false, "Locate and print the directory tag, create if needed")
-	var scanflg = flag.Bool("scan", false, "Only scan files in src & dst updating labels, don't run the backup")
-	var dummyflg = flag.Bool("dummy", false, "Don't copy, just tell me what you'd do")
-	var delflg = flag.Bool("delete", false, "Delete duplicated Files")
-	var statsflg = flag.Bool("stats", false, "Generate backup statistics")
+	tagflg := flag.Bool("tag", false, "Locate and print the directory tag, create if needed")
+	scanflg := flag.Bool("scan", false, "Only scan files in src & dst updating labels, don't run the backup")
+	dummyflg := flag.Bool("dummy", false, "Don't copy, just tell me what you'd do")
+	delflg := flag.Bool("delete", false, "Delete duplicated Files")
+	statsflg := flag.Bool("stats", false, "Generate backup statistics")
 
 	flag.Parse()
 	if flag.NArg() > 0 {
