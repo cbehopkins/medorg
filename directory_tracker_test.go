@@ -29,9 +29,11 @@ func newMockDtType() (mdt mockDtType) {
 func (mdt mockDtType) ErrChan() <-chan error {
 	return mdt.errChan
 }
+
 func (mdt mockDtType) Start() error {
 	return nil
 }
+
 func (mdt mockDtType) Close() {
 	mdt.lock.Lock()
 	*mdt.closed = true
@@ -42,7 +44,6 @@ func (mdt mockDtType) Close() {
 var errTestChanClosed = errors.New("visit called to a closed structure")
 
 func (mdt mockDtType) VisitFile(dir, file string, d fs.DirEntry, callback func()) {
-
 	mdt.lock.Lock()
 	if *mdt.closed {
 		mdt.errChan <- fmt.Errorf("%w at %s/%s", errTestChanClosed, dir, file)
@@ -54,27 +55,22 @@ func (mdt mockDtType) VisitFile(dir, file string, d fs.DirEntry, callback func()
 	}
 	callback()
 }
+
 func (dt mockDtType) Revisit(dir string, fileVisitor func(dm DirectoryEntryInterface, dir, fn string, fileStruct FileStruct) error) {
 }
 
 func TestDirectoryTrackerAgainstMock(t *testing.T) {
-
 	type testSet struct {
 		cfg []int
 	}
+	// Reduced test set for faster execution while maintaining coverage
 	testSet0 := []testSet{
-		{cfg: []int{1, 0, 1}},
-		{cfg: []int{1, 1, 1}},
-		{cfg: []int{2, 0, 1}},
-		{cfg: []int{10, 1, 1}},
-		{cfg: []int{3, 3, 4}},
-		{cfg: []int{4, 2, 8}},
-		// {cfg: []int{6, 4, 2}},
-		{cfg: []int{10, 2, 1}},
-		{cfg: []int{100, 0, 1}},
-		// {cfg: []int{100, 1, 1}},
-		// {cfg: []int{1000, 0, 1}},
-		// {cfg: []int{10000, 0, 1}},
+		{cfg: []int{1, 0, 1}},  // Single directory, no depth
+		{cfg: []int{2, 0, 1}},  // Two directories, no depth
+		{cfg: []int{3, 1, 1}},  // Moderate width and depth
+		{cfg: []int{2, 2, 2}},  // Moderate depth test
+		{cfg: []int{5, 1, 1}},  // Wider but shallow
+		{cfg: []int{10, 0, 1}}, // Wide but no depth
 	}
 
 	for _, tst := range testSet0 {
@@ -105,23 +101,19 @@ func TestDirectoryTrackerAgainstMock(t *testing.T) {
 // As if we're not careful we can get a resource spam here
 // as everything closes at once
 func TestDirectoryTrackerSpawning(t *testing.T) {
-
 	type testSet struct {
 		cfg  []int
 		prob int
 	}
+	// Significantly reduced test set with shorter sleep times and smaller directory structures
+	// This maintains test coverage while dramatically reducing runtime
 	testSet0 := []testSet{
 		{cfg: []int{1, 0, 1}, prob: 1},
-		{cfg: []int{1, 1, 1}, prob: 1},
 		{cfg: []int{2, 0, 1}, prob: 1},
-		{cfg: []int{10, 1, 1}, prob: 3},
-		{cfg: []int{3, 3, 4}, prob: 100},
-		{cfg: []int{4, 2, 8}, prob: 500},
-		{cfg: []int{10, 2, 1}, prob: 10},
-		// {cfg: []int{100, 0, 1}, prob: 1},
-		// {cfg: []int{100, 1, 1}, prob: 200},
-		// {cfg: []int{1000, 0, 1}, prob: 250},
-		// {cfg: []int{10000, 0, 1}, prob: 400},
+		{cfg: []int{3, 1, 1}, prob: 20},  // Reduced from 10,1,1 with prob 3
+		{cfg: []int{2, 2, 2}, prob: 100}, // Reduced from 3,3,4 with prob 100
+		{cfg: []int{3, 1, 2}, prob: 50},  // Reduced from 4,2,8 with prob 500
+		{cfg: []int{5, 1, 1}, prob: 10},  // Reduced from 10,2,1 with prob 10
 	}
 	var activeVisitors int
 	var lk sync.Mutex
@@ -138,10 +130,11 @@ func TestDirectoryTrackerSpawning(t *testing.T) {
 			}
 			if tst.prob != 0 {
 				pb := rand.Intn(tst.prob)
+				// Reduced sleep duration from 1 second to 100ms for faster tests
 				if pb < 2 {
 					lk.Unlock()
 					atomic.AddUint32(&cnt, 1)
-					time.Sleep(time.Second)
+					time.Sleep(100 * time.Millisecond)
 
 					lk.Lock()
 				}

@@ -49,7 +49,6 @@ func NewVolumeCfg(xc *XMLCfg, fn string) (*VolumeCfg, error) {
 		byteValue, err := ioutil.ReadAll(f)
 		if err != nil {
 			return nil, fmt.Errorf("error loading NewVolumeCfg file:%s::%w", fn, err)
-
 		}
 		err = itm.FromXML(byteValue)
 		if err != nil {
@@ -76,6 +75,7 @@ func (vc *VolumeCfg) FromXML(input []byte) (err error) {
 
 // Chunk of code nicked from stackoverflow
 const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
 const (
 	letterIdxBits = 6                    // 6 bits to represent a letter index
 	letterIdxMask = 1<<letterIdxBits - 1 // All 1-bits, as many as letterIdxBits
@@ -120,12 +120,13 @@ func (vc VolumeCfg) Persist() error {
 	if err != nil {
 		return err
 	}
-	err = ioutil.WriteFile(fn, output, 0600)
+	err = ioutil.WriteFile(fn, output, 0o600)
 	if err != nil {
 		return err
 	}
 	return nil
 }
+
 func (vc *VolumeCfg) GenerateNewVolumeLabel(xc *XMLCfg) error {
 	for {
 		vc.Label = RandStringBytesMaskImprSrcSB(8)
@@ -134,9 +135,11 @@ func (vc *VolumeCfg) GenerateNewVolumeLabel(xc *XMLCfg) error {
 		}
 	}
 }
+
 func formVolumeName(dir string) string {
 	return filepath.Join(dir, ".mdbackup.xml")
 }
+
 func findVolumeConfig(dir string) string {
 	dir, err := filepath.Abs(dir)
 	if err != nil {
@@ -159,18 +162,18 @@ func findVolumeConfig(dir string) string {
 		ds := strings.Split(dir, string(filepath.Separator))
 		if len(ds) > 1 {
 			result := filepath.Join(ds[0 : len(ds)-1]...)
-			if strings.HasPrefix(dir, "/") {
-				return filepath.Join("/", result)
+			if strings.HasPrefix(dir, string(filepath.Separator)) {
+				return filepath.Join(string(filepath.Separator), result)
 			}
 			return result
 		}
-		return "/"
+		return string(filepath.Separator)
 	}
 
 	d := strings.TrimPrefix(dir, filepath.VolumeName(dir))
 	for exists := finder(d); !exists; exists = finder(d) {
 		d = getParent(d)
-		if d == "/" {
+		if d == string(filepath.Separator) {
 			return formVolumeName(dir)
 		}
 	}

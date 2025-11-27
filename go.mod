@@ -1,6 +1,6 @@
 module github.com/cbehopkins/medorg
 
-go 1.21
+go 1.24
 
 require (
 	github.com/cbehopkins/pb/v3 v3.0.10
@@ -16,5 +16,3 @@ require (
 	github.com/rivo/uniseg v0.4.7 // indirect
 	golang.org/x/sys v0.25.0 // indirect
 )
-
-replace github.com/cbehopkins/pb/v3 => ../pb/v3
