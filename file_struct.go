@@ -7,7 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 )
+
 var ErrRecalced = errors.New("File checksum has been recalculated")
+
 // FileStruct contains all the properties associated with a file
 type FileStruct struct {
 	XMLName   struct{} `xml:"fr"`
@@ -150,6 +152,7 @@ func (fs FileStruct) Changed(info fs.FileInfo) (bool, error) {
 	}
 	return false, nil
 }
+
 // UpdateChecksum makes the tea
 func (fs *FileStruct) UpdateChecksum(forceUpdate bool) error {
 	if !forceUpdate && (fs.Checksum != "") {
@@ -167,6 +170,7 @@ func (fs *FileStruct) UpdateChecksum(forceUpdate bool) error {
 	fs.BackupDest = []string{}
 	return nil
 }
+
 // ValidateChecksum checks if the checksum is correct
 func (fs *FileStruct) ValidateChecksum() error {
 	cks, err := CalcMd5File(fs.directory, fs.Name)
@@ -180,4 +184,44 @@ func (fs *FileStruct) ValidateChecksum() error {
 	// If we've had to update the checksum, then any existing backups are invalid
 	fs.BackupDest = []string{}
 	return ErrRecalced
+}
+
+// Interface implementation - helper methods for interface support
+
+// BackupDestinations returns all backup volume labels where this file exists
+func (fs FileStruct) BackupDestinations() []string {
+	return fs.BackupDest
+}
+
+// AddBackupDestination adds a backup volume label
+func (fs *FileStruct) AddBackupDestination(label string) {
+	fs.AddTag(label)
+}
+
+// HasBackupOn checks if backed up to a specific volume
+func (fs FileStruct) HasBackupOn(label string) bool {
+	return fs.HasTag(label)
+}
+
+// Accessor methods for interface compatibility
+// These allow FileMetadata interface users to access field values
+
+// GetSize returns the file size
+func (fs FileStruct) GetSize() int64 {
+	return fs.Size
+}
+
+// GetChecksum returns the file checksum
+func (fs FileStruct) GetChecksum() string {
+	return fs.Checksum
+}
+
+// GetTags returns a copy of the tags slice
+func (fs FileStruct) GetTags() []string {
+	return append([]string{}, fs.Tags...)
+}
+
+// GetName returns the filename
+func (fs FileStruct) GetName() string {
+	return fs.Name
 }

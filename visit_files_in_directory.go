@@ -6,6 +6,20 @@ import (
 	"sync"
 )
 
+// VisitFilesWithInterface: Interface-based visitor for decoupled code
+// Uses FileMetadata and DirectoryStorage interfaces instead of concrete types
+func VisitFilesWithInterface(
+	directories []string,
+	registerFunc func(dt *DirTracker),
+	visitor ExtendedDirectoryVisitor,
+) <-chan error {
+	// Wrap the interface visitor to work with the legacy implementation
+	legacyVisitor := func(dm DirectoryMap, dir, fn string, d fs.DirEntry, fileStruct FileStruct, fileInfo fs.FileInfo) error {
+		return visitor.Visit(&dm, dir, fn, d, &fileStruct, fileInfo)
+	}
+	return VisitFilesInDirectories(directories, registerFunc, legacyVisitor)
+}
+
 // VisitFilesInDirectories: You should default to using this utility function where you can
 // It's probably what you want!
 // You can supply a visitor and get the fileStruct associated with the file in question

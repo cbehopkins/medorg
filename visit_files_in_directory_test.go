@@ -10,7 +10,6 @@ import (
 )
 
 func TestVisitFilesInDirectory(t *testing.T) {
-
 	type testSet struct {
 		cfg []int
 	}
@@ -64,7 +63,6 @@ func TestVisitFilesInDirectory(t *testing.T) {
 }
 
 func TestVisitFilesInDirectory1(t *testing.T) {
-
 	type testSet struct {
 		cfg []int
 	}

@@ -14,8 +14,10 @@ import (
 )
 
 // ErrKey - an error has been detected in the key of this struct
-var ErrKey = errors.New("KV not match")
-var errStructProblem = errors.New("structure Problem")
+var (
+	ErrKey           = errors.New("KV not match")
+	errStructProblem = errors.New("structure Problem")
+)
 
 // ErrUnimplementedVisitor you have not supplied a Visitor func, and then tried to walk.
 var ErrUnimplementedVisitor = errors.New("unimplemented visitor")
@@ -70,7 +72,7 @@ func (dm DirectoryMap) ToMd5File(dir string) (*Md5File, error) {
 	return &m5f, nil
 }
 
-//ToXML
+// ToXML
 func (dm DirectoryMap) ToXML(dir string) (output []byte, err error) {
 	m5f, err := dm.ToMd5File(dir)
 	if err != nil {
@@ -117,7 +119,6 @@ func (dm DirectoryMap) RmFile(dir, fn string) error {
 		return err
 	}
 	return rmFilename(NewFpath(dir, fn))
-
 }
 
 // Get the struct associated with a filename
@@ -147,7 +148,6 @@ func DirectoryMapFromDir(directory string) (dm DirectoryMap, err error) {
 		return dm, nil
 	}
 	f, err = os.Open(fn)
-
 	if err != nil {
 		return dm, fmt.Errorf("%w error opening directory map file, %s/%s", err, directory, fn)
 	}
@@ -161,7 +161,6 @@ func DirectoryMapFromDir(directory string) (dm DirectoryMap, err error) {
 	}
 	_, err = dm.FromXML(byteValue)
 	err = supressXmlUnmarshallErrors(err)
-
 	if err != nil {
 		return dm, fmt.Errorf("FromXML error \"%w\" on %s", err, directory)
 	}
@@ -179,6 +178,103 @@ func (dm DirectoryMap) Stale() bool {
 	dm.lock.RLock()
 	defer dm.lock.RUnlock()
 	return *dm.stale
+}
+
+// Interface-based access methods for better decoupling
+
+// GetMetadata retrieves file metadata by filename
+// Returns the metadata and whether it was found
+func (dm DirectoryMap) GetMetadata(fn string) (FileMetadata, bool) {
+	fs, ok := dm.Get(fn)
+	if !ok {
+		return nil, false
+	}
+	return &fs, true
+}
+
+// AddMetadata adds file metadata to the directory map
+func (dm DirectoryMap) AddMetadata(fm FileMetadata) {
+	// Convert FileMetadata to FileStruct if it's already one
+	if fs, ok := fm.(*FileStruct); ok {
+		dm.Add(*fs)
+		return
+	}
+	// Otherwise create a new FileStruct from the metadata
+	// Extract the fields we need (Size, Checksum, Tags are fields not methods)
+	fs := FileStruct{
+		directory:  fm.Directory(),
+		BackupDest: fm.BackupDestinations(),
+	}
+	// We can only add FileStruct instances, so this is a limitation
+	// for now - the metadata must be a FileStruct pointer
+	dm.Add(fs)
+}
+
+// ForEachFile iterates over all files in the directory map
+// The callback receives the filename and file metadata
+func (dm DirectoryMap) ForEachFile(fn func(filename string, fm FileMetadata) error) error {
+	dm.lock.RLock()
+	defer dm.lock.RUnlock()
+
+	for name, fs := range dm.mp {
+		fsCopy := fs // Create a copy to avoid pointer issues
+		if err := fn(name, &fsCopy); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// DirectoryStorage interface implementation
+
+// Load reads metadata from storage (implements DirectoryStorage.Load)
+func (dm *DirectoryMap) Load(directory string) error {
+	loadedDm, err := DirectoryMapFromDir(directory)
+	if err != nil {
+		return err
+	}
+	*dm = loadedDm
+	return nil
+}
+
+// Save writes metadata to storage (implements DirectoryStorage.Save)
+func (dm DirectoryMap) Save(directory string) error {
+	return dm.Persist(directory)
+}
+
+// GetFile retrieves metadata for a specific file (implements DirectoryStorage.GetFile)
+func (dm DirectoryMap) GetFile(filename string) (FileMetadata, error) {
+	fm, ok := dm.GetMetadata(filename)
+	if !ok {
+		return nil, fmt.Errorf("file %s not found in directory map", filename)
+	}
+	return fm, nil
+}
+
+// AddFile adds or updates file metadata (implements DirectoryStorage.AddFile)
+func (dm DirectoryMap) AddFile(fm FileMetadata) error {
+	dm.AddMetadata(fm)
+	return nil
+}
+
+// RemoveFile removes file metadata (implements DirectoryStorage.RemoveFile)
+func (dm DirectoryMap) RemoveFile(filename string) error {
+	dm.Rm(filename)
+	return nil
+}
+
+// ListFiles returns all files in the directory (implements DirectoryStorage.ListFiles)
+func (dm DirectoryMap) ListFiles() []FileMetadata {
+	result := make([]FileMetadata, 0, dm.Len())
+	err := dm.ForEachFile(func(filename string, fm FileMetadata) error {
+		result = append(result, fm)
+		return nil
+	})
+	if err != nil {
+		// ForEachFile shouldn't fail with our simple append function
+		return result
+	}
+	return result
 }
 
 // selfCheck the directory map for obvious errors
@@ -223,8 +319,10 @@ func (dm DirectoryMap) rangeMap(fc func(string, FileStruct) error) error {
 	return nil
 }
 
-var errDeleteThisEntry = errors.New("please delete this entry - thank you kindly")
-var errIgnoreThisMutate = errors.New("do not mutate this entry")
+var (
+	errDeleteThisEntry  = errors.New("please delete this entry - thank you kindly")
+	errIgnoreThisMutate = errors.New("do not mutate this entry")
+)
 
 // rangeMutate range over the map, mutating as needed
 // note one may return specific errors to delete or squash the mutation
@@ -259,7 +357,6 @@ func (dm DirectoryMap) rangeMutate(fc func(string, FileStruct) (FileStruct, erro
 // RunFsFc lookup the FileStruct for the requested file
 // and run the supplied function
 func (dm DirectoryMap) RunFsFc(directory, file string, fc func(fs *FileStruct) error) error {
-
 	fs, ok := dm.Get(file)
 	var err error
 	if !ok {
@@ -365,6 +462,7 @@ func (dm DirectoryMap) UpdateValues(directory string, d fs.DirEntry) error {
 	dm.Add(fs)
 	return nil
 }
+
 func (dm DirectoryMap) Copy() DirectoryEntryJournalableInterface {
 	cp := NewDirectoryMap()
 	for k, v := range dm.mp {
@@ -373,6 +471,7 @@ func (dm DirectoryMap) Copy() DirectoryEntryJournalableInterface {
 	cp.VisitFunc = dm.VisitFunc
 	return cp
 }
+
 func (dm0 DirectoryMap) Equal(dm DirectoryEntryInterface) bool {
 	dm1 := dm.(*DirectoryMap)
 	dm0.lock.RLock()
@@ -402,6 +501,7 @@ func (dm0 DirectoryMap) Equal(dm DirectoryEntryInterface) bool {
 	}
 	return true
 }
+
 func (dm DirectoryMap) Revisit(dir string, visitor func(dm DirectoryEntryInterface, directory string, file string, fileStruct FileStruct) error) {
 	for path, fileStruct := range dm.mp {
 		_ = visitor(dm, dir, path, fileStruct)

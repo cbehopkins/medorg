@@ -23,9 +23,11 @@ var errMissingCopyEntry = errors.New("copying a file without an entry")
 var ErrDummyCopy = errors.New("not really copying, it's all good though")
 
 // Export of the generic IO error from syscall
-var ErrIOError = syscall.Errno(5) // I don't like this, but don't know a better way
-// Export of no space left on device from syscall
-var ErrNoSpace = syscall.Errno(28)
+var (
+	ErrIOError = syscall.Errno(5) // I don't like this, but don't know a better way
+	// Export of no space left on device from syscall
+	ErrNoSpace = syscall.Errno(28)
+)
 
 type backupKey struct {
 	size     int64
@@ -36,7 +38,7 @@ type backupDupeMap struct {
 	dupeMap map[backupKey]Fpath
 }
 
-// Add an entry to the map
+// Add an entry to the map (legacy concrete type version)
 func (bdm *backupDupeMap) Add(fs FileStruct) {
 	key := backupKey{fs.Size, fs.Checksum}
 	bdm.Lock()
@@ -46,6 +48,18 @@ func (bdm *backupDupeMap) Add(fs FileStruct) {
 	bdm.dupeMap[key] = Fpath(fs.Path())
 	bdm.Unlock()
 }
+
+// AddMetadata adds an entry using the FileMetadata interface
+func (bdm *backupDupeMap) AddMetadata(fm FileMetadata) {
+	key := backupKey{fm.GetSize(), fm.GetChecksum()}
+	bdm.Lock()
+	if bdm.dupeMap == nil {
+		bdm.dupeMap = make(map[backupKey]Fpath)
+	}
+	bdm.dupeMap[key] = Fpath(fm.Path())
+	bdm.Unlock()
+}
+
 func (bdm *backupDupeMap) Len() int {
 	if bdm.dupeMap == nil {
 		return 0
@@ -75,14 +89,16 @@ func (bdm *backupDupeMap) Get(key backupKey) (Fpath, bool) {
 	v, ok := bdm.dupeMap[key]
 	return v, ok
 }
+
 func (bdm *backupDupeMap) AddVisit(dm DirectoryEntryInterface, dir, fn string, fileStruct FileStruct) error {
 	bdm.Add(fileStruct)
 	return nil
 }
+
 func (bdm *backupDupeMap) NewSrcVisitor(
 	lookupFunc func(Fpath, bool) error,
-	backupDestination *backupDupeMap, volumeName string) func(dm DirectoryEntryInterface, dir, fn string, fileStruct FileStruct) error {
-
+	backupDestination *backupDupeMap, volumeName string,
+) func(dm DirectoryEntryInterface, dir, fn string, fileStruct FileStruct) error {
 	return func(dm DirectoryEntryInterface, dir, fn string, fileStruct FileStruct) error {
 		// If it exists in the destination already
 		path, ok := backupDestination.Get(fileStruct.Key())
@@ -220,7 +236,8 @@ func doACopy(
 	destDir, // The destination directory as specified...
 	backupLabelName string, // the tag we should add to the sorce
 	file Fpath, // The full path of the file
-	fc FileCopier) error {
+	fc FileCopier,
+) error {
 	if fc == nil {
 		fc = CopyFile
 	}
@@ -346,7 +363,6 @@ func BackupRunner(
 	registerFunc func(*DirTracker),
 	shutdownChan chan struct{},
 ) error {
-
 	if logFunc == nil {
 		logFunc = func(msg string) {
 			log.Println(msg)
