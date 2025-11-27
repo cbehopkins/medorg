@@ -8,8 +8,38 @@ The core mechanic is creating an md5 for each file. There is a record, per direc
 
 There is a config file that may be located in the current directory, or found in the home directory ".medorg.xml"
 
-# Utilities
-## Check Calc
+# Project Structure
+
+The project follows standard Go layout conventions:
+
+- `cmd/` - Command-line executable tools
+  - `cmd/check_calc/` - Checksum calculation and file operations utility
+  - `cmd/mdbackup/` - Backup management tool
+  - `cmd/mdjournal/` - Directory journaling tool
+- Root directory - Main `medorg` package library code
+- `py/` - Python implementation of some tools
+
+## Building
+
+```bash
+# Build all commands
+go build ./cmd/...
+
+# Build a specific command
+go build ./cmd/mdbackup
+
+# Install commands to $GOPATH/bin
+go install ./cmd/...
+
+# Run tests
+go test ./...
+```
+
+# Command-Line Tools
+
+## check_calc (cmd/check_calc)
+
+Located in `cmd/check_calc/`
 This utility performs the checksum calculation, calculating in the first place, and, where required, updating the checksum. It additionally can perform other useful features dicussed below.
 
 A file's checksum is recalculated if its size or timestamp has changed from the file recorded in the record. 
@@ -32,7 +62,12 @@ Move all files from subdirectories, into the current directory moving the record
 
 ---
 
-## Backup
+## mdbackup (cmd/mdbackup)
+
+Located in `cmd/mdbackup/`
+
+**Build:** `go build ./cmd/mdbackup`
+
 Consider the situation where you have a larger file server than your backup medium. How does one backup a 1TB RAID, using 250GB medium. 
 
 One can use the backup tool!
