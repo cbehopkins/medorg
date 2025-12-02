@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cbehopkins/medorg"
+	"github.com/cbehopkins/medorg/pkg/core"
 	pb "github.com/cbehopkins/pb/v3"
 	bytesize "github.com/inhies/go-bytesize"
 )
@@ -31,7 +31,7 @@ const (
 // FIXME
 var (
 	MaxBackups = 2
-	AF         *medorg.AutoFix
+	AF         *core.AutoFix
 )
 
 func isDir(fn string) bool {
@@ -59,7 +59,7 @@ func sizeOf(fn string) int {
 	return int(fs)
 }
 
-func poolCopier(src, dst medorg.Fpath, pool *pb.Pool, wg *sync.WaitGroup) error {
+func poolCopier(src, dst core.Fpath, pool *pb.Pool, wg *sync.WaitGroup) error {
 	myBar := new(pb.ProgressBar)
 	myBar.Set("prefix", fmt.Sprint(string(src), ":"))
 	myBar.Set(pb.Bytes, true)
@@ -86,10 +86,10 @@ func poolCopier(src, dst medorg.Fpath, pool *pb.Pool, wg *sync.WaitGroup) error 
 		}
 	}()
 
-	return medorg.CopyFile(src, dst)
+	return core.CopyFile(src, dst)
 }
 
-func topRegisterFunc(dt *medorg.DirTracker, pool *pb.Pool, wg *sync.WaitGroup) {
+func topRegisterFunc(dt *core.DirTracker, pool *pb.Pool, wg *sync.WaitGroup) {
 	removeFunc := func(pb *pb.ProgressBar) {
 		err := pool.Remove(pb)
 		if err != nil {
@@ -104,13 +104,13 @@ func topRegisterFunc(dt *medorg.DirTracker, pool *pb.Pool, wg *sync.WaitGroup) {
 }
 
 func visitFilesUpdatingProgressBar(pool *pb.Pool, directories []string,
-	someVisitFunc func(dm medorg.DirectoryMap, dir, fn string, d fs.DirEntry, fileStruct medorg.FileStruct, fileInfo fs.FileInfo) error,
+	someVisitFunc func(dm core.DirectoryMap, dir, fn string, d fs.DirEntry, fileStruct core.FileStruct, fileInfo fs.FileInfo) error,
 ) {
 	var wg sync.WaitGroup
-	registerFunc := func(dt *medorg.DirTracker) {
+	registerFunc := func(dt *core.DirTracker) {
 		topRegisterFunc(dt, pool, &wg)
 	}
-	errChan := medorg.VisitFilesInDirectories(directories, registerFunc, someVisitFunc)
+	errChan := core.VisitFilesInDirectories(directories, registerFunc, someVisitFunc)
 	for err := range errChan {
 		log.Println("Error Got...", err)
 	}
@@ -129,7 +129,7 @@ func runStats(pool *pb.Pool, messageBar *pb.ProgressBar, directories []string) {
 	for i := range totalArray {
 		totalArray[i] = 0
 	}
-	visitFunc := func(dm medorg.DirectoryMap, dir, fn string, d fs.DirEntry, fileStruct medorg.FileStruct, fileInfo fs.FileInfo) error {
+	visitFunc := func(dm core.DirectoryMap, dir, fn string, d fs.DirEntry, fileStruct core.FileStruct, fileInfo fs.FileInfo) error {
 		lenArchive := len(fileStruct.BackupDest)
 		lenNeedesAdding := (lenArchive + 1) - len(totalArray)
 
@@ -178,11 +178,11 @@ func main() {
 	var directories []string
 	///////////////////////////////////
 	// Read in top level config
-	var xc *medorg.XMLCfg
-	if xmcf := medorg.XmConfig(); xmcf != "" {
+	var xc *core.XMLCfg
+	if xmcf := core.XmConfig(); xmcf != "" {
 		// FIXME should we be casting to string here or fixing the interfaces?
 		var err error
-		xc, err = medorg.NewXMLCfg(string(xmcf))
+		xc, err = core.NewXMLCfg(string(xmcf))
 		if err != nil {
 			fmt.Println("Error loading config file:", err)
 			retcode = ExitNoConfig
@@ -190,8 +190,8 @@ func main() {
 		}
 	} else {
 		fmt.Println("no config file found")
-		fn := filepath.Join(string(medorg.HomeDir()), "/.medorg.xml")
-		xc, err = medorg.NewXMLCfg(fn)
+		fn := filepath.Join(string(core.HomeDir()), "/.core.xml")
+		xc, err = core.NewXMLCfg(fn)
 		if err != nil {
 			fmt.Println("Error creating config file:", err)
 			retcode = ExitNoConfig
@@ -309,14 +309,14 @@ func main() {
 
 	// Setup the function that copies files
 	var wg sync.WaitGroup
-	var copyer func(src, dst medorg.Fpath) error
+	var copyer func(src, dst core.Fpath) error
 	if *dummyflg {
-		copyer = func(src, dst medorg.Fpath) error {
+		copyer = func(src, dst core.Fpath) error {
 			log.Println("Copy from:", src, " to ", dst)
-			return medorg.ErrDummyCopy
+			return core.ErrDummyCopy
 		}
 	} else {
-		copyer = func(src, dst medorg.Fpath) error {
+		copyer = func(src, dst core.Fpath) error {
 			return poolCopier(src, dst, pool, &wg)
 		}
 	}
@@ -351,12 +351,12 @@ func main() {
 	// the backup runner scanning through directory trees
 	// This can take quite some time as it has to load and possibly generate
 	// the xml descriptions for the files (md5 hash calculation)
-	registerFunc := func(dt *medorg.DirTracker) {
+	registerFunc := func(dt *core.DirTracker) {
 		topRegisterFunc(dt, pool, &wg)
 	}
 
 	messageBar.Set("msg", "Starting Backup Run")
-	err = medorg.BackupRunner(xc, 2, copyer, directories[0], directories[1], orphanedFunc, logFunc, registerFunc, shutdownChan)
+	err = core.BackupRunner(xc, 2, copyer, directories[0], directories[1], orphanedFunc, logFunc, registerFunc, shutdownChan)
 	messageBar.Set("msg", "Completed Backup Run")
 
 	if err != nil {

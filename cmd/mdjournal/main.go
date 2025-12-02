@@ -7,7 +7,8 @@ import (
 	"io/fs"
 	"os"
 
-	"github.com/cbehopkins/medorg"
+	"github.com/cbehopkins/medorg/pkg/consumers"
+	"github.com/cbehopkins/medorg/pkg/core"
 )
 
 const (
@@ -27,9 +28,10 @@ func isDir(fn string) bool {
 	}
 	return false
 }
+
 func main() {
 	var directories []string
-	var scanflg = flag.Bool("scan", false, "Only scan files in src & dst updating labels, don't run the backup")
+	scanflg := flag.Bool("scan", false, "Only scan files in src & dst updating labels, don't run the backup")
 
 	flag.Parse()
 	if flag.NArg() > 0 {
@@ -51,15 +53,15 @@ func main() {
 		fmt.Println("You've asked us to scan:", directories)
 	}
 
-	journal := medorg.Journal{}
+	journal := consumers.Journal{}
 
-	visitor := func(dm medorg.DirectoryMap, directory, file string, d fs.DirEntry) error {
+	visitor := func(dm core.DirectoryMap, directory, file string, d fs.DirEntry) error {
 		return nil
 	}
 
-	makerFunc := func(dir string) (medorg.DirectoryTrackerInterface, error) {
-		mkFk := func(dir string) (medorg.DirectoryEntryInterface, error) {
-			dm, err := medorg.DirectoryMapFromDir(dir)
+	makerFunc := func(dir string) (core.DirectoryTrackerInterface, error) {
+		mkFk := func(dir string) (core.DirectoryEntryInterface, error) {
+			dm, err := core.DirectoryMapFromDir(dir)
 			if err != nil {
 				return dm, err
 			}
@@ -67,10 +69,10 @@ func main() {
 
 			return dm, journal.AppendJournalFromDm(&dm, dir)
 		}
-		de, err := medorg.NewDirectoryEntry(dir, mkFk)
+		de, err := core.NewDirectoryEntry(dir, mkFk)
 		return de, err
 	}
-	fn := string(medorg.ConfigPath(".mdjournal.xml"))
+	fn := string(core.ConfigPath(".mdjournal.xml"))
 	fh, err := os.Open(fn)
 	if !errors.Is(err, os.ErrNotExist) {
 		fmt.Println("Reading in journal")
@@ -88,7 +90,7 @@ func main() {
 	}
 	defer fh.Close()
 	for _, dir := range directories {
-		errChan := medorg.NewDirTracker(false, dir, makerFunc).ErrChan()
+		errChan := core.NewDirTracker(false, dir, makerFunc).ErrChan()
 		for err := range errChan {
 			fmt.Println("Error received while walking:", dir, err)
 			os.Exit(2)
