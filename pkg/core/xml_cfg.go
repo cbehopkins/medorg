@@ -4,7 +4,6 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 )
 
@@ -33,7 +32,7 @@ func NewXMLCfg(fn string) (*XMLCfg, error) {
 		if err != nil {
 			return nil, fmt.Errorf("error opening NewXMLCfg file: %w", err)
 		}
-		byteValue, err := ioutil.ReadAll(f)
+		byteValue, err := io.ReadAll(f)
 		_ = f.Close()
 		if err != nil {
 			return nil, fmt.Errorf("error loading NewXMLCfg file: %w", err)

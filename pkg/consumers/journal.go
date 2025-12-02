@@ -205,8 +205,7 @@ func (jo *Journal) FromReader(fd io.Reader) error {
 		if err != nil {
 			return err
 		}
-		jo.appendItem(de, dir)
-		return nil
+		return jo.appendItem(de, dir)
 	}
 	return slupReadFunc(fd, fc)
 }

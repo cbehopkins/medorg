@@ -70,11 +70,6 @@ func (fs FileStruct) Path() Fpath {
 	return NewFpath(fs.directory, fs.Name)
 }
 
-// Key to use when indexing into map for comparisons
-func (fs FileStruct) Key() backupKey {
-	return backupKey{fs.Size, fs.Checksum}
-}
-
 // Equal test two file structs to see if we consider them equivalent
 func (fs FileStruct) Equal(ca FileStruct) bool {
 	if fs.Checksum == "" || ca.Checksum == "" {

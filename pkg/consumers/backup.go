@@ -1,4 +1,4 @@
-package core
+package consumers
 
 import (
 	"errors"
@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"sync"
 	"syscall"
+
+	"github.com/cbehopkins/medorg/pkg/core"
 )
 
 // ErrMissingEntry You are copying a file that there is no directory entry for. Probably need to rerun a visit on the directory
@@ -15,9 +17,6 @@ var ErrMissingEntry = errors.New("attempting to copy a file there seems to be no
 
 // errMissingSrcEntry should only happen if there is an internal logic error
 var errMissingSrcEntry = errors.New("missing source entry")
-
-// errMissingCopyEntry internal error
-var errMissingCopyEntry = errors.New("copying a file without an entry")
 
 // ErrDummyCopy Return this from your copy function to skip the effects of copying on the md5 files
 var ErrDummyCopy = errors.New("not really copying, it's all good though")
@@ -33,30 +32,41 @@ type backupKey struct {
 	size     int64
 	checksum string
 }
+
+// newBackupKeyFromFileStruct creates a backupKey from a FileStruct
+func newBackupKeyFromFileStruct(fs core.FileStruct) backupKey {
+	return backupKey{fs.Size, fs.Checksum}
+}
+
+// newBackupKeyFromMetadata creates a backupKey from a FileMetadata
+func newBackupKeyFromMetadata(fm core.FileMetadata) backupKey {
+	return backupKey{fm.GetSize(), fm.GetChecksum()}
+}
+
 type backupDupeMap struct {
 	sync.Mutex
-	dupeMap map[backupKey]Fpath
+	dupeMap map[backupKey]core.Fpath
 }
 
 // Add an entry to the map (legacy concrete type version)
-func (bdm *backupDupeMap) Add(fs FileStruct) {
-	key := backupKey{fs.Size, fs.Checksum}
+func (bdm *backupDupeMap) Add(fs core.FileStruct) {
+	key := newBackupKeyFromFileStruct(fs)
 	bdm.Lock()
 	if bdm.dupeMap == nil {
-		bdm.dupeMap = make(map[backupKey]Fpath)
+		bdm.dupeMap = make(map[backupKey]core.Fpath)
 	}
-	bdm.dupeMap[key] = Fpath(fs.Path())
+	bdm.dupeMap[key] = core.Fpath(fs.Path())
 	bdm.Unlock()
 }
 
 // AddMetadata adds an entry using the FileMetadata interface
-func (bdm *backupDupeMap) AddMetadata(fm FileMetadata) {
-	key := backupKey{fm.GetSize(), fm.GetChecksum()}
+func (bdm *backupDupeMap) AddMetadata(fm core.FileMetadata) {
+	key := newBackupKeyFromMetadata(fm)
 	bdm.Lock()
 	if bdm.dupeMap == nil {
-		bdm.dupeMap = make(map[backupKey]Fpath)
+		bdm.dupeMap = make(map[backupKey]core.Fpath)
 	}
-	bdm.dupeMap[key] = Fpath(fm.Path())
+	bdm.dupeMap[key] = core.Fpath(fm.Path())
 	bdm.Unlock()
 }
 
@@ -80,7 +90,7 @@ func (bdm *backupDupeMap) Remove(key backupKey) {
 }
 
 // Get an item from the map
-func (bdm *backupDupeMap) Get(key backupKey) (Fpath, bool) {
+func (bdm *backupDupeMap) Get(key backupKey) (core.Fpath, bool) {
 	if bdm.dupeMap == nil {
 		return "", false
 	}
@@ -90,18 +100,18 @@ func (bdm *backupDupeMap) Get(key backupKey) (Fpath, bool) {
 	return v, ok
 }
 
-func (bdm *backupDupeMap) AddVisit(dm DirectoryEntryInterface, dir, fn string, fileStruct FileStruct) error {
+func (bdm *backupDupeMap) AddVisit(dm core.DirectoryEntryInterface, dir, fn string, fileStruct core.FileStruct) error {
 	bdm.Add(fileStruct)
 	return nil
 }
 
 func (bdm *backupDupeMap) NewSrcVisitor(
-	lookupFunc func(Fpath, bool) error,
+	lookupFunc func(core.Fpath, bool) error,
 	backupDestination *backupDupeMap, volumeName string,
-) func(dm DirectoryEntryInterface, dir, fn string, fileStruct FileStruct) error {
-	return func(dm DirectoryEntryInterface, dir, fn string, fileStruct FileStruct) error {
+) func(dm core.DirectoryEntryInterface, dir, fn string, fileStruct core.FileStruct) error {
+	return func(dm core.DirectoryEntryInterface, dir, fn string, fileStruct core.FileStruct) error {
 		// If it exists in the destination already
-		path, ok := backupDestination.Get(fileStruct.Key())
+		path, ok := backupDestination.Get(newBackupKeyFromFileStruct(fileStruct))
 		if lookupFunc != nil {
 			err := lookupFunc(path, ok)
 			if err != nil {
@@ -120,7 +130,7 @@ func (bdm *backupDupeMap) NewSrcVisitor(
 		}
 
 		bdm.Add(fileStruct)
-		adm, _ := dm.(DirectoryMap)
+		adm, _ := dm.(core.DirectoryMap)
 		adm.Add(fileStruct)
 		return nil
 	}
@@ -128,10 +138,22 @@ func (bdm *backupDupeMap) NewSrcVisitor(
 
 type backScanner struct {
 	dupeFunc   func(path string) error
-	lookupFunc func(Fpath, bool) error
+	lookupFunc func(core.Fpath, bool) error
 }
 
-func (dm DirectoryMap) updateAndGo(dir, fn string) (fs FileStruct, err error) {
+type (
+	fpathList     []core.Fpath
+	fpathListList []fpathList
+)
+
+func (fpll *fpathListList) Add(index int, fp core.Fpath) {
+	for len(*fpll) <= index {
+		*fpll = append(*fpll, fpathList{})
+	}
+	(*fpll)[index] = append((*fpll)[index], fp)
+}
+
+func updateAndGo(dm core.DirectoryMap, dir, fn string) (fs core.FileStruct, err error) {
 	// Update the checksum, creating the FS if needed
 	err = dm.UpdateChecksum(dir, fn, false)
 	if err != nil {
@@ -140,7 +162,7 @@ func (dm DirectoryMap) updateAndGo(dir, fn string) (fs FileStruct, err error) {
 
 	// Add everything we find to the destination map
 	fs, ok := dm.Get(fn)
-	if Debug && !ok {
+	if core.Debug && !ok {
 		// If the FS does not exist, then UpdateChecksum is faulty
 		return fs, fmt.Errorf("dst %w: %s/%s", errMissingSrcEntry, dir, fn)
 	}
@@ -151,31 +173,52 @@ func (dm DirectoryMap) updateAndGo(dir, fn string) (fs FileStruct, err error) {
 // tag, with any files that are already found in the destination
 func (bs backScanner) scanBackupDirectories(
 	destDir, srcDir, volumeName string,
-	registerFunc func(*DirTracker),
+	registerFunc func(*core.DirTracker),
 	logFunc func(msg string),
 	shutdownChan chan struct{},
-) ([]*DirTracker, error) {
+) ([]*core.DirTracker, error) {
 	if logFunc == nil {
 		logFunc = func(msg string) {
 			log.Println(msg)
 		}
 	}
-	dta := AutoVisitFilesInDirectories([]string{destDir, srcDir}, nil)
-	for err := range errHandler(dta, registerFunc) {
+	dta := core.AutoVisitFilesInDirectories([]string{destDir, srcDir}, nil)
+	// Handle errors from directory traversal
+	errChan := make(chan error)
+	var wg sync.WaitGroup
+	wg.Add(len(dta))
+	for _, ndt := range dta {
+		if registerFunc != nil {
+			registerFunc(ndt)
+		}
+		go func(ndt *core.DirTracker) {
+			for err := range ndt.ErrChan() {
+				if err != nil {
+					errChan <- err
+				}
+			}
+			wg.Done()
+		}(ndt)
+	}
+	go func() {
+		wg.Wait()
+		close(errChan)
+	}()
+	for err := range errChan {
 		return nil, err
 	}
 
 	calcCnt := 2
-	tokenBuffer := makeTokenChan(calcCnt)
+	tokenBuffer := core.MakeTokenChan(calcCnt)
 	defer close(tokenBuffer)
 
-	visitFunc := func(dm DirectoryEntryInterface, dir, fn string, fileStruct FileStruct) error {
-		de, ok := dm.(DirectoryMap)
+	visitFunc := func(dm core.DirectoryEntryInterface, dir, fn string, fileStruct core.FileStruct) error {
+		de, ok := dm.(core.DirectoryMap)
 		if !ok {
 			return errors.New("unable to cast to de")
 		}
 		<-tokenBuffer
-		_, err := de.updateAndGo(dir, fn)
+		_, err := updateAndGo(de, dir, fn)
 		tokenBuffer <- struct{}{}
 		return err
 	}
@@ -198,7 +241,9 @@ func (bs backScanner) scanBackupDirectories(
 		// We'll need to do something about this soon!
 		// log.Println("Unexpected items left in backup destination")
 		for _, v := range backupDestination.dupeMap {
-			bs.dupeFunc(string(v))
+			if err := bs.dupeFunc(string(v)); err != nil {
+				return nil, err
+			}
 		}
 	}
 	return dta, nil
@@ -207,14 +252,14 @@ func (bs backScanner) scanBackupDirectories(
 // extractCopyFiles will look for files that are not backed up
 // i.e. walk through src file system looking for files
 // That don't have the volume name as an archived at
-func extractCopyFiles(srcDir string, dt *DirTracker, volumeName string, registerFunc func(*DirTracker), maxNumBackups int, shutdownChan chan struct{}) (fpathListList, error) {
+func extractCopyFiles(srcDir string, dt *core.DirTracker, volumeName string, registerFunc func(*core.DirTracker), maxNumBackups int, shutdownChan chan struct{}) (fpathListList, error) {
 	var lk sync.Mutex
 	remainingFiles := fpathListList{}
-	visitFunc := func(dm DirectoryEntryInterface, dir, fn string, fileStruct FileStruct) error {
+	visitFunc := func(dm core.DirectoryEntryInterface, dir, fn string, fileStruct core.FileStruct) error {
 		if fileStruct.HasTag(volumeName) {
 			return nil
 		}
-		fp := NewFpath(dir, fn)
+		fp := core.NewFpath(dir, fn)
 		lenArchive := len(fileStruct.BackupDest)
 		if lenArchive > maxNumBackups {
 			return nil
@@ -228,17 +273,17 @@ func extractCopyFiles(srcDir string, dt *DirTracker, volumeName string, register
 	return remainingFiles, nil
 }
 
-type FileCopier func(src, dst Fpath) error
+type FileCopier func(src, dst core.Fpath) error
 
 func doACopy(
 	srcDir, // The source of the backup as specified on the command line
 	destDir, // The destination directory as specified...
 	backupLabelName string, // the tag we should add to the sorce
-	file Fpath, // The full path of the file
+	file core.Fpath, // The full path of the file
 	fc FileCopier,
 ) error {
 	if fc == nil {
-		fc = CopyFile
+		fc = core.CopyFile
 	}
 
 	// Workout the new path the target file should have
@@ -250,12 +295,12 @@ func doACopy(
 	}
 
 	// Actually copy the file
-	err = fc(file, NewFpath(destDir, rel))
+	err = fc(file, core.NewFpath(destDir, rel))
 	if errors.Is(err, ErrDummyCopy) {
 		return nil
 	}
 	if errors.Is(err, ErrNoSpace) {
-		_ = rmFilename(NewFpath(destDir, rel))
+		_ = core.RmFilename(core.NewFpath(destDir, rel))
 		return ErrNoSpace
 	}
 	// Update the srcDir .md5 file with the fact we've backed this up now
@@ -264,7 +309,7 @@ func doACopy(
 	if err != nil {
 		return err
 	}
-	dmSrc, err := DirectoryMapFromDir(sd)
+	dmSrc, err := core.DirectoryMapFromDir(sd)
 	if err != nil {
 		return err
 	}
@@ -274,10 +319,12 @@ func doACopy(
 	}
 	_ = src.AddTag(backupLabelName)
 	dmSrc.Add(src)
-	dmSrc.Persist(srcDir)
+	if err := dmSrc.Persist(srcDir); err != nil {
+		return err
+	}
 	_ = src.RemoveTag(backupLabelName)
 	// Update the destDir with the checksum from the srcDir
-	dmDst, err := DirectoryMapFromDir(destDir)
+	dmDst, err := core.DirectoryMapFromDir(destDir)
 	if err != nil {
 		return err
 	}
@@ -285,11 +332,10 @@ func doACopy(
 	if err != nil {
 		return err
 	}
-	src.directory = destDir
+	src.SetDirectory(destDir)
 	src.Mtime = fs.ModTime().Unix()
 	dmDst.Add(src)
-	dmDst.Persist(destDir)
-	return nil
+	return dmDst.Persist(destDir)
 }
 
 func doCopies(
@@ -300,7 +346,7 @@ func doCopies(
 	logFunc func(msg string), shutdownChan chan struct{},
 ) error {
 	// I don't like this pattern as it's not a clean pipeline - but the alternatives feel worse
-	copyTokens := makeTokenChan(2)
+	copyTokens := core.MakeTokenChan(2)
 	copyErrChan := make(chan error)
 	var cwg sync.WaitGroup
 	go func() {
@@ -327,7 +373,7 @@ func doCopies(
 				}
 
 				cwg.Add(1)
-				go func(file Fpath) {
+				go func(file core.Fpath) {
 					copyErrChan <- doACopy(srcDir, destDir, backupLabelName, file, fc)
 					cwg.Done()
 				}(file)
@@ -353,13 +399,13 @@ func doCopies(
 }
 
 func BackupRunner(
-	xc *XMLCfg,
+	xc *core.XMLCfg,
 	maxNumBackups int,
 	fc FileCopier,
 	srcDir, destDir string,
 	orphanFunc func(path string) error,
 	logFunc func(msg string),
-	registerFunc func(*DirTracker),
+	registerFunc func(*core.DirTracker),
 	shutdownChan chan struct{},
 ) error {
 	if logFunc == nil {
@@ -367,7 +413,7 @@ func BackupRunner(
 			log.Println(msg)
 		}
 	}
-	backupLabelName, err := xc.getVolumeLabel(destDir)
+	backupLabelName, err := xc.GetVolumeLabel(destDir)
 	if err != nil {
 		return err
 	}

@@ -1,21 +1,20 @@
 package core
 
 import (
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"testing"
 )
 
 func TestVolumeCfgFromDir0(t *testing.T) {
-	wkDir, err := ioutil.TempDir("", "volLabTest")
+	wkDir, err := os.MkdirTemp("", "volLabTest")
 	if err != nil {
 		t.Error("TmpDir Error:", err)
 	}
 	defer os.RemoveAll(wkDir)
 
 	xc := XMLCfg{}
-	label, err := xc.getVolumeLabel(wkDir)
+	label, err := xc.GetVolumeLabel(wkDir)
 	if err != nil {
 		t.Error("Error:", err)
 	}
@@ -24,8 +23,9 @@ func TestVolumeCfgFromDir0(t *testing.T) {
 	}
 	t.Log("Got Label:", label)
 }
+
 func TestVolumeCfgFromDir1(t *testing.T) {
-	wkDir, err := ioutil.TempDir("", "volLabTest")
+	wkDir, err := os.MkdirTemp("", "volLabTest")
 	if err != nil {
 		t.Error("TmpDir Error:", err)
 	}
@@ -36,15 +36,19 @@ func TestVolumeCfgFromDir1(t *testing.T) {
 	if err != nil {
 		t.Error("Error vcd:", err)
 	}
-	vc.Persist()
+	if err := vc.Persist(); err != nil {
+		t.Fatal(err)
+	}
 	label0 := vc.Label
 	t.Log("Got Label0:", label0)
 
 	newDir := filepath.Join(wkDir, RandStringBytesMaskImprSrcSB(4))
-	createDestDirectoryAsNeeded(filepath.Join(newDir, RandStringBytesMaskImprSrcSB(6)))
+	if err := createDestDirectoryAsNeeded(filepath.Join(newDir, RandStringBytesMaskImprSrcSB(6))); err != nil {
+		t.Fatal(err)
+	}
 	xc1 := XMLCfg{}
 
-	label1, err := xc1.getVolumeLabel(newDir)
+	label1, err := xc1.GetVolumeLabel(newDir)
 	if err != nil {
 		t.Error("Error1:", err)
 	}

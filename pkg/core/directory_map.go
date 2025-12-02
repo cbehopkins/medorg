@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
@@ -14,10 +13,7 @@ import (
 )
 
 // ErrKey - an error has been detected in the key of this struct
-var (
-	ErrKey           = errors.New("KV not match")
-	errStructProblem = errors.New("structure Problem")
-)
+var ErrKey = errors.New("KV not match")
 
 // ErrUnimplementedVisitor you have not supplied a Visitor func, and then tried to walk.
 var ErrUnimplementedVisitor = errors.New("unimplemented visitor")
@@ -118,7 +114,7 @@ func (dm DirectoryMap) RmFile(dir, fn string) error {
 	if err != nil {
 		return err
 	}
-	return rmFilename(NewFpath(dir, fn))
+	return RmFilename(NewFpath(dir, fn))
 }
 
 // Get the struct associated with a filename
@@ -151,7 +147,7 @@ func DirectoryMapFromDir(directory string) (dm DirectoryMap, err error) {
 	if err != nil {
 		return dm, fmt.Errorf("%w error opening directory map file, %s/%s", err, directory, fn)
 	}
-	byteValue, err := ioutil.ReadAll(f)
+	byteValue, err := io.ReadAll(f)
 	if err != nil {
 		return
 	}
@@ -170,7 +166,7 @@ func DirectoryMapFromDir(directory string) (dm DirectoryMap, err error) {
 		return fs, nil
 	}
 
-	return dm, dm.rangeMutate(fc)
+	return dm, dm.RangeMutate(fc)
 }
 
 // Stale returns true if the dm has been modified since writted
@@ -368,23 +364,6 @@ func (dm DirectoryMap) selfCheck(directory string) error {
 	return dm.rangeMap(fc)
 }
 
-func (dm DirectoryMap) pruneEmptyFile(directory, fn string, fs FileStruct, delete bool) error {
-	if fs.Directory() != directory {
-		return errStructProblem
-	}
-	if fs.Size == 0 {
-		log.Println("Zero Length File")
-		if delete {
-			err := dm.RmFile(directory, fn)
-			if err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-	return nil
-}
-
 // rangeMap do a map over the map
 // Note, you may not edit the dm itself
 func (dm DirectoryMap) rangeMap(fc func(string, FileStruct) error) error {
@@ -400,13 +379,15 @@ func (dm DirectoryMap) rangeMap(fc func(string, FileStruct) error) error {
 }
 
 var (
-	errDeleteThisEntry  = errors.New("please delete this entry - thank you kindly")
-	errIgnoreThisMutate = errors.New("do not mutate this entry")
+	// ErrDeleteThisEntry sentinel error to request deletion of an entry during mutation
+	ErrDeleteThisEntry = errors.New("please delete this entry - thank you kindly")
+	// ErrIgnoreThisMutate sentinel error to skip mutation of an entry
+	ErrIgnoreThisMutate = errors.New("do not mutate this entry")
 )
 
-// rangeMutate range over the map, mutating as needed
+// RangeMutate range over the map, mutating as needed
 // note one may return specific errors to delete or squash the mutation
-func (dm DirectoryMap) rangeMutate(fc func(string, FileStruct) (FileStruct, error)) error {
+func (dm DirectoryMap) RangeMutate(fc func(string, FileStruct) (FileStruct, error)) error {
 	dm.lock.Lock()
 	defer dm.lock.Unlock()
 	deleteList := []string{}
@@ -417,8 +398,8 @@ func (dm DirectoryMap) rangeMutate(fc func(string, FileStruct) (FileStruct, erro
 		case nil:
 			dm.mp[fn] = fs
 			*dm.stale = true
-		case errIgnoreThisMutate:
-		case errDeleteThisEntry:
+		case ErrIgnoreThisMutate:
+		case ErrDeleteThisEntry:
 			// Have I been writing too much python if I think this is a good idea?
 			deleteList = append(deleteList, fn)
 		default:
@@ -474,11 +455,11 @@ func (dm DirectoryMap) DeleteMissingFiles() error {
 		fp := filepath.Join(fs.directory, fileName)
 		_, err := os.Stat(fp)
 		if errors.Is(err, os.ErrNotExist) {
-			return fs, errDeleteThisEntry
+			return fs, ErrDeleteThisEntry
 		}
-		return fs, errIgnoreThisMutate
+		return fs, ErrIgnoreThisMutate
 	}
-	return dm.rangeMutate(fc)
+	return dm.RangeMutate(fc)
 }
 
 // Persist self to disk

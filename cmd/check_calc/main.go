@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/cbehopkins/medorg/pkg/consumers"
 	"github.com/cbehopkins/medorg/pkg/core"
 )
 
@@ -42,7 +43,7 @@ func main() {
 		directories = []string{"."}
 	}
 
-	var AF *core.AutoFix
+	var AF *consumers.AutoFix
 	if *rnmflg {
 		var xc *core.XMLCfg
 		var err error
@@ -62,12 +63,12 @@ func main() {
 				os.Exit(5)
 			}
 		}
-		AF = core.NewAutoFix(xc.Af)
+		AF = consumers.NewAutoFix(xc.Af)
 		AF.DeleteFiles = *delflg
 	}
 
 	if *mvdflg {
-		err := core.RunMoveDetect(directories)
+		err := consumers.RunMoveDetect(directories)
 		if err != nil {
 			fmt.Println("Error! In move detect", err)
 			os.Exit(4)
@@ -120,12 +121,14 @@ func main() {
 				return nil
 			}
 
-			fs.FromStat(directory, file, info)
+			if _, err := fs.FromStat(directory, file, info); err != nil {
+				return err
+			}
 			// Grab a compute token
 			<-tokenBuffer
 			defer func() { tokenBuffer <- struct{}{} }()
 			err = fs.UpdateChecksum(*rclflg)
-			if errors.Is(err, core.ErrIOError) {
+			if errors.Is(err, consumers.ErrIOError) {
 				fmt.Println("Received an IO error calculating checksum ", fs.Name, err)
 				return nil
 			}
@@ -136,9 +139,11 @@ func main() {
 			return err
 		}
 		if AF != nil {
-			AF.WkFun(dm, directory, file, d)
+			if err := AF.WkFun(dm, directory, file, d); err != nil {
+				return err
+			}
 		}
-		return err
+		return nil
 	}
 
 	makerFunc := func(dir string) (core.DirectoryTrackerInterface, error) {

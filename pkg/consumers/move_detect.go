@@ -1,10 +1,12 @@
-package core
+package consumers
 
 import (
 	"errors"
 	"io/fs"
 	"os"
 	"sync"
+
+	"github.com/cbehopkins/medorg/pkg/core"
 )
 
 var errMvdQueryFailed = errors.New("query failed")
@@ -20,38 +22,38 @@ type moveKey struct {
 
 type moveDetect struct {
 	sync.RWMutex
-	dupeMap map[moveKey]FileStruct
+	dupeMap map[moveKey]core.FileStruct
 }
 
 // runMoveDetectFindDeleted will run through the directory
 // looking for any files which have been deleted
 // And move the FileStruct from the dm into a map
 func (mvd *moveDetect) runMoveDetectFindDeleted(directory string) error {
-	visitFunc := func(dm DirectoryMap, dir, fn string, d fs.DirEntry) error {
+	visitFunc := func(dm core.DirectoryMap, dir, fn string, d fs.DirEntry) error {
 		return nil
 	}
-	fc := func(fn string, fileStruct FileStruct) (FileStruct, error) {
+	fc := func(fn string, fileStruct core.FileStruct) (core.FileStruct, error) {
 		_, err := os.Stat(string(fileStruct.Path()))
 		if !errors.Is(err, os.ErrNotExist) {
-			return fileStruct, errIgnoreThisMutate
+			return fileStruct, core.ErrIgnoreThisMutate
 		}
 		// The file does not exist on the disk, so
 		// add it to our list of files
 		mvd.add(fileStruct)
-		return fileStruct, errDeleteThisEntry
+		return fileStruct, core.ErrDeleteThisEntry
 	}
-	makerFunc := func(dir string) (DirectoryTrackerInterface, error) {
-		mkFk := func(dir string) (DirectoryEntryInterface, error) {
-			dm, err := DirectoryMapFromDir(dir)
+	makerFunc := func(dir string) (core.DirectoryTrackerInterface, error) {
+		mkFk := func(dir string) (core.DirectoryEntryInterface, error) {
+			dm, err := core.DirectoryMapFromDir(dir)
 			dm.VisitFunc = visitFunc
 			if err != nil {
 				return dm, err
 			}
-			return dm, dm.rangeMutate(fc)
+			return dm, dm.RangeMutate(fc)
 		}
-		return NewDirectoryEntry(dir, mkFk)
+		return core.NewDirectoryEntry(dir, mkFk)
 	}
-	for err := range NewDirTracker(false, directory, makerFunc).ErrChan() {
+	for err := range core.NewDirTracker(false, directory, makerFunc).ErrChan() {
 		if err != nil {
 			return err
 		}
@@ -63,8 +65,8 @@ func (mvd *moveDetect) runMoveDetectFindDeleted(directory string) error {
 // looking for any new files and if they exist in the map
 // then populate the entry withou a calculation
 func (mvd *moveDetect) runMoveDetectFindNew(directory string) error {
-	visitFunc := func(dm DirectoryMap, dir, fn string, d fs.DirEntry) error {
-		if fn == Md5FileName {
+	visitFunc := func(dm core.DirectoryMap, dir, fn string, d fs.DirEntry) error {
+		if fn == core.Md5FileName {
 			return nil
 		}
 		v, err := mvd.query(d)
@@ -74,20 +76,20 @@ func (mvd *moveDetect) runMoveDetectFindNew(directory string) error {
 		if err != nil {
 			return err
 		}
-		v.directory = dir
+		v.SetDirectory(dir)
 		dm.Add(v)
 		mvd.delete(v)
 		return dm.UpdateValues(dir, d)
 	}
-	makerFunc := func(dir string) (DirectoryTrackerInterface, error) {
-		mkFk := func(dir string) (DirectoryEntryInterface, error) {
-			dm, err := DirectoryMapFromDir(dir)
+	makerFunc := func(dir string) (core.DirectoryTrackerInterface, error) {
+		mkFk := func(dir string) (core.DirectoryEntryInterface, error) {
+			dm, err := core.DirectoryMapFromDir(dir)
 			dm.VisitFunc = visitFunc
 			return dm, err
 		}
-		return NewDirectoryEntry(dir, mkFk)
+		return core.NewDirectoryEntry(dir, mkFk)
 	}
-	errChan := NewDirTracker(false, directory, makerFunc).ErrChan()
+	errChan := core.NewDirTracker(false, directory, makerFunc).ErrChan()
 	for err := range errChan {
 		for range errChan {
 		}
@@ -120,16 +122,16 @@ func RunMoveDetect(dirs []string) error {
 	return nil
 }
 
-func (mvd *moveDetect) add(fileStruct FileStruct) {
+func (mvd *moveDetect) add(fileStruct core.FileStruct) {
 	mvd.Lock()
 	if mvd.dupeMap == nil {
-		mvd.dupeMap = make(map[moveKey]FileStruct)
+		mvd.dupeMap = make(map[moveKey]core.FileStruct)
 	}
 	mvd.dupeMap[moveKey{fileStruct.Size, fileStruct.Name}] = fileStruct
 	mvd.Unlock()
 }
 
-func (mvd *moveDetect) delete(fileStruct FileStruct) {
+func (mvd *moveDetect) delete(fileStruct core.FileStruct) {
 	if mvd.dupeMap == nil {
 		return
 	}
@@ -139,20 +141,20 @@ func (mvd *moveDetect) delete(fileStruct FileStruct) {
 }
 
 // query if the file struct (equivalent) is in the move detect array
-func (mvd *moveDetect) query(d fs.DirEntry) (FileStruct, error) {
+func (mvd *moveDetect) query(d fs.DirEntry) (core.FileStruct, error) {
 	info, err := d.Info()
 	if err != nil {
-		return FileStruct{}, err
+		return core.FileStruct{}, err
 	}
 	mvd.RLock()
 	defer mvd.RUnlock()
 	if mvd.dupeMap == nil {
-		return FileStruct{}, errMvdQueryFailed
+		return core.FileStruct{}, errMvdQueryFailed
 	}
 	key := moveKey{info.Size(), info.Name()}
 	v, ok := mvd.dupeMap[key]
 	if !ok {
-		return FileStruct{}, errMvdQueryFailed
+		return core.FileStruct{}, errMvdQueryFailed
 	}
 	return v, nil
 }

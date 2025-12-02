@@ -1,4 +1,4 @@
-package core
+package consumers
 
 import (
 	"errors"
@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/cbehopkins/medorg/pkg/core"
 )
 
 var testMode bool
@@ -30,7 +32,7 @@ type AutoFix struct {
 	ReDomainList []*regexp.Regexp
 	// For all the file we encounter, keep their hash
 	// FIXME elsewhere we use size && hash as the key to uniqueness
-	FileHash       map[string]FileStruct
+	FileHash       map[string]core.FileStruct
 	FhLock         *sync.RWMutex
 	SilenceLogging bool
 }
@@ -41,7 +43,7 @@ func (af *AutoFix) initFileHash() {
 		af.FhLock = new(sync.RWMutex)
 	}
 	if af.FileHash == nil {
-		af.FileHash = make(map[string]FileStruct)
+		af.FileHash = make(map[string]core.FileStruct)
 	}
 }
 
@@ -58,7 +60,7 @@ func NewAutoFixFile(fn string) *AutoFix {
 	var dl []string
 	// FIXME 10/10 for good intentions minus several million for implementation
 	// We load a line at a time, just to put it all into an array!
-	for s := range LoadFile(fn) {
+	for s := range core.LoadFile(fn) {
 		dl = append(dl, s)
 	}
 	return NewAutoFix(dl)
@@ -134,8 +136,8 @@ func swapFile(score1, score2 int) bool {
 // Return the one that should remaion
 // return if change  to first one has been made
 // delete if configured
-func (af AutoFix) ResolveTwo(fsOne, fsTwo FileStruct) (FileStruct, bool) {
-	if Debug {
+func (af AutoFix) ResolveTwo(fsOne, fsTwo core.FileStruct) (core.FileStruct, bool) {
+	if core.Debug {
 		fmt.Println("Matching Files", fsOne, fsTwo)
 	}
 
@@ -145,7 +147,7 @@ func (af AutoFix) ResolveTwo(fsOne, fsTwo FileStruct) (FileStruct, bool) {
 	// log.Println("Score1:", score1,"Score2:", score2)
 
 	if swapFile(score1, score2) {
-		if Debug {
+		if core.Debug {
 			log.Println("File:", fsTwo, "Preferred over:", fsOne)
 		}
 		fsOne, fsTwo = fsTwo, fsOne
@@ -156,7 +158,7 @@ func (af AutoFix) ResolveTwo(fsOne, fsTwo FileStruct) (FileStruct, bool) {
 		// By definuition that's the second one
 		fn := fsTwo.Path()
 		log.Println("Deleting:", fn)
-		_ = rmFilename(fn)
+		_ = core.RmFilename(fn)
 	} else if !af.SilenceLogging {
 		log.Println("Delete:", fsTwo.Path(), " as ", fsOne.Path())
 	}
@@ -204,7 +206,7 @@ func potentialFilename(directory, fn, extension string, i int) (string, bool) {
 }
 
 // CheckRename Check the supplied structure and try and rename it
-func (af AutoFix) CheckRename(fs FileStruct) (FileStruct, bool) {
+func (af AutoFix) CheckRename(fs core.FileStruct) (core.FileStruct, bool) {
 	var modified bool
 	var mod bool
 	directory := fs.Directory()
@@ -242,7 +244,7 @@ func (af AutoFix) CheckRename(fs FileStruct) (FileStruct, bool) {
 		log.Println("Rename:", fs.Path(), " to ", fsNew.Path())
 		if af.RenameFiles {
 			if !testMode {
-				err := MoveFile(fs.Path(), fsNew.Path())
+				err := core.MoveFile(fs.Path(), fsNew.Path())
 				if err != nil {
 					log.Println("Failed to move:", fs.Path(), "\nTo:", fsNew.Path(), "\nBecause:", err)
 					return fs, false
@@ -318,15 +320,22 @@ func ResolveFnClash(directory, fn string, extension, orig string) string {
 
 // WkFun Walk function across the supplied directories
 // FIXME add testcases for this function
-func (af *AutoFix) WkFun(dm DirectoryMap, directory, file string, d fs.DirEntry) error {
+func (af *AutoFix) WkFun(dm core.DirectoryMap, directory, file string, d fs.DirEntry) error {
 	fs, ok := dm.Get(file)
 	if !ok {
 		return errors.New("asked to update a file that does not exist")
 	}
 
-	err := dm.pruneEmptyFile(directory, file, fs, af.DeleteFiles)
-	if err != nil {
-		return err
+	// Prune empty files if needed
+	if fs.Size == 0 {
+		log.Println("Zero Length File")
+		if af.DeleteFiles {
+			err := dm.RmFile(directory, file)
+			if err != nil {
+				return err
+			}
+		}
+		return nil
 	}
 
 	// now look to see if we should rename the file

@@ -10,7 +10,9 @@ func TestPathCloser(t *testing.T) {
 		callCount++
 	}
 	checkRun := func(path string, cnt int) {
-		lp.Closer(path, myCloser)
+		if err := lp.Closer(path, myCloser); err != nil {
+			t.Error("Closer error:", err)
+		}
 
 		if callCount != cnt {
 			t.Error("Failed on,", path, cnt, callCount, lp.Get())

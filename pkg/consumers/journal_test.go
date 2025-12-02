@@ -309,7 +309,9 @@ func TestJournalDummyVisitDirs(t *testing.T) {
 		}
 		return nil
 	}
-	journal.Range(visitor)
+	if err := journal.Range(visitor); err != nil {
+		t.Error("Range error:", err)
+	}
 	if expectedDirectoryCount != 0 {
 		t.Error("Unexpected expectedDirectoryCount", expectedDirectoryCount)
 	}
@@ -317,7 +319,9 @@ func TestJournalDummyVisitDirs(t *testing.T) {
 	expectedDeletions := 1
 	deleteNDirectories(expectedDeletions, t, initialDirectoryStructure, journal)
 	expectedDirectoryCount = 1 + len(initialDirectoryStructure.Dirs) - expectedDeletions
-	journal.Range(visitor)
+	if err := journal.Range(visitor); err != nil {
+		t.Error("Range error:", err)
+	}
 	if expectedDirectoryCount != 0 {
 		t.Error("Unexpected expectedDirectoryCount", expectedDirectoryCount)
 	}

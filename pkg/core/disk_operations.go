@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -15,7 +14,7 @@ import (
 // FIXME - this is rubbish
 // We will want to pack everything into a single zip file
 // We should be able to use that to pace limit this
-var md5WriteTokenChan = makeTokenChan(4)
+var md5WriteTokenChan = MakeTokenChan(4)
 
 // md5FileWrite write to the directory's file
 // deletes the file, if the ba to write is empty
@@ -30,7 +29,7 @@ func md5FileWrite(directory string, ba []byte) error {
 	if ba == nil || (len(ba) == 0) {
 		return nil
 	}
-	return ioutil.WriteFile(fn, ba, 0o600)
+	return os.WriteFile(fn, ba, 0o600)
 }
 
 // FileExist tests if a file exists in a convenient fashion
@@ -38,46 +37,6 @@ func FileExist(directory, fn string) bool {
 	fp := filepath.Join(directory, fn)
 	_, err := os.Stat(fp)
 	return !os.IsNotExist(err)
-}
-
-// MvFile moves a file updating the md5 files as it goes
-func MvFile(srcDir, srcFn, dstDir, dstFn string) error {
-	var srcDm, dstDm DirectoryMap
-	var err error
-	srcDm, err = DirectoryMapFromDir(srcDir)
-	if err != nil {
-		return err
-	}
-	if srcDir == dstDir {
-		dstDm = srcDm
-	} else {
-		dstDm, err = DirectoryMapFromDir(dstDir)
-		if err != nil {
-			return err
-		}
-	}
-
-	err = MoveFile(NewFpath(srcDir, srcFn), NewFpath(dstDir, dstFn))
-	if err != nil {
-		return err
-	}
-
-	srcDm.Rm(srcFn)
-	err = srcDm.Persist(srcDir)
-	if err != nil {
-		return err
-	}
-	dstFs, err := NewFileStruct(dstDir, dstFn)
-	if err != nil {
-		return err
-	}
-	dstDm.Add(dstFs)
-	err = dstDm.Persist(dstDir)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 func createDestDirectoryAsNeeded(dst string) error {
@@ -107,9 +66,8 @@ func CopyFile(src, dst Fpath) (err error) {
 	dfi, err := os.Stat(dsts)
 	if err != nil {
 		if !os.IsNotExist(err) {
-			return
+			return err
 		}
-		err = nil
 	} else {
 		if !(dfi.Mode().IsRegular()) {
 			return fmt.Errorf("CopyFile: non-regular destination file %s (%q)", dfi.Name(), dfi.Mode().String())
@@ -128,7 +86,8 @@ func CopyFile(src, dst Fpath) (err error) {
 	return copyFileContents(srcs, dsts)
 }
 
-func rmFilename(fn Fpath) error {
+// RmFilename removes a file if it exists
+func RmFilename(fn Fpath) error {
 	fns := string(fn)
 	if _, err := os.Stat(fns); err == nil {
 		return os.Remove(fns)
@@ -152,7 +111,7 @@ func MoveFile(src, dst Fpath) (err error) {
 	if err != nil {
 		return fmt.Errorf("copy problem when moving %w", err)
 	}
-	return rmFilename(src)
+	return RmFilename(src)
 }
 
 // copyFileContents copies the contents of the file named src to the file named

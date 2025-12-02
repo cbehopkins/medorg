@@ -1,8 +1,10 @@
-package core
+package consumers
 
 import (
 	"log"
 	"testing"
+
+	"github.com/cbehopkins/medorg/pkg/core"
 )
 
 func TestRename0(t *testing.T) {
@@ -12,7 +14,7 @@ func TestRename0(t *testing.T) {
 	}
 
 	AF := NewAutoFix(DomainList)
-	fs := FileStruct{Name: "test_calc.flv"}
+	fs := core.FileStruct{Name: "test_calc.flv"}
 	fs, mod := AF.CheckRename(fs)
 	if mod {
 		t.Fatal("Modified while disabled", fs)
@@ -57,11 +59,13 @@ func TestRename1(t *testing.T) {
 	AF := NewAutoFix(DomainList)
 	AF.RenameFiles = true
 	var mod bool
-	var fs FileStruct
+	var fs core.FileStruct
 	for _, ts := range testStruct {
 		fn0 := ts.In
 		fn1 := ts.Out
-		fs = FileStruct{Name: fn0, directory: "."}
+		// Create a synthetic FileStruct for testing (testMode = true means files don't exist on disk)
+		fs = core.FileStruct{Name: fn0}
+		fs.SetDirectory(".")
 
 		fs, mod = AF.CheckRename(fs)
 		if mod == ts.Modify {

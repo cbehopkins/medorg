@@ -1,21 +1,22 @@
-package core
+package consumers
 
 import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"io/ioutil"
 	"math/rand"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/cbehopkins/medorg/pkg/core"
 )
 
 func createTestDirectories(root string, cnt int) ([]string, error) {
 	directoriesCreated := make([]string, cnt)
 	for i := 0; i < cnt; i++ {
-		name := filepath.Join(root, RandStringBytesMaskImprSrcSB(8))
-		err := os.Mkdir(name, 0755)
+		name := filepath.Join(root, core.RandStringBytesMaskImprSrcSB(8))
+		err := os.Mkdir(name, 0o755)
 		if err != nil {
 			return []string{}, err
 		}
@@ -23,11 +24,13 @@ func createTestDirectories(root string, cnt int) ([]string, error) {
 	}
 	return directoriesCreated, nil
 }
+
 func createTestFiles(directory string, numberOfFiles int) {
 	for i := 0; i < numberOfFiles; i++ {
 		_ = makeFile(directory)
 	}
 }
+
 func makeTestFilesAndDirectories(directory string, numberOfDirectoriesWide, numberOfDirectoriesDeep, numberOfFiles int) error {
 	directoriesCreated, err := createTestDirectories(directory, numberOfDirectoriesWide)
 	if err != nil {
@@ -45,23 +48,13 @@ func makeTestFilesAndDirectories(directory string, numberOfDirectoriesWide, numb
 	}
 	return nil
 }
+
 func createTestMoveDetectDirectories(numberOfDirectoriesWide, numberOfDirectoriesDeep, numberOfFiles int) (string, error) {
-	dir, err := ioutil.TempDir("", "tstDir")
+	dir, err := os.MkdirTemp("", "tstDir")
 	if err != nil {
 		return "", err
 	}
 	return dir, makeTestFilesAndDirectories(dir, numberOfDirectoriesWide, numberOfDirectoriesDeep, numberOfFiles)
-}
-
-func moveDetectDirCreationCount(numberOfDirectoriesWide, numberOfDirectoriesDeep, numberOfFiles int) int {
-	runningCnt := 0
-	for i := 0; i < numberOfDirectoriesWide; i++ {
-		runningCnt += numberOfFiles
-		if numberOfDirectoriesDeep > 0 {
-			runningCnt += moveDetectDirCreationCount(numberOfDirectoriesWide, numberOfDirectoriesDeep-1, numberOfFiles)
-		}
-	}
-	return runningCnt
 }
 
 // We want a function to select n random files and m random directories
@@ -73,7 +66,7 @@ func gatherFilesAndDirectories(root string) (files, directories []string) {
 			return err
 		}
 		_, file := filepath.Split(path)
-		if file == Md5FileName {
+		if file == core.Md5FileName {
 			return nil
 		}
 		if d.IsDir() {
@@ -83,14 +76,14 @@ func gatherFilesAndDirectories(root string) (files, directories []string) {
 		files = append(files, path)
 		return nil
 	}
-	filepath.WalkDir(root, walker)
+	_ = filepath.WalkDir(root, walker)
 	return
 }
 
 var errMissingChecksum = errors.New("missing checksum")
 
-func checkChecksums(dm DirectoryMap, directory, fn string, d fs.DirEntry) error {
-	if fn == Md5FileName {
+func checkChecksums(dm core.DirectoryMap, directory, fn string, d fs.DirEntry) error {
+	if fn == core.Md5FileName {
 		return nil
 	}
 	_, ok := dm.Get(fn)
@@ -99,16 +92,17 @@ func checkChecksums(dm DirectoryMap, directory, fn string, d fs.DirEntry) error 
 	}
 	return nil
 }
+
 func checkTestDirectoryChecksums(dir string) error {
-	makerFunc := func(dir string) (DirectoryTrackerInterface, error) {
-		mkFk := func(dir string) (DirectoryEntryInterface, error) {
-			dm, err := DirectoryMapFromDir(dir)
+	makerFunc := func(dir string) (core.DirectoryTrackerInterface, error) {
+		mkFk := func(dir string) (core.DirectoryEntryInterface, error) {
+			dm, err := core.DirectoryMapFromDir(dir)
 			dm.VisitFunc = checkChecksums
 			return dm, err
 		}
-		return NewDirectoryEntry(dir, mkFk)
+		return core.NewDirectoryEntry(dir, mkFk)
 	}
-	errChan := NewDirTracker(false, dir, makerFunc).ErrChan()
+	errChan := core.NewDirTracker(false, dir, makerFunc).ErrChan()
 	for err := range errChan {
 		for range errChan {
 		}
@@ -144,7 +138,9 @@ func moveNfiles(cnt int, files, directories []string) error {
 		for seekCandidateDir(selectedFile) {
 		}
 		selectedDirectory := directories[directoryPointer]
-		MoveFile(Fpath(selectedFile), NewFpath(selectedDirectory, filepath.Base(selectedFile)))
+		if err := core.MoveFile(core.Fpath(selectedFile), core.NewFpath(selectedDirectory, filepath.Base(selectedFile))); err != nil {
+			return err
+		}
 		incrementDirectory()
 	}
 	return nil

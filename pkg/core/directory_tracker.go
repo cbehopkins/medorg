@@ -30,10 +30,12 @@ type finishedB struct {
 func (f *finishedB) Get() bool {
 	return atomic.LoadUint32(&f.cnt) > 0
 }
+
 func (f *finishedB) Set() {
 	close(f.fc)
 	atomic.StoreUint32(&f.cnt, 1)
 }
+
 func (f *finishedB) Clear() {
 	f.fc = make(chan struct{})
 	atomic.StoreUint32(&f.cnt, 0)
@@ -55,12 +57,13 @@ type DirTracker struct {
 	finished finishedB
 }
 
-func makeTokenChan(numOutsanding int) chan struct{} {
-	tokenChan := make(chan struct{}, numOutsanding)
-	for i := 0; i < numOutsanding; i++ {
-		tokenChan <- struct{}{}
+// MakeTokenChan creates a buffered channel with a fixed number of tokens for concurrency control
+func MakeTokenChan(numOutstanding int) chan struct{} {
+	tkc := make(chan struct{}, numOutstanding)
+	for i := 0; i < numOutstanding; i++ {
+		tkc <- struct{}{}
 	}
-	return tokenChan
+	return tkc
 }
 
 const NumTrackerOutstanding = 4
@@ -76,7 +79,7 @@ func NewDirTracker(preserveStructs bool, dir string, newEntry func(string) (Dire
 	var dt DirTracker
 	dt.dm = make(map[string]DirectoryTrackerInterface)
 	dt.newEntry = newEntry
-	dt.tokenChan = makeTokenChan(numOutsanding)
+	dt.tokenChan = MakeTokenChan(numOutsanding)
 	dt.wg = new(sync.WaitGroup)
 	dt.errChan = make(chan error)
 	dt.wg.Add(1) // add one for populateDircount
@@ -202,6 +205,7 @@ func (dt *DirTracker) directoryWalkerPopulateDircount(path string, d fs.DirEntry
 	}
 	return nil
 }
+
 func (dt *DirTracker) handleDirectory(path string) error {
 	if isHiddenDirectory(path) {
 		return filepath.SkipDir
@@ -219,7 +223,9 @@ func (dt *DirTracker) handleDirectory(path string) error {
 	if dt.preserveStructs {
 		closerFunc = nil
 	}
-	dt.lastPath.Closer(path, closerFunc)
+	if err := dt.lastPath.Closer(path, closerFunc); err != nil {
+		return err
+	}
 	de, err := dt.getDirectoryEntry(path)
 	if err != nil {
 		return fmt.Errorf("%w::%s", err, path)
@@ -229,6 +235,7 @@ func (dt *DirTracker) handleDirectory(path string) error {
 	}
 	return nil
 }
+
 func (dt *DirTracker) directoryWalker(path string, d fs.DirEntry, err error) error {
 	if err != nil {
 		return err

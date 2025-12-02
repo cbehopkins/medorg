@@ -3,7 +3,6 @@ package core
 import (
 	"crypto/rand"
 	"encoding/xml"
-	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
@@ -20,7 +19,7 @@ func TestB2B(t *testing.T) {
 	dirToProc := "."
 
 	log.Println("Processing Directory", dirToProc)
-	files, err := ioutil.ReadDir(dirToProc)
+	files, err := os.ReadDir(dirToProc)
 	if err != nil {
 		t.Error(err)
 	}
@@ -46,8 +45,10 @@ func makeFile(directory string) string {
 	// FIXME it would be quicker to calculate the checksum here
 	// while it's an in memory object
 	buff := make([]byte, 75000)
-	rand.Read(buff)
-	tmpfile, err := ioutil.TempFile(directory, "example")
+	if _, err := rand.Read(buff); err != nil {
+		panic(err)
+	}
+	tmpfile, err := os.CreateTemp(directory, "example")
 	if err != nil {
 		panic(err)
 	}
@@ -91,7 +92,6 @@ func TestSelfCompat(t *testing.T) {
 	fileToUse := "checksum_test.go"
 	_ = md5FileWrite(".", nil)
 
-	dm := *NewDirectoryMap()
 	toMd5Chan, toUpdateXML, closedChan := NewChannels()
 	wg := newXMLManager(toUpdateXML)
 	toMd5Chan <- FileStruct{Name: fileToUse, directory: "."}
@@ -143,7 +143,6 @@ func TestPerlCompat(t *testing.T) {
 		t.Error("Missing Checksum from perl version")
 	}
 	_ = os.Remove("./" + Md5FileName)
-	dm = *NewDirectoryMap()
 	toMd5Chan, toUpdateXML, closedChan := NewChannels()
 	wg := newXMLManager(toUpdateXML)
 	toMd5Chan <- FileStruct{Name: fileToUse, directory: "."}

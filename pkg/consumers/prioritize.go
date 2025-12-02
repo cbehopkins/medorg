@@ -1,9 +1,13 @@
-package core
+package consumers
 
-import "sort"
+import (
+	"sort"
 
-func prioritizeFiles(candidates []FileStruct, label string) []FileStruct {
-	filterFunc := func(can FileStruct) bool {
+	"github.com/cbehopkins/medorg/pkg/core"
+)
+
+func prioritizeFiles(candidates []core.FileStruct, label string) []core.FileStruct {
+	filterFunc := func(can core.FileStruct) bool {
 		// If the file is already backed up at the provided label
 		for _, target := range can.BackupDest {
 			if target == label {
@@ -13,7 +17,7 @@ func prioritizeFiles(candidates []FileStruct, label string) []FileStruct {
 		return true
 	}
 
-	newCands := make([]FileStruct, 0, len(candidates))
+	newCands := make([]core.FileStruct, 0, len(candidates))
 	if label != "" {
 		for _, v := range candidates {
 			if filterFunc(v) {

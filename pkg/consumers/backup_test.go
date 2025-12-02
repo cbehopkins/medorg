@@ -1,10 +1,10 @@
-package core
+package consumers
 
 import (
+	crand "crypto/rand"
 	"errors"
 	"fmt"
 	"io/fs"
-	"io/ioutil"
 	"log"
 	"math/rand"
 	"os"
@@ -12,9 +12,63 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+
+	"github.com/cbehopkins/medorg/pkg/core"
 )
 
-var errMissingTestFile = errors.New("missing file")
+var (
+	errMissingTestFile  = errors.New("missing file")
+	errSelfCheckProblem = errors.New("self check problem")
+)
+
+func errHandler(
+	dts []*core.DirTracker,
+	registerFunc func(dt *core.DirTracker),
+) <-chan error {
+	if registerFunc == nil {
+		registerFunc = func(dt *core.DirTracker) {}
+	}
+	errChan := make(chan error)
+	var wg sync.WaitGroup
+	wg.Add(len(dts))
+	for _, ndt := range dts {
+		registerFunc(ndt)
+		go func(ndt *core.DirTracker) {
+			for err := range ndt.ErrChan() {
+				log.Println("Error received", err)
+				if err != nil {
+					errChan <- err
+				}
+			}
+			wg.Done()
+		}(ndt)
+	}
+	go func() {
+		wg.Wait()
+		close(errChan)
+	}()
+	return errChan
+}
+
+func makeFile(directory string) string {
+	// FIXME it would be quicker to calculate the checksum here
+	// while it's an in memory object
+	buff := make([]byte, 75000)
+	if _, err := crand.Read(buff); err != nil {
+		panic(err)
+	}
+	tmpfile, err := os.CreateTemp(directory, "example")
+	if err != nil {
+		panic(err)
+	}
+	if _, err := tmpfile.Write(buff); err != nil {
+		panic(err)
+	}
+	if err := tmpfile.Close(); err != nil {
+		panic(err)
+	}
+	return tmpfile.Name()
+}
 
 func createTestBackupDirectories(numberOfFiles, numberOfDuplicates int) ([]string, error) {
 	if numberOfDuplicates > numberOfFiles {
@@ -22,7 +76,7 @@ func createTestBackupDirectories(numberOfFiles, numberOfDuplicates int) ([]strin
 	}
 	directoriesCreated := make([]string, 2)
 	for i := 0; i < 2; i++ {
-		dir, err := ioutil.TempDir("", "tstDir")
+		dir, err := os.MkdirTemp("", "tstDir")
 		if err != nil {
 			return nil, err
 		}
@@ -38,17 +92,18 @@ func createTestBackupDirectories(numberOfFiles, numberOfDuplicates int) ([]strin
 	for i := 0; i < numberOfDuplicates; i++ {
 		selectedFilename := filenames[randomSrc[i]]
 		stem := filepath.Base(selectedFilename)
-		dstFile := NewFpath(directoriesCreated[1], stem)
+		dstFile := core.NewFpath(directoriesCreated[1], stem)
 		log.Println("Pretending to backup", dstFile)
-		err := CopyFile(Fpath(selectedFilename), dstFile)
+		err := core.CopyFile(core.Fpath(selectedFilename), dstFile)
 		if err != nil {
 			return nil, err
 		}
 	}
 	return directoriesCreated, nil
 }
-func recalcForTest(dm DirectoryMap, directory, fn string, d fs.DirEntry) error {
-	if fn == Md5FileName {
+
+func recalcForTest(dm core.DirectoryMap, directory, fn string, d fs.DirEntry) error {
+	if fn == core.Md5FileName {
 		return nil
 	}
 	err := dm.UpdateValues(directory, d)
@@ -61,23 +116,24 @@ func recalcForTest(dm DirectoryMap, directory, fn string, d fs.DirEntry) error {
 	}
 	return nil
 }
+
 func recalcTestDirectory(dir string) error {
-	makerFunc := func(dir string) (DirectoryTrackerInterface, error) {
-		mkFk := func(dir string) (DirectoryEntryInterface, error) {
-			dm, err := DirectoryMapFromDir(dir)
+	makerFunc := func(dir string) (core.DirectoryTrackerInterface, error) {
+		mkFk := func(dir string) (core.DirectoryEntryInterface, error) {
+			dm, err := core.DirectoryMapFromDir(dir)
 			dm.VisitFunc = recalcForTest
 			return dm, err
 		}
-		return NewDirectoryEntry(dir, mkFk)
+		return core.NewDirectoryEntry(dir, mkFk)
 	}
-	for err := range NewDirTracker(false, dir, makerFunc).ErrChan() {
+	for err := range core.NewDirTracker(false, dir, makerFunc).ErrChan() {
 		return fmt.Errorf("Error received on closing:%w", err)
 	}
 	return nil
 }
 
-func (bdm *backupDupeMap) aFile(dm DirectoryMap, dir, fn string, d fs.DirEntry) error {
-	if fn == Md5FileName {
+func (bdm *backupDupeMap) aFile(dm core.DirectoryMap, dir, fn string, d fs.DirEntry) error {
+	if fn == core.Md5FileName {
 		return nil
 	}
 	fs, ok := dm.Get(fn)
@@ -113,34 +169,34 @@ func TestDuplicateDetect(t *testing.T) {
 	srcDir := dirs[1]
 	destDir := dirs[0]
 	// First we populate the src dir
-	makerFuncDest := func(dir string) (DirectoryTrackerInterface, error) {
-		mkFk := func(dir string) (DirectoryEntryInterface, error) {
-			dm, err := DirectoryMapFromDir(dir)
+	makerFuncDest := func(dir string) (core.DirectoryTrackerInterface, error) {
+		mkFk := func(dir string) (core.DirectoryEntryInterface, error) {
+			dm, err := core.DirectoryMapFromDir(dir)
 			dm.VisitFunc = dstTm.aFile
 			return dm, err
 		}
-		return NewDirectoryEntry(dir, mkFk)
+		return core.NewDirectoryEntry(dir, mkFk)
 	}
-	makerFuncSrc := func(dir string) (DirectoryTrackerInterface, error) {
-		mkFk := func(dir string) (DirectoryEntryInterface, error) {
-			dm, err := DirectoryMapFromDir(dir)
+	makerFuncSrc := func(dir string) (core.DirectoryTrackerInterface, error) {
+		mkFk := func(dir string) (core.DirectoryEntryInterface, error) {
+			dm, err := core.DirectoryMapFromDir(dir)
 			dm.VisitFunc = srcTm.aFile
 			return dm, err
 		}
-		return NewDirectoryEntry(dir, mkFk)
+		return core.NewDirectoryEntry(dir, mkFk)
 	}
-	net := NewDirTracker(false, srcDir, makerFuncSrc)
+	net := core.NewDirTracker(false, srcDir, makerFuncSrc)
 	ec := net.ErrChan()
 	for err := range ec {
 		t.Error("Error received on closing:", err)
 	}
-	for err := range NewDirTracker(false, destDir, makerFuncDest).ErrChan() {
+	for err := range core.NewDirTracker(false, destDir, makerFuncDest).ErrChan() {
 		t.Error("Error received on closing:", err)
 	}
 	var lk sync.Mutex
 	expectedDuplicates := numberOfDuplicates
 	bs := backScanner{
-		lookupFunc: func(path Fpath, ok bool) error {
+		lookupFunc: func(path core.Fpath, ok bool) error {
 			if ok {
 				lk.Lock()
 				expectedDuplicates--
@@ -181,8 +237,8 @@ func TestDuplicateArchivedAtPopulation(t *testing.T) {
 
 	expectedDuplicates := 10
 	var lk sync.Mutex
-	archiveWalkFunc := func(dm DirectoryMap, dir, fn string, d fs.DirEntry) error {
-		if fn == Md5FileName {
+	archiveWalkFunc := func(dm core.DirectoryMap, dir, fn string, d fs.DirEntry) error {
+		if fn == core.Md5FileName {
 			return nil
 		}
 		fs, ok := dm.Get(fn)
@@ -197,15 +253,15 @@ func TestDuplicateArchivedAtPopulation(t *testing.T) {
 		return nil
 	}
 
-	makerFunc := func(dir string) (DirectoryTrackerInterface, error) {
-		mkFk := func(dir string) (DirectoryEntryInterface, error) {
-			dm, err := DirectoryMapFromDir(dir)
+	makerFunc := func(dir string) (core.DirectoryTrackerInterface, error) {
+		mkFk := func(dir string) (core.DirectoryEntryInterface, error) {
+			dm, err := core.DirectoryMapFromDir(dir)
 			dm.VisitFunc = archiveWalkFunc
 			return dm, err
 		}
-		return NewDirectoryEntry(dir, mkFk)
+		return core.NewDirectoryEntry(dir, mkFk)
 	}
-	for err := range NewDirTracker(false, dirs[0], makerFunc).ErrChan() {
+	for err := range core.NewDirTracker(false, dirs[0], makerFunc).ErrChan() {
 		t.Error("Error received on closing:", err)
 	}
 
@@ -249,10 +305,10 @@ func TestBackupExtract(t *testing.T) {
 	// should change the order things come out ijn
 	numDuplicates := 1
 	numExtra := 1
-	extraMap := make(map[Fpath]struct{})
+	extraMap := make(map[core.Fpath]struct{})
 	var lk sync.Mutex
-	directoryWalker := func(dm DirectoryMap, dir, fn string, d fs.DirEntry) error {
-		if fn == Md5FileName {
+	directoryWalker := func(dm core.DirectoryMap, dir, fn string, d fs.DirEntry) error {
+		if fn == core.Md5FileName {
 			return nil
 		}
 		fs, ok := dm.Get(fn)
@@ -283,18 +339,18 @@ func TestBackupExtract(t *testing.T) {
 		}
 		return nil
 	}
-	makerFunc := func(dir string) (DirectoryTrackerInterface, error) {
-		mkFk := func(dir string) (DirectoryEntryInterface, error) {
-			dm, err := DirectoryMapFromDir(dir)
+	makerFunc := func(dir string) (core.DirectoryTrackerInterface, error) {
+		mkFk := func(dir string) (core.DirectoryEntryInterface, error) {
+			dm, err := core.DirectoryMapFromDir(dir)
 			dm.VisitFunc = directoryWalker
 			return dm, err
 		}
-		return NewDirectoryEntry(dir, mkFk)
+		return core.NewDirectoryEntry(dir, mkFk)
 	}
-	for err := range NewDirTracker(false, dirs[0], makerFunc).ErrChan() {
+	for err := range core.NewDirTracker(false, dirs[0], makerFunc).ErrChan() {
 		t.Error("Error received on closing:", err)
 	}
-	dt := AutoVisitFilesInDirectories([]string{dirs[0]}, nil)
+	dt := core.AutoVisitFilesInDirectories([]string{dirs[0]}, nil)
 	errChan := errHandler(dt, nil)
 	for err := range errChan {
 		for range errChan {
@@ -361,10 +417,12 @@ func TestBackupMain(t *testing.T) {
 	var callCount uint32
 
 	// FIXME Provide a proper dummy object here for testing
-	var xc XMLCfg
-	fc := func(src, dst Fpath) error {
+	var xc core.XMLCfg
+	fc := func(src, dst core.Fpath) error {
 		t.Log("Copy", src, "to", dst)
-		CopyFile(src, dst)
+		if err := core.CopyFile(src, dst); err != nil {
+			return err
+		}
 		atomic.AddUint32(&callCount, 1)
 		return nil
 	}
@@ -402,11 +460,11 @@ func TestBackupSrcHasDuplicateFiles(t *testing.T) {
 	}
 	srcFp := files[0].Name()
 	dstFp := filepath.Base(srcFp) + "bob"
-	err = CopyFile(NewFpath(dirs[0], srcFp), NewFpath(dirs[0], dstFp))
+	err = core.CopyFile(core.NewFpath(dirs[0], srcFp), core.NewFpath(dirs[0], dstFp))
 	if err != nil {
 		t.Error("Failed to copy test files", err)
 	}
-	err = CopyFile(NewFpath(dirs[0], srcFp), NewFpath(dirs[1], dstFp))
+	err = core.CopyFile(core.NewFpath(dirs[0], srcFp), core.NewFpath(dirs[1], dstFp))
 	if err != nil {
 		t.Error("Failed to copy test files", err)
 	}
@@ -420,32 +478,32 @@ func TestBackupSrcHasDuplicateFiles(t *testing.T) {
 	srcDir := dirs[1]
 	destDir := dirs[0]
 	// First we populate the src dir
-	makerFuncDest := func(dir string) (DirectoryTrackerInterface, error) {
-		mkFk := func(dir string) (DirectoryEntryInterface, error) {
-			dm, err := DirectoryMapFromDir(dir)
+	makerFuncDest := func(dir string) (core.DirectoryTrackerInterface, error) {
+		mkFk := func(dir string) (core.DirectoryEntryInterface, error) {
+			dm, err := core.DirectoryMapFromDir(dir)
 			dm.VisitFunc = dstTm.aFile
 			return dm, err
 		}
-		return NewDirectoryEntry(dir, mkFk)
+		return core.NewDirectoryEntry(dir, mkFk)
 	}
-	makerFuncSrc := func(dir string) (DirectoryTrackerInterface, error) {
-		mkFk := func(dir string) (DirectoryEntryInterface, error) {
-			dm, err := DirectoryMapFromDir(dir)
+	makerFuncSrc := func(dir string) (core.DirectoryTrackerInterface, error) {
+		mkFk := func(dir string) (core.DirectoryEntryInterface, error) {
+			dm, err := core.DirectoryMapFromDir(dir)
 			dm.VisitFunc = srcTm.aFile
 			return dm, err
 		}
-		return NewDirectoryEntry(dir, mkFk)
+		return core.NewDirectoryEntry(dir, mkFk)
 	}
-	for err := range NewDirTracker(false, srcDir, makerFuncSrc).ErrChan() {
+	for err := range core.NewDirTracker(false, srcDir, makerFuncSrc).ErrChan() {
 		t.Error("Error received on closing:", err)
 	}
-	for err := range NewDirTracker(false, destDir, makerFuncDest).ErrChan() {
+	for err := range core.NewDirTracker(false, destDir, makerFuncDest).ErrChan() {
 		t.Error("Error received on closing:", err)
 	}
 	var lk sync.Mutex
 	expectedDuplicates := numberOfDuplicates
 	bs := backScanner{
-		lookupFunc: func(path Fpath, ok bool) error {
+		lookupFunc: func(path core.Fpath, ok bool) error {
 			if ok {
 				lk.Lock()
 				expectedDuplicates--
@@ -460,7 +518,7 @@ func TestBackupSrcHasDuplicateFiles(t *testing.T) {
 	if expectedDuplicates != 0 {
 		t.Error("Expected 0 duplicates left, got:", expectedDuplicates)
 	}
-	dt := AutoVisitFilesInDirectories([]string{dirs[0]}, nil)
+	dt := core.AutoVisitFilesInDirectories([]string{dirs[0]}, nil)
 	errChan := errHandler(dt, nil)
 	for err := range errChan {
 		for range errChan {

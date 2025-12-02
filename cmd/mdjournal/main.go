@@ -76,7 +76,9 @@ func main() {
 	fh, err := os.Open(fn)
 	if !errors.Is(err, os.ErrNotExist) {
 		fmt.Println("Reading in journal")
-		journal.FromReader(fh)
+		if err := journal.FromReader(fh); err != nil {
+			fmt.Println("Error reading journal:", err)
+		}
 		err := fh.Close()
 		if err != nil {
 			fmt.Println("Error closing read in journal:", err)

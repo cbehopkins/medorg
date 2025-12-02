@@ -5,9 +5,93 @@ import (
 	"io/fs"
 	"log"
 	"os"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 )
+
+func recalcForTest(dm DirectoryMap, directory, fn string, d fs.DirEntry) error {
+	if fn == Md5FileName {
+		return nil
+	}
+	err := dm.UpdateValues(directory, d)
+	if err != nil {
+		return err
+	}
+	err = dm.UpdateChecksum(directory, fn, false)
+	return err
+}
+
+func recalcTestDirectory(dir string) error {
+	makerFunc := func(dir string) (DirectoryTrackerInterface, error) {
+		mkFk := func(dir string) (DirectoryEntryInterface, error) {
+			dm, err := DirectoryMapFromDir(dir)
+			dm.VisitFunc = recalcForTest
+			return dm, err
+		}
+		return NewDirectoryEntry(dir, mkFk)
+	}
+	for err := range NewDirTracker(false, dir, makerFunc).ErrChan() {
+		return fmt.Errorf("Error received on closing:%w", err)
+	}
+	return nil
+}
+
+func createTestDirectories(root string, cnt int) ([]string, error) {
+	directoriesCreated := make([]string, cnt)
+	for i := 0; i < cnt; i++ {
+		name := filepath.Join(root, RandStringBytesMaskImprSrcSB(8))
+		err := os.Mkdir(name, 0o755)
+		if err != nil {
+			return []string{}, err
+		}
+		directoriesCreated[i] = name
+	}
+	return directoriesCreated, nil
+}
+
+func createTestFiles(directory string, numberOfFiles int) {
+	for i := 0; i < numberOfFiles; i++ {
+		_ = makeFile(directory)
+	}
+}
+
+func createTestMoveDetectDirectories(numberOfDirectoriesWide, numberOfDirectoriesDeep, numberOfFiles int) (string, error) {
+	dir, err := os.MkdirTemp("", "tstDir")
+	if err != nil {
+		return "", err
+	}
+	return dir, makeTestFilesAndDirectories(dir, numberOfDirectoriesWide, numberOfDirectoriesDeep, numberOfFiles)
+}
+
+func makeTestFilesAndDirectories(directory string, numberOfDirectoriesWide, numberOfDirectoriesDeep, numberOfFiles int) error {
+	directoriesCreated, err := createTestDirectories(directory, numberOfDirectoriesWide)
+	if err != nil {
+		return err
+	}
+
+	for _, v := range directoriesCreated {
+		createTestFiles(v, numberOfFiles)
+		if numberOfDirectoriesDeep > 0 {
+			err := makeTestFilesAndDirectories(v, numberOfDirectoriesWide, numberOfDirectoriesDeep-1, numberOfFiles)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func moveDetectDirCreationCount(numberOfDirectoriesWide, numberOfDirectoriesDeep, numberOfFiles int) int {
+	runningCnt := 0
+	for i := 0; i < numberOfDirectoriesWide; i++ {
+		runningCnt += numberOfFiles
+		if numberOfDirectoriesDeep > 0 {
+			runningCnt += moveDetectDirCreationCount(numberOfDirectoriesWide, numberOfDirectoriesDeep-1, numberOfFiles)
+		}
+	}
+	return runningCnt
+}
 
 func TestVisitFilesInDirectory(t *testing.T) {
 	type testSet struct {

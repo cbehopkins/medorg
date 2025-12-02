@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cbehopkins/medorg/pkg/consumers"
 	"github.com/cbehopkins/medorg/pkg/core"
 	pb "github.com/cbehopkins/pb/v3"
 	bytesize "github.com/inhies/go-bytesize"
@@ -31,7 +32,7 @@ const (
 // FIXME
 var (
 	MaxBackups = 2
-	AF         *core.AutoFix
+	AF         *consumers.AutoFix
 )
 
 func isDir(fn string) bool {
@@ -68,7 +69,9 @@ func poolCopier(src, dst core.Fpath, pool *pb.Pool, wg *sync.WaitGroup) error {
 
 	pool.Add(myBar)
 	myBar.Start()
-	defer pool.Remove(myBar)
+	defer func() {
+		_ = pool.Remove(myBar)
+	}()
 	closeChan := make(chan struct{})
 	defer func() { close(closeChan) }()
 	wg.Add(1)
@@ -247,7 +250,9 @@ func main() {
 		return
 	}
 
-	defer pool.Stop()
+	defer func() {
+		_ = pool.Stop()
+	}()
 	defer messageBar.Finish()
 	messageBar.SetTemplateString(`{{string . "msg"}}`)
 	messageBar.Set("msg", "Initialzing discombobulator")
@@ -313,7 +318,7 @@ func main() {
 	if *dummyflg {
 		copyer = func(src, dst core.Fpath) error {
 			log.Println("Copy from:", src, " to ", dst)
-			return core.ErrDummyCopy
+			return consumers.ErrDummyCopy
 		}
 	} else {
 		copyer = func(src, dst core.Fpath) error {
@@ -356,7 +361,7 @@ func main() {
 	}
 
 	messageBar.Set("msg", "Starting Backup Run")
-	err = core.BackupRunner(xc, 2, copyer, directories[0], directories[1], orphanedFunc, logFunc, registerFunc, shutdownChan)
+	err = consumers.BackupRunner(xc, 2, copyer, directories[0], directories[1], orphanedFunc, logFunc, registerFunc, shutdownChan)
 	messageBar.Set("msg", "Completed Backup Run")
 
 	if err != nil {

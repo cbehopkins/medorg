@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -46,7 +45,7 @@ func NewVolumeCfg(xc *XMLCfg, fn string) (*VolumeCfg, error) {
 		}
 		defer f.Close()
 
-		byteValue, err := ioutil.ReadAll(f)
+		byteValue, err := io.ReadAll(f)
 		if err != nil {
 			return nil, fmt.Errorf("error loading NewVolumeCfg file:%s::%w", fn, err)
 		}
@@ -120,7 +119,7 @@ func (vc VolumeCfg) Persist() error {
 	if err != nil {
 		return err
 	}
-	err = ioutil.WriteFile(fn, output, 0o600)
+	err = os.WriteFile(fn, output, 0o600)
 	if err != nil {
 		return err
 	}
@@ -187,8 +186,9 @@ func (xc *XMLCfg) VolumeCfgFromDir(dir string) (*VolumeCfg, error) {
 	return vc, err
 }
 
+// GetVolumeLabel returns the volume label for a destination directory
 // FIXME - this is not needed
-func (xc *XMLCfg) getVolumeLabel(destDir string) (string, error) {
+func (xc *XMLCfg) GetVolumeLabel(destDir string) (string, error) {
 	vc, err := xc.VolumeCfgFromDir(destDir)
 	if err != nil {
 		return "", err
