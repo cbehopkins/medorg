@@ -1,10 +1,8 @@
 package main
 
 import (
-	"errors"
 	"flag"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -23,8 +21,7 @@ func isDir(fn string) bool {
 func main() {
 	var directories []string
 
-	scrubflg := flag.Bool("scrub", false, "Scruball backup labels from src records")
-
+	scrubflg := flag.Bool("scrub", false, "Scrub all backup labels from src records")
 	calcCnt := flag.Int("calc", 2, "Max Number of MD5 calculators")
 	delflg := flag.Bool("delete", false, "Delete duplicated Files")
 	mvdflg := flag.Bool("mvd", false, "Move Detect")
@@ -43,12 +40,12 @@ func main() {
 		directories = []string{"."}
 	}
 
+	// Setup AutoFix if rename flag is set
 	var AF *consumers.AutoFix
 	if *rnmflg {
 		var xc *core.XMLCfg
 		var err error
 		if xmcf := core.XmConfig(); xmcf != "" {
-			// FIXME should we be casting to string here or fixing the interfaces?
 			xc, err = core.NewXMLCfg(string(xmcf))
 			if err != nil {
 				fmt.Println("Error loading config file:", err)
@@ -67,6 +64,7 @@ func main() {
 		AF.DeleteFiles = *delflg
 	}
 
+	// Handle move detection separately
 	if *mvdflg {
 		err := consumers.RunMoveDetect(directories)
 		if err != nil {
@@ -76,95 +74,20 @@ func main() {
 		fmt.Println("Finished move detection")
 	}
 
-	// Have a buffer of compute tokens
-	// to ensure we're not doing too much at once
-	tokenBuffer := make(chan struct{}, *calcCnt)
-	defer close(tokenBuffer)
-	for i := 0; i < *calcCnt; i++ {
-		tokenBuffer <- struct{}{}
+	// Run the check_calc operation using the extracted package function
+	opts := consumers.CheckCalcOptions{
+		CalcCount: *calcCnt,
+		Recalc:    *rclflg,
+		Validate:  *valflg,
+		Scrub:     *scrubflg,
+		AutoFix:   AF,
 	}
 
-	visitor := func(dm core.DirectoryMap, directory, file string, d fs.DirEntry) error {
-		if file == core.Md5FileName {
-			return nil
-		}
-
-		fc := func(fs *core.FileStruct) error {
-			info, err := d.Info()
-			if err != nil {
-				return err
-			}
-			changed, err := fs.Changed(info)
-			if err != nil {
-				return err
-			}
-
-			if *scrubflg {
-				if len(fs.BackupDest) > 0 {
-					changed = true
-					fs.BackupDest = []string{}
-				}
-			}
-			if *valflg {
-				<-tokenBuffer
-				defer func() { tokenBuffer <- struct{}{} }()
-				err = fs.ValidateChecksum()
-				if errors.Is(err, core.ErrRecalced) {
-					fmt.Println("Had to recalculate a checksum", fs.Name)
-					return nil
-				}
-				return err
-			}
-
-			if !(changed || *rclflg || fs.Checksum == "") {
-				// if we have no reason to recalculate
-				return nil
-			}
-
-			if _, err := fs.FromStat(directory, file, info); err != nil {
-				return err
-			}
-			// Grab a compute token
-			<-tokenBuffer
-			defer func() { tokenBuffer <- struct{}{} }()
-			err = fs.UpdateChecksum(*rclflg)
-			if errors.Is(err, consumers.ErrIOError) {
-				fmt.Println("Received an IO error calculating checksum ", fs.Name, err)
-				return nil
-			}
-			return err
-		}
-		err := dm.RunFsFc(directory, file, fc)
-		if err != nil {
-			return err
-		}
-		if AF != nil {
-			if err := AF.WkFun(dm, directory, file, d); err != nil {
-				return err
-			}
-		}
-		return nil
+	err := consumers.RunCheckCalc(directories, opts)
+	if err != nil {
+		fmt.Println("Error:", err)
+		os.Exit(2)
 	}
 
-	makerFunc := func(dir string) (core.DirectoryTrackerInterface, error) {
-		mkFk := func(dir string) (core.DirectoryEntryInterface, error) {
-			dm, err := core.DirectoryMapFromDir(dir)
-			if err != nil {
-				return dm, err
-			}
-			dm.VisitFunc = visitor
-			return dm, dm.DeleteMissingFiles()
-		}
-		de, err := core.NewDirectoryEntry(dir, mkFk)
-		return de, err
-	}
-	for _, dir := range directories {
-		errChan := core.NewDirTracker(false, dir, makerFunc).ErrChan()
-
-		for err := range errChan {
-			fmt.Println("Error received while walking:", dir, err)
-			os.Exit(2)
-		}
-	}
 	fmt.Println("Finished walking")
 }

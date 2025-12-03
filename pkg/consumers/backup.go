@@ -15,9 +15,6 @@ import (
 // ErrMissingEntry You are copying a file that there is no directory entry for. Probably need to rerun a visit on the directory
 var ErrMissingEntry = errors.New("attempting to copy a file there seems to be no directory entry for")
 
-// errMissingSrcEntry should only happen if there is an internal logic error
-var errMissingSrcEntry = errors.New("missing source entry")
-
 // ErrDummyCopy Return this from your copy function to skip the effects of copying on the md5 files
 var ErrDummyCopy = errors.New("not really copying, it's all good though")
 
@@ -153,22 +150,6 @@ func (fpll *fpathListList) Add(index int, fp core.Fpath) {
 	(*fpll)[index] = append((*fpll)[index], fp)
 }
 
-func updateAndGo(dm core.DirectoryMap, dir, fn string) (fs core.FileStruct, err error) {
-	// Update the checksum, creating the FS if needed
-	err = dm.UpdateChecksum(dir, fn, false)
-	if err != nil {
-		return
-	}
-
-	// Add everything we find to the destination map
-	fs, ok := dm.Get(fn)
-	if core.Debug && !ok {
-		// If the FS does not exist, then UpdateChecksum is faulty
-		return fs, fmt.Errorf("dst %w: %s/%s", errMissingSrcEntry, dir, fn)
-	}
-	return
-}
-
 // scanBackupDirectories will mark srcDir's ArchiveAt
 // tag, with any files that are already found in the destination
 func (bs backScanner) scanBackupDirectories(
@@ -208,25 +189,8 @@ func (bs backScanner) scanBackupDirectories(
 		return nil, err
 	}
 
-	calcCnt := 2
-	tokenBuffer := core.MakeTokenChan(calcCnt)
-	defer close(tokenBuffer)
-
-	visitFunc := func(dm core.DirectoryEntryInterface, dir, fn string, fileStruct core.FileStruct) error {
-		de, ok := dm.(core.DirectoryMap)
-		if !ok {
-			return errors.New("unable to cast to de")
-		}
-		<-tokenBuffer
-		_, err := updateAndGo(de, dir, fn)
-		tokenBuffer <- struct{}{}
-		return err
-	}
-
-	logFunc("Computing Checksum Phase dest")
-	dta[0].Revisit(destDir, registerFunc, visitFunc, shutdownChan)
-	logFunc("Computing Checksum Phase src")
-	dta[1].Revisit(srcDir, registerFunc, visitFunc, shutdownChan)
+	// No checksum calculation needed - RunCheckCalc already did it
+	// Just read the existing directory maps which now have checksums
 
 	var backupDestination backupDupeMap
 	var backupSource backupDupeMap
@@ -256,6 +220,11 @@ func extractCopyFiles(srcDir string, dt *core.DirTracker, volumeName string, reg
 	var lk sync.Mutex
 	remainingFiles := fpathListList{}
 	visitFunc := func(dm core.DirectoryEntryInterface, dir, fn string, fileStruct core.FileStruct) error {
+		// Skip metadata files - these should never be backed up
+		if fn == core.Md5FileName || fn == ".mdjournal.xml" || fn == ".mdbackup.xml" {
+			return nil
+		}
+
 		if fileStruct.HasTag(volumeName) {
 			return nil
 		}
@@ -423,12 +392,25 @@ func BackupRunnerMultiSource(
 	}
 	logFunc(fmt.Sprint("Determined label as: \"", backupLabelName, "\" :now scanning directories"))
 
-	// Build list of all directories to scan (destination + all sources)
+	// Step 1: Run check_calc to calculate/update all MD5 checksums
+	// This ensures destination and all sources have up-to-date .medorg.xml files
 	allDirs := make([]string, 0, 1+len(srcDirs))
 	allDirs = append(allDirs, destDir)
 	allDirs = append(allDirs, srcDirs...)
 
-	// Scan all directories
+	checkCalcOpts := CheckCalcOptions{
+		CalcCount: len(allDirs), // Parallel processing for all directories
+		Recalc:    false,
+		Validate:  false,
+		Scrub:     false,
+		AutoFix:   nil,
+	}
+	logFunc("Running check_calc on all directories (destination + sources)")
+	if err := RunCheckCalc(allDirs, checkCalcOpts); err != nil {
+		return fmt.Errorf("error running check_calc: %w", err)
+	}
+
+	// Step 2: Scan all directories (checksums already calculated)
 	dta := core.AutoVisitFilesInDirectories(allDirs, nil)
 
 	// Handle errors from directory traversal
@@ -456,32 +438,7 @@ func BackupRunnerMultiSource(
 		return err
 	}
 
-	// Compute checksums for all directories
-	calcCnt := len(allDirs)
-	tokenBuffer := core.MakeTokenChan(calcCnt)
-	defer close(tokenBuffer)
-
-	visitFunc := func(dm core.DirectoryEntryInterface, dir, fn string, fileStruct core.FileStruct) error {
-		de, ok := dm.(core.DirectoryMap)
-		if !ok {
-			return errors.New("unable to cast to de")
-		}
-		<-tokenBuffer
-		_, err := updateAndGo(de, dir, fn)
-		tokenBuffer <- struct{}{}
-		return err
-	}
-
-	// Compute checksums for destination
-	logFunc("Computing Checksum Phase dest")
-	dta[0].Revisit(destDir, registerFunc, visitFunc, shutdownChan)
-
-	// Compute checksums for all sources
-	for i, srcDir := range srcDirs {
-		logFunc(fmt.Sprintf("Computing Checksum Phase source %d", i+1))
-		dta[i+1].Revisit(srcDir, registerFunc, visitFunc, shutdownChan)
-	}
-
+	// No checksum calculation needed - RunCheckCalc already did it
 	// Build destination file map
 	var backupDestination backupDupeMap
 	logFunc("Initial scan for anything that needs building")
@@ -566,6 +523,21 @@ func BackupRunner(
 	}
 	logFunc(fmt.Sprint("Determined label as: \"", backupLabelName, "\" :now scanning directories"))
 
+	// Step 1: Run check_calc to calculate/update all MD5 checksums
+	// This ensures both source and destination have up-to-date .medorg.xml files
+	checkCalcOpts := CheckCalcOptions{
+		CalcCount: 2, // Default parallelism
+		Recalc:    false,
+		Validate:  false,
+		Scrub:     false,
+		AutoFix:   nil,
+	}
+	logFunc("Running check_calc on source and destination")
+	if err := RunCheckCalc([]string{srcDir, destDir}, checkCalcOpts); err != nil {
+		return fmt.Errorf("error running check_calc: %w", err)
+	}
+
+	// Step 2: Scan directories and mark files (no checksum calculation needed)
 	// Go ahead and run a check_calc style scan of the directories and make sure
 	// they have all their existing md5s up to date
 	// First of all get the srcDir updated with files that are already in destDir

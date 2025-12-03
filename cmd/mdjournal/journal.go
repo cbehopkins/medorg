@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 
 	"github.com/cbehopkins/medorg/pkg/consumers"
@@ -30,9 +29,20 @@ func Run(cfg Config) (int, error) {
 		fmt.Fprintln(cfg.Stdout, "You've asked us to scan:", cfg.Directories)
 	}
 
+	// Step 1: Run check_calc to generate/update .medorg.xml files
+	// This calculates MD5 checksums for all files in all directories
+	checkCalcOpts := consumers.CheckCalcOptions{
+		CalcCount: 2, // Default parallelism
+		Recalc:    false,
+		Validate:  false,
+		Scrub:     false,
+		AutoFix:   nil,
+	}
+	if err := consumers.RunCheckCalc(cfg.Directories, checkCalcOpts); err != nil {
+		return ExitWalkError, fmt.Errorf("error running check_calc: %w", err)
+	}
+
 	journal := consumers.Journal{}
-	// Store directory maps to add to journal after processing
-	dirMaps := make(map[string]*core.DirectoryMap)
 
 	// Read existing journal if requested and file exists
 	if cfg.ReadExisting {
@@ -50,60 +60,16 @@ func Run(cfg Config) (int, error) {
 		}
 	}
 
-	// Visitor function - update directory map with file information
-	visitor := func(dm core.DirectoryMap, directory, file string, d fs.DirEntry) error {
-		// Skip the md5 file itself
-		if file == core.Md5FileName {
-			return nil
-		}
-
-		// Skip hidden files (files starting with .)
-		if len(file) > 0 && file[0] == '.' {
-			return nil
-		}
-
-		// Update the directory map with this file's information
-		fc := func(fs *core.FileStruct) error {
-			info, err := d.Info()
-			if err != nil {
-				return err
-			}
-			_, err = fs.FromStat(directory, file, info)
-			if err != nil {
-				return err
-			}
-			// Update checksum for the file
-			return fs.UpdateChecksum(false)
-		}
-		return dm.RunFsFc(directory, file, fc)
-	}
-
-	makerFunc := func(dir string) (core.DirectoryTrackerInterface, error) {
-		mkFk := func(dir string) (core.DirectoryEntryInterface, error) {
-			dm, err := core.DirectoryMapFromDir(dir)
-			if err != nil {
-				return &dm, err
-			}
-			dm.VisitFunc = visitor
-			// Store the directory map pointer so we can add to journal later
-			dirMaps[dir] = &dm
-			return &dm, nil
-		}
-		de, err := core.NewDirectoryEntry(dir, mkFk)
-		return de, err
-	}
-
-	// Walk directories and populate journal
+	// Step 2: Read .medorg.xml files and populate journal
+	// No checksum calculation needed - just read the existing data
 	for _, dir := range cfg.Directories {
-		errChan := core.NewDirTracker(false, dir, makerFunc).ErrChan()
-		for err := range errChan {
-			return ExitWalkError, fmt.Errorf("error walking %s: %w", dir, err)
+		dm, err := core.DirectoryMapFromDir(dir)
+		if err != nil {
+			return ExitWalkError, fmt.Errorf("error reading directory map from %s: %w", dir, err)
 		}
-	}
 
-	// Now add all the processed directory maps to the journal
-	for dir, dm := range dirMaps {
-		if err := journal.AppendJournalFromDm(dm, dir); err != nil {
+		// Add the directory map to the journal
+		if err := journal.AppendJournalFromDm(&dm, dir); err != nil {
 			// ErrFileExistsInJournal is not a real error, just informational
 			if err != consumers.ErrFileExistsInJournal {
 				return ExitWalkError, fmt.Errorf("error adding directory to journal: %w", err)
