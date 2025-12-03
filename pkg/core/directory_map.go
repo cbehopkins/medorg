@@ -68,9 +68,30 @@ func (dm DirectoryMap) ToMd5File(dir string) (*Md5File, error) {
 	return &m5f, nil
 }
 
+// ToMd5FileWithAlias converts the directory map to an Md5File structure with an alias
+// Used for journal entries with source directory aliases
+func (dm DirectoryMap) ToMd5FileWithAlias(dir, alias string) (*Md5File, error) {
+	m5f, err := dm.ToMd5File(dir)
+	if err != nil {
+		return nil, err
+	}
+	m5f.Alias = alias
+	return m5f, nil
+}
+
 // ToXML marshals the directory map to XML format
 func (dm DirectoryMap) ToXML(dir string) (output []byte, err error) {
 	m5f, err := dm.ToMd5File(dir)
+	if err != nil {
+		return nil, err
+	}
+	return xml.MarshalIndent(m5f, "", "  ")
+}
+
+// ToXMLWithAlias marshals the directory map to XML format with an alias
+// Used for journal entries
+func (dm DirectoryMap) ToXMLWithAlias(dir, alias string) (output []byte, err error) {
+	m5f, err := dm.ToMd5FileWithAlias(dir, alias)
 	if err != nil {
 		return nil, err
 	}

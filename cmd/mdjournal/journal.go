@@ -16,6 +16,8 @@ type Config struct {
 	ScanOnly     bool
 	Stdout       io.Writer
 	ReadExisting bool
+	// GetAlias returns the alias for a given path, or empty string if not found
+	GetAlias func(path string) string
 }
 
 // Run is the main logic, extracted for testability
@@ -68,8 +70,20 @@ func Run(cfg Config) (int, error) {
 			return ExitWalkError, fmt.Errorf("error reading directory map from %s: %w", dir, err)
 		}
 
-		// Add the directory map to the journal
-		if err := journal.AppendJournalFromDm(&dm, dir); err != nil {
+		// Get alias for this directory if available
+		var alias string
+		if cfg.GetAlias != nil {
+			alias = cfg.GetAlias(dir)
+		}
+
+		// Add the directory map to the journal with alias information
+		if alias != "" {
+			err = journal.AppendJournalFromDmWithAlias(&dm, dir, alias)
+		} else {
+			err = journal.AppendJournalFromDm(&dm, dir)
+		}
+
+		if err != nil {
 			// ErrFileExistsInJournal is not a real error, just informational
 			if err != consumers.ErrFileExistsInJournal {
 				return ExitWalkError, fmt.Errorf("error adding directory to journal: %w", err)

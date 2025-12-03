@@ -5,7 +5,14 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 )
+
+// SourceDirectory represents a configured source directory with its alias
+type SourceDirectory struct {
+	Path  string `xml:"path,attr"`
+	Alias string `xml:"alias,attr"`
+}
 
 // XMLCfg structure used to specify the detailed config
 type XMLCfg struct {
@@ -15,6 +22,8 @@ type XMLCfg struct {
 	Af []string `xml:"af"`
 	// Volume Labels we have encountered
 	VolumeLabels []string `xml:"vl"`
+	// Source directories for backup/journal operations
+	SourceDirectories []SourceDirectory `xml:"src"`
 
 	fn string
 }
@@ -86,4 +95,73 @@ func (xc *XMLCfg) AddLabel(label string) bool {
 	fmt.Println("Adding Label", label)
 	xc.VolumeLabels = append(xc.VolumeLabels, label)
 	return true
+}
+
+// HasSourceDirectory checks if a source directory with the given alias exists
+func (xc *XMLCfg) HasSourceDirectory(alias string) bool {
+	for _, sd := range xc.SourceDirectories {
+		if sd.Alias == alias {
+			return true
+		}
+	}
+	return false
+}
+
+// AddSourceDirectory adds a new source directory with an alias
+// Returns false if the alias already exists
+func (xc *XMLCfg) AddSourceDirectory(path, alias string) bool {
+	if xc.HasSourceDirectory(alias) {
+		return false
+	}
+	// Clean the path to ensure consistency
+	cleanPath := filepath.Clean(path)
+	xc.SourceDirectories = append(xc.SourceDirectories, SourceDirectory{
+		Path:  cleanPath,
+		Alias: alias,
+	})
+	return true
+}
+
+// RemoveSourceDirectory removes a source directory by alias
+// Returns true if removed, false if not found
+func (xc *XMLCfg) RemoveSourceDirectory(alias string) bool {
+	for i, sd := range xc.SourceDirectories {
+		if sd.Alias == alias {
+			xc.SourceDirectories = append(xc.SourceDirectories[:i], xc.SourceDirectories[i+1:]...)
+			return true
+		}
+	}
+	return false
+}
+
+// GetSourceDirectory returns the source directory for a given alias
+// Returns empty SourceDirectory if not found
+func (xc *XMLCfg) GetSourceDirectory(alias string) (SourceDirectory, bool) {
+	for _, sd := range xc.SourceDirectories {
+		if sd.Alias == alias {
+			return sd, true
+		}
+	}
+	return SourceDirectory{}, false
+}
+
+// GetSourcePaths returns all configured source directory paths
+func (xc *XMLCfg) GetSourcePaths() []string {
+	paths := make([]string, len(xc.SourceDirectories))
+	for i, sd := range xc.SourceDirectories {
+		paths[i] = sd.Path
+	}
+	return paths
+}
+
+// GetAliasForPath returns the alias for a given path
+// Returns empty string if not found
+func (xc *XMLCfg) GetAliasForPath(path string) string {
+	cleanPath := filepath.Clean(path)
+	for _, sd := range xc.SourceDirectories {
+		if sd.Path == cleanPath {
+			return sd.Alias
+		}
+	}
+	return ""
 }

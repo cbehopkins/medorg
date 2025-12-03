@@ -9,10 +9,11 @@ import (
 )
 
 // Md5File is the struct written into each directory
-// It contains a lost of the files and the properties assoxciated with them
+// It contains a list of the files and the properties associated with them
 type Md5File struct {
 	XMLName struct{}        `xml:"dr"`
 	Dir     string          `xml:"dir,attr,omitempty"`
+	Alias   string          `xml:"alias,attr,omitempty"` // Source directory alias for journal entries
 	Files   FileStructArray `xml:"fr"`
 }
 
@@ -21,16 +22,16 @@ func (md *Md5File) append(fs FileStruct) {
 	md.Files = append(md.Files, fs)
 }
 
-// func (md Md5File) String() string {
-// 	txt, err := xml.MarshalIndent(md, "", "  ")
-// 	switch err {
-// 	case nil:
-// 	case io.EOF:
-// 	default:
-// 		log.Fatal("Unknown Error Marshalling Md5File:", err)
-// 	}
-// 	return string(txt)
-// }
+//	func (md Md5File) String() string {
+//		txt, err := xml.MarshalIndent(md, "", "  ")
+//		switch err {
+//		case nil:
+//		case io.EOF:
+//		default:
+//			log.Fatal("Unknown Error Marshalling Md5File:", err)
+//		}
+//		return string(txt)
+//	}
 func supressXmlUnmarshallErrors(err error) error {
 	xse := &xml.SyntaxError{}
 	switch true {

@@ -25,6 +25,11 @@ var (
 	ErrNoSpace = syscall.Errno(28)
 )
 
+// VolumeLabeler provides volume label functionality for backup operations
+type VolumeLabeler interface {
+	GetVolumeLabel(destDir string) (string, error)
+}
+
 type backupKey struct {
 	size     int64
 	checksum string
@@ -371,7 +376,7 @@ func doCopies(
 // with proper orphan detection across all sources. This should be used when len(srcDirs) > 1 and
 // orphan detection is enabled.
 func BackupRunnerMultiSource(
-	xc *core.XMLCfg,
+	xc VolumeLabeler,
 	maxNumBackups int,
 	fc FileCopier,
 	srcDirs []string,
@@ -503,7 +508,7 @@ func BackupRunnerMultiSource(
 }
 
 func BackupRunner(
-	xc *core.XMLCfg,
+	xc VolumeLabeler,
 	maxNumBackups int,
 	fc FileCopier,
 	srcDir, destDir string,

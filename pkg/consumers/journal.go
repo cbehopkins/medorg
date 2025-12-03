@@ -10,13 +10,32 @@ import (
 	core "github.com/cbehopkins/medorg/pkg/core"
 )
 
+// JournalEntry wraps a DirectoryMap with alias information for journal storage
+type JournalEntry struct {
+	dm    core.DirectoryEntryJournalableInterface
+	dir   string
+	alias string
+}
+
+// ToXML serializes the journal entry with alias information
+func (je JournalEntry) ToXML() ([]byte, error) {
+	if je.alias != "" {
+		// If we have an alias, use ToXMLWithAlias
+		if dm, ok := je.dm.(*core.DirectoryMap); ok {
+			return dm.ToXMLWithAlias(je.dir, je.alias)
+		}
+	}
+	// Fallback to regular ToXML
+	return je.dm.ToXML(je.dir)
+}
+
 // Journal is a representation of our filesystem in a journaled fashion
 // This is a flawed (initial) design that is very memory heavy
 // A future design will remove the fl struct and instead point to the disk
 // file handle and offset
 type Journal struct {
 	// The file list as recorded on the disk journal
-	fl []core.DirectoryEntryJournalableInterface
+	fl []JournalEntry
 	// The  location in the file list of the most recent fl entry
 	location map[string]int
 }
@@ -47,13 +66,18 @@ func (jo Journal) directoryExists(de core.DirectoryEntryJournalableInterface, di
 	}
 	// If they are the same, then say they are the same
 	// otherwise we will behave as if this entry does not already exist
-	return jo.fl[location].Equal(de)
+	return jo.fl[location].dm.Equal(de)
 }
 
-func (jo *Journal) appendItem(de core.DirectoryEntryJournalableInterface, dir string) error {
+func (jo *Journal) appendItem(de core.DirectoryEntryJournalableInterface, dir, alias string) error {
 	// log.Println("Adding Item to journal:", dir, *md5fp)
 	jo.location[dir] = len(jo.fl)
-	jo.fl = append(jo.fl, de.Copy())
+	entry := JournalEntry{
+		dm:    de.Copy(),
+		dir:   dir,
+		alias: alias,
+	}
+	jo.fl = append(jo.fl, entry)
 	// FIXME when we implement the file handling for this
 	// do the append to the file, here.
 	// More likely, send it to a buffered channel.
@@ -83,7 +107,40 @@ func (jo *Journal) AppendJournalFromDm(dm core.DirectoryEntryJournalableInterfac
 	}
 
 	dirExists := jo.directoryExists(dm, dir)
-	err = jo.appendItem(dm, dir)
+	err = jo.appendItem(dm, dir, "")
+	if err != nil {
+		return err
+	}
+
+	if dirExists {
+		return ErrFileExistsInJournal
+	}
+	return nil
+}
+
+// AppendJournalFromDmWithAlias adds changed dms to the journal with alias information
+// The alias is stored in the journal for restore operations
+func (jo *Journal) AppendJournalFromDmWithAlias(dm core.DirectoryEntryJournalableInterface, dir, alias string) error {
+	err := jo.selfCheck()
+	if err != nil {
+		return err
+	}
+	if jo.location == nil {
+		jo.location = make(map[string]int)
+	}
+
+	// Should we delete the entry?
+	if dm.Len() == 0 {
+		_, ok := jo.location[dir]
+		if ok {
+			delete(jo.location, dir)
+			return ErrFileExistsInJournal
+		}
+		return nil
+	}
+
+	dirExists := jo.directoryExists(dm, dir)
+	err = jo.appendItem(dm, dir, alias)
 	if err != nil {
 		return err
 	}
@@ -101,8 +158,8 @@ func (jo Journal) Range(visitor func(core.DirectoryEntryJournalableInterface, st
 		return err
 	}
 	for dir, location := range jo.location {
-		de := jo.fl[location]
-		err := visitor(de, dir)
+		entry := jo.fl[location]
+		err := visitor(entry.dm, dir)
 		if err != nil {
 			return err
 		}
@@ -114,8 +171,15 @@ var errShortWrite = errors.New("short write in journal")
 
 // ToWriter dumps the whole journal to a writer
 func (jo Journal) ToWriter(fd io.Writer) error {
-	visitor := func(de core.DirectoryEntryJournalableInterface, dir string) error {
-		xm, err := de.ToXML(dir)
+	err := jo.selfCheck()
+	if err != nil {
+		return err
+	}
+
+	// Write each entry directly using the JournalEntry's ToXML
+	for _, location := range jo.location {
+		entry := jo.fl[location]
+		xm, err := entry.ToXML()
 		if err != nil {
 			return err
 		}
@@ -124,11 +188,10 @@ func (jo Journal) ToWriter(fd io.Writer) error {
 			return err
 		}
 		if n != len(xm) {
-			return fmt.Errorf("%w with %s", errShortWrite, de)
+			return fmt.Errorf("%w with %s", errShortWrite, entry.dir)
 		}
-		return nil
 	}
-	return jo.Range(visitor)
+	return nil
 }
 
 // scanToken returns a token which for us is an xml token
@@ -205,7 +268,9 @@ func (jo *Journal) FromReader(fd io.Reader) error {
 		if err != nil {
 			return err
 		}
-		return jo.appendItem(de, dir)
+		// When reading from file, we don't have alias info in old format
+		// In new format, the alias is embedded in the XML
+		return jo.appendItem(de, dir, "")
 	}
 	return slupReadFunc(fd, fc)
 }

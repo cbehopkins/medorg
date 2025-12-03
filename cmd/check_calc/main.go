@@ -20,6 +20,7 @@ func isDir(fn string) bool {
 
 func main() {
 	var directories []string
+	var xc *core.XMLCfg
 
 	scrubflg := flag.Bool("scrub", false, "Scrub all backup labels from src records")
 	calcCnt := flag.Int("calc", 2, "Max Number of MD5 calculators")
@@ -30,11 +31,40 @@ func main() {
 	valflg := flag.Bool("validate", false, "Validate all checksums")
 
 	flag.Parse()
+
+	// Load XMLCfg (needed for rename and for getting source directories)
+	var err error
+	if xmcf := core.XmConfig(); xmcf != "" {
+		xc, err = core.NewXMLCfg(string(xmcf))
+		if err != nil {
+			fmt.Println("Error loading config file:", err)
+			// Don't exit - config is optional for basic operations
+			xc = nil
+		}
+	} else if *rnmflg {
+		// Only error if rename was requested but no config found
+		fmt.Println("no config file found (required for rename)")
+		fn := filepath.Join(string(core.HomeDir()), core.Md5FileName)
+		xc, err = core.NewXMLCfg(fn)
+		if err != nil {
+			fmt.Println("Error creating config file:", err)
+			os.Exit(5)
+		}
+	}
+
+	// Get directories: command line args take precedence, otherwise use config
 	if flag.NArg() > 0 {
 		for _, fl := range flag.Args() {
 			if isDir(fl) {
 				directories = append(directories, fl)
 			}
+		}
+	} else if xc != nil {
+		// Use source directories from config
+		directories = xc.GetSourcePaths()
+		if len(directories) == 0 {
+			// Fall back to current directory
+			directories = []string{"."}
 		}
 	} else {
 		directories = []string{"."}
@@ -43,22 +73,9 @@ func main() {
 	// Setup AutoFix if rename flag is set
 	var AF *consumers.AutoFix
 	if *rnmflg {
-		var xc *core.XMLCfg
-		var err error
-		if xmcf := core.XmConfig(); xmcf != "" {
-			xc, err = core.NewXMLCfg(string(xmcf))
-			if err != nil {
-				fmt.Println("Error loading config file:", err)
-				os.Exit(5)
-			}
-		} else {
-			fmt.Println("no config file found")
-			fn := filepath.Join(string(core.HomeDir()), core.Md5FileName)
-			xc, err = core.NewXMLCfg(fn)
-			if err != nil {
-				fmt.Println("Error creating config file:", err)
-				os.Exit(5)
-			}
+		if xc == nil {
+			fmt.Println("Error: config file required for rename operation")
+			os.Exit(5)
 		}
 		AF = consumers.NewAutoFix(xc.Af)
 		AF.DeleteFiles = *delflg
@@ -83,7 +100,7 @@ func main() {
 		AutoFix:   AF,
 	}
 
-	err := consumers.RunCheckCalc(directories, opts)
+	err = consumers.RunCheckCalc(directories, opts)
 	if err != nil {
 		fmt.Println("Error:", err)
 		os.Exit(2)

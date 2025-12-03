@@ -235,7 +235,17 @@ func main() {
 			}
 		}
 	} else {
+		// If no directories provided, read from config
+		// First directory should be destination (current directory)
 		directories = []string{"."}
+
+		// Add source directories from config
+		if xc != nil {
+			sourcePaths := xc.GetSourcePaths()
+			if len(sourcePaths) > 0 {
+				directories = append(directories, sourcePaths...)
+			}
+		}
 	}
 
 	///////////////////////////////////
@@ -267,18 +277,18 @@ func main() {
 		}
 	}
 	cfg := Config{
-		Destination:    dest,
-		Sources:        sources,
-		XMLConfig:      xc,
-		TagMode:        *tagflg,
-		ScanMode:       *scanflg,
-		DummyMode:      *dummyflg,
-		DeleteMode:     *delflg,
-		StatsMode:      *statsflg,
-		LogOutput:      f,
-		MessageWriter:  os.Stdout,
-		ShutdownChan:   shutdownChan,
-		UseProgressBar: true,
+		Destination:          dest,
+		Sources:              sources,
+		VolumeConfigProvider: xc,
+		TagMode:              *tagflg,
+		ScanMode:             *scanflg,
+		DummyMode:            *dummyflg,
+		DeleteMode:           *delflg,
+		StatsMode:            *statsflg,
+		LogOutput:            f,
+		MessageWriter:        os.Stdout,
+		ShutdownChan:         shutdownChan,
+		UseProgressBar:       true,
 	}
 
 	retcode, err = Run(cfg)

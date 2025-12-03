@@ -88,7 +88,7 @@ func TestIntegration_TagMode(t *testing.T) {
 			var logBuf, msgBuf bytes.Buffer
 			cfg := Config{
 				Destination:    dirs["tag-dest"],
-				XMLConfig:      xc,
+				VolumeConfigProvider:      xc,
 				TagMode:        true,
 				LogOutput:      &logBuf,
 				MessageWriter:  &msgBuf,
@@ -139,7 +139,7 @@ func TestIntegration_BasicBackup_NoFiles(t *testing.T) {
 	cfg := Config{
 		Destination:    dstDir,
 		Sources:        []string{srcDir},
-		XMLConfig:      xc,
+		VolumeConfigProvider:      xc,
 		DummyMode:      true, // Don't actually copy in this test
 		LogOutput:      &logBuf,
 		MessageWriter:  &msgBuf,
@@ -238,7 +238,7 @@ func TestIntegration_BackupCopyVariants(t *testing.T) {
 			setupVolumeConfigs(t, xc, append(srcPaths, dirs["dst"])...)
 
 			var logBuf, msgBuf bytes.Buffer
-			cfg := Config{Destination: dirs["dst"], Sources: srcPaths, XMLConfig: xc, LogOutput: &logBuf, MessageWriter: &msgBuf}
+			cfg := Config{Destination: dirs["dst"], Sources: srcPaths, VolumeConfigProvider: xc, LogOutput: &logBuf, MessageWriter: &msgBuf}
 			exitCode, err := Run(cfg)
 			if exitCode != ExitOk || err != nil {
 				t.Fatalf("Run failed: exit=%d err=%v", exitCode, err)
@@ -278,7 +278,7 @@ func TestIntegration_DeleteMode(t *testing.T) {
 		setupVolumeConfigs(t, xc, dirs["src"], dirs["dst"])
 
 		var logBuf, msgBuf bytes.Buffer
-		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src"]}, XMLConfig: xc, DeleteMode: true, LogOutput: &logBuf, MessageWriter: &msgBuf}
+		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src"]}, VolumeConfigProvider: xc, DeleteMode: true, LogOutput: &logBuf, MessageWriter: &msgBuf}
 		exitCode, err := Run(cfg)
 		if exitCode != ExitOk || err != nil {
 			t.Fatalf("Run failed: exit=%d err=%v", exitCode, err)
@@ -314,7 +314,7 @@ func TestIntegration_DeleteMode(t *testing.T) {
 
 		// initial backup
 		var lb1, mb1 bytes.Buffer
-		cfg1 := Config{Destination: dirs["dst"], Sources: []string{dirs["src1"], dirs["src2"]}, XMLConfig: xc, LogOutput: &lb1, MessageWriter: &mb1}
+		cfg1 := Config{Destination: dirs["dst"], Sources: []string{dirs["src1"], dirs["src2"]}, VolumeConfigProvider: xc, LogOutput: &lb1, MessageWriter: &mb1}
 		if exitCode, err := Run(cfg1); exitCode != ExitOk || err != nil {
 			t.Fatalf("initial backup failed: exit=%d err=%v", exitCode, err)
 		}
@@ -331,7 +331,7 @@ func TestIntegration_DeleteMode(t *testing.T) {
 
 		// delete mode
 		var lb2, mb2 bytes.Buffer
-		cfg2 := Config{Destination: dirs["dst"], Sources: []string{dirs["src1"], dirs["src2"]}, XMLConfig: xc, DeleteMode: true, LogOutput: &lb2, MessageWriter: &mb2}
+		cfg2 := Config{Destination: dirs["dst"], Sources: []string{dirs["src1"], dirs["src2"]}, VolumeConfigProvider: xc, DeleteMode: true, LogOutput: &lb2, MessageWriter: &mb2}
 		if exitCode, err := Run(cfg2); exitCode != ExitOk || err != nil {
 			t.Fatalf("delete mode failed: exit=%d err=%v\nLog:\n%s", exitCode, err, lb2.String())
 		}
@@ -371,7 +371,7 @@ func TestIntegration_ScanMode(t *testing.T) {
 	cfg := Config{
 		Destination:    dstDir,
 		Sources:        []string{srcDir},
-		XMLConfig:      xc,
+		VolumeConfigProvider:      xc,
 		ScanMode:       true, // Scan only, don't copy
 		LogOutput:      &logBuf,
 		MessageWriter:  &msgBuf,
@@ -399,7 +399,7 @@ func TestIntegration_ErrorCases(t *testing.T) {
 		defer cleanup()
 		xc := newXMLCfgAt(t, dirs["base"])
 		var logBuf, msgBuf bytes.Buffer
-		cfg := Config{Destination: dirs["base"], XMLConfig: xc, LogOutput: &logBuf, MessageWriter: &msgBuf}
+		cfg := Config{Destination: dirs["base"], VolumeConfigProvider: xc, LogOutput: &logBuf, MessageWriter: &msgBuf}
 		exitCode, err := Run(cfg)
 		if exitCode != ExitTwoDirectoriesOnly {
 			t.Errorf("want exit %d got %d", ExitTwoDirectoriesOnly, exitCode)
@@ -413,7 +413,7 @@ func TestIntegration_ErrorCases(t *testing.T) {
 		dirs, cleanup := makeTempDirs(t, "src", "dst")
 		defer cleanup()
 		var logBuf, msgBuf bytes.Buffer
-		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src"]}, XMLConfig: nil, LogOutput: &logBuf, MessageWriter: &msgBuf}
+		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src"]}, VolumeConfigProvider: nil, LogOutput: &logBuf, MessageWriter: &msgBuf}
 		exitCode, err := Run(cfg)
 		if exitCode != ExitNoConfig {
 			t.Errorf("want exit %d got %d", ExitNoConfig, exitCode)
@@ -441,7 +441,7 @@ func TestIntegration_EdgeCases(t *testing.T) {
 		setupVolumeConfigs(t, xc, dirs["src"], dirs["dst"])
 
 		var logBuf, msgBuf bytes.Buffer
-		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src"]}, XMLConfig: xc, LogOutput: &logBuf, MessageWriter: &msgBuf}
+		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src"]}, VolumeConfigProvider: xc, LogOutput: &logBuf, MessageWriter: &msgBuf}
 		exitCode, err := Run(cfg)
 		if exitCode != ExitOk || err != nil {
 			t.Fatalf("Run failed: exit=%d err=%v", exitCode, err)
@@ -477,7 +477,7 @@ func TestIntegration_EdgeCases(t *testing.T) {
 		setupVolumeConfigs(t, xc, dirs["src"], dirs["dst"])
 
 		var logBuf, msgBuf bytes.Buffer
-		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src"]}, XMLConfig: xc, LogOutput: &logBuf, MessageWriter: &msgBuf}
+		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src"]}, VolumeConfigProvider: xc, LogOutput: &logBuf, MessageWriter: &msgBuf}
 		exitCode, err := Run(cfg)
 		if exitCode != ExitOk || err != nil {
 			t.Fatalf("Run failed: exit=%d err=%v", exitCode, err)
@@ -526,7 +526,7 @@ func TestIntegration_EdgeCases(t *testing.T) {
 		setupVolumeConfigs(t, xc, dirs["src"], dirs["dst"])
 
 		var logBuf, msgBuf bytes.Buffer
-		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src"]}, XMLConfig: xc, LogOutput: &logBuf, MessageWriter: &msgBuf}
+		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src"]}, VolumeConfigProvider: xc, LogOutput: &logBuf, MessageWriter: &msgBuf}
 		exitCode, err := Run(cfg)
 		if exitCode != ExitOk || err != nil {
 			t.Fatalf("Run failed: exit=%d err=%v", exitCode, err)
@@ -558,7 +558,7 @@ func TestIntegration_EdgeCases(t *testing.T) {
 		setupVolumeConfigs(t, xc, dirs["src"], dirs["dst"])
 
 		var logBuf, msgBuf bytes.Buffer
-		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src"]}, XMLConfig: xc, LogOutput: &logBuf, MessageWriter: &msgBuf}
+		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src"]}, VolumeConfigProvider: xc, LogOutput: &logBuf, MessageWriter: &msgBuf}
 		exitCode, err := Run(cfg)
 		if exitCode != ExitOk || err != nil {
 			t.Fatalf("Run failed: exit=%d err=%v", exitCode, err)
@@ -593,7 +593,7 @@ func TestIntegration_EdgeCases(t *testing.T) {
 		setupVolumeConfigs(t, xc, dirs["src1"], dirs["src2"], dirs["dst"])
 
 		var logBuf, msgBuf bytes.Buffer
-		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src1"], dirs["src2"]}, XMLConfig: xc, LogOutput: &logBuf, MessageWriter: &msgBuf}
+		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src1"], dirs["src2"]}, VolumeConfigProvider: xc, LogOutput: &logBuf, MessageWriter: &msgBuf}
 		exitCode, err := Run(cfg)
 		if exitCode != ExitOk || err != nil {
 			t.Fatalf("Run failed: exit=%d err=%v", exitCode, err)
@@ -636,7 +636,7 @@ func TestIntegration_EdgeCases(t *testing.T) {
 		setupVolumeConfigs(t, xc, dirs["src"], dirs["dst"])
 
 		var logBuf, msgBuf bytes.Buffer
-		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src"]}, XMLConfig: xc, LogOutput: &logBuf, MessageWriter: &msgBuf}
+		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src"]}, VolumeConfigProvider: xc, LogOutput: &logBuf, MessageWriter: &msgBuf}
 		exitCode, err := Run(cfg)
 		if exitCode != ExitOk || err != nil {
 			t.Fatalf("Run failed: exit=%d err=%v", exitCode, err)
@@ -670,7 +670,7 @@ func TestIntegration_EdgeCases(t *testing.T) {
 		setupVolumeConfigs(t, xc, dirs["src"], dirs["dst"])
 
 		var logBuf, msgBuf bytes.Buffer
-		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src"]}, XMLConfig: xc, DummyMode: true, LogOutput: &logBuf, MessageWriter: &msgBuf}
+		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src"]}, VolumeConfigProvider: xc, DummyMode: true, LogOutput: &logBuf, MessageWriter: &msgBuf}
 		exitCode, err := Run(cfg)
 		if exitCode != ExitOk || err != nil {
 			t.Fatalf("Run failed: exit=%d err=%v", exitCode, err)
@@ -703,7 +703,7 @@ func TestIntegration_EdgeCases(t *testing.T) {
 		setupVolumeConfigs(t, xc, dirs["src"], dirs["dst"])
 
 		var logBuf, msgBuf bytes.Buffer
-		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src"]}, XMLConfig: xc, LogOutput: &logBuf, MessageWriter: &msgBuf}
+		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src"]}, VolumeConfigProvider: xc, LogOutput: &logBuf, MessageWriter: &msgBuf}
 		exitCode, err := Run(cfg)
 		if exitCode != ExitOk || err != nil {
 			t.Fatalf("Run failed: exit=%d err=%v", exitCode, err)
@@ -736,7 +736,7 @@ func TestIntegration_EdgeCases(t *testing.T) {
 		setupVolumeConfigs(t, xc, dirs["src"], dirs["dst"])
 
 		var logBuf, msgBuf bytes.Buffer
-		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src"]}, XMLConfig: xc, LogOutput: &logBuf, MessageWriter: &msgBuf}
+		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src"]}, VolumeConfigProvider: xc, LogOutput: &logBuf, MessageWriter: &msgBuf}
 		exitCode, err := Run(cfg)
 		if exitCode != ExitOk || err != nil {
 			t.Fatalf("Run failed: exit=%d err=%v", exitCode, err)

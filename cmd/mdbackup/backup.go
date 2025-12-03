@@ -15,6 +15,12 @@ import (
 	bytesize "github.com/inhies/go-bytesize"
 )
 
+// VolumeConfigProvider provides volume configuration for directories
+type VolumeConfigProvider interface {
+	VolumeCfgFromDir(dir string) (*core.VolumeCfg, error)
+	GetVolumeLabel(destDir string) (string, error)
+}
+
 // Config holds the configuration for mdbackup
 type Config struct {
 	// Destination backup directory (target)
@@ -22,7 +28,9 @@ type Config struct {
 	// One or more source directories to back up into Destination
 	Sources []string
 
-	XMLConfig      *core.XMLCfg
+	// VolumeConfigProvider provides volume configuration for directories
+	VolumeConfigProvider VolumeConfigProvider
+
 	TagMode        bool
 	ScanMode       bool
 	DummyMode      bool
@@ -52,8 +60,8 @@ func Run(cfg Config) (int, error) {
 	log.SetOutput(cfg.LogOutput)
 
 	// Validate config
-	if cfg.XMLConfig == nil {
-		return ExitNoConfig, errors.New("no XML config provided")
+	if cfg.VolumeConfigProvider == nil {
+		return ExitNoConfig, errors.New("no volume config provider")
 	}
 
 	// Setup progress bar or simple logging
@@ -100,7 +108,7 @@ func Run(cfg Config) (int, error) {
 		if cfg.Destination == "" {
 			return ExitOneDirectoryOnly, errors.New("destination directory required when configuring tags")
 		}
-		vc, err := cfg.XMLConfig.VolumeCfgFromDir(cfg.Destination)
+		vc, err := cfg.VolumeConfigProvider.VolumeCfgFromDir(cfg.Destination)
 		if err != nil {
 			return ExitBadVc, fmt.Errorf("failed to get volume config: %w", err)
 		}
@@ -180,7 +188,7 @@ func Run(cfg Config) (int, error) {
 	if len(cfg.Sources) > 1 {
 		setMessage("Starting Multi-Source Backup Run")
 		err := consumers.BackupRunnerMultiSource(
-			cfg.XMLConfig,
+			cfg.VolumeConfigProvider,
 			2,
 			copyer,
 			cfg.Sources,
@@ -201,7 +209,7 @@ func Run(cfg Config) (int, error) {
 		for _, src := range cfg.Sources {
 			setMessage("Starting Backup Run")
 			err := consumers.BackupRunner(
-				cfg.XMLConfig,
+				cfg.VolumeConfigProvider,
 				2,
 				copyer,
 				src,
