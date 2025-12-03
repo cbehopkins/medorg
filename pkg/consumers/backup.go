@@ -226,7 +226,7 @@ func (bs backScanner) scanBackupDirectories(
 	logFunc("Computing Checksum Phase dest")
 	dta[0].Revisit(destDir, registerFunc, visitFunc, shutdownChan)
 	logFunc("Computing Checksum Phase src")
-	dta[1].Revisit(destDir, registerFunc, visitFunc, shutdownChan)
+	dta[1].Revisit(srcDir, registerFunc, visitFunc, shutdownChan)
 
 	var backupDestination backupDupeMap
 	var backupSource backupDupeMap
@@ -319,7 +319,7 @@ func doACopy(
 	}
 	_ = src.AddTag(backupLabelName)
 	dmSrc.Add(src)
-	if err := dmSrc.Persist(srcDir); err != nil {
+	if err := dmSrc.Persist(sd); err != nil {
 		return err
 	}
 	_ = src.RemoveTag(backupLabelName)
@@ -398,6 +398,153 @@ func doCopies(
 	return nil
 }
 
+// BackupRunnerMultiSource handles backup from multiple source directories to a single destination
+// with proper orphan detection across all sources. This should be used when len(srcDirs) > 1 and
+// orphan detection is enabled.
+func BackupRunnerMultiSource(
+	xc *core.XMLCfg,
+	maxNumBackups int,
+	fc FileCopier,
+	srcDirs []string,
+	destDir string,
+	orphanFunc func(path string) error,
+	logFunc func(msg string),
+	registerFunc func(*core.DirTracker),
+	shutdownChan chan struct{},
+) error {
+	if logFunc == nil {
+		logFunc = func(msg string) {
+			log.Println(msg)
+		}
+	}
+	backupLabelName, err := xc.GetVolumeLabel(destDir)
+	if err != nil {
+		return err
+	}
+	logFunc(fmt.Sprint("Determined label as: \"", backupLabelName, "\" :now scanning directories"))
+
+	// Build list of all directories to scan (destination + all sources)
+	allDirs := make([]string, 0, 1+len(srcDirs))
+	allDirs = append(allDirs, destDir)
+	allDirs = append(allDirs, srcDirs...)
+
+	// Scan all directories
+	dta := core.AutoVisitFilesInDirectories(allDirs, nil)
+
+	// Handle errors from directory traversal
+	errChan := make(chan error)
+	var wg sync.WaitGroup
+	wg.Add(len(dta))
+	for _, ndt := range dta {
+		if registerFunc != nil {
+			registerFunc(ndt)
+		}
+		go func(ndt *core.DirTracker) {
+			for err := range ndt.ErrChan() {
+				if err != nil {
+					errChan <- err
+				}
+			}
+			wg.Done()
+		}(ndt)
+	}
+	go func() {
+		wg.Wait()
+		close(errChan)
+	}()
+	for err := range errChan {
+		return err
+	}
+
+	// Compute checksums for all directories
+	calcCnt := len(allDirs)
+	tokenBuffer := core.MakeTokenChan(calcCnt)
+	defer close(tokenBuffer)
+
+	visitFunc := func(dm core.DirectoryEntryInterface, dir, fn string, fileStruct core.FileStruct) error {
+		de, ok := dm.(core.DirectoryMap)
+		if !ok {
+			return errors.New("unable to cast to de")
+		}
+		<-tokenBuffer
+		_, err := updateAndGo(de, dir, fn)
+		tokenBuffer <- struct{}{}
+		return err
+	}
+
+	// Compute checksums for destination
+	logFunc("Computing Checksum Phase dest")
+	dta[0].Revisit(destDir, registerFunc, visitFunc, shutdownChan)
+
+	// Compute checksums for all sources
+	for i, srcDir := range srcDirs {
+		logFunc(fmt.Sprintf("Computing Checksum Phase source %d", i+1))
+		dta[i+1].Revisit(srcDir, registerFunc, visitFunc, shutdownChan)
+	}
+
+	// Build destination file map
+	var backupDestination backupDupeMap
+	logFunc("Initial scan for anything that needs building")
+	dta[0].Revisit(destDir, registerFunc, backupDestination.AddVisit, shutdownChan)
+
+	// Scan all sources and mark files found in destination
+	for i, srcDir := range srcDirs {
+		logFunc(fmt.Sprintf("Scanning Source %d for Files already at destination", i+1))
+		// Create a visitor that removes matching files from backupDestination
+		removeMatchingVisitor := func(dm core.DirectoryEntryInterface, dir, fn string, fileStruct core.FileStruct) error {
+			key := newBackupKeyFromFileStruct(fileStruct)
+			_, ok := backupDestination.Get(key)
+			if ok {
+				// File exists in destination - mark as backed up and remove from orphan candidates
+				_ = fileStruct.AddTag(backupLabelName)
+				backupDestination.Remove(key)
+			}
+			return nil
+		}
+		dta[i+1].Revisit(srcDir, registerFunc, removeMatchingVisitor, shutdownChan)
+	}
+
+	// Now handle orphans - files in destination but not in ANY source
+	logFunc("Dealing with duplicates")
+	if (orphanFunc != nil) && (backupDestination.Len() > 0) {
+		for _, v := range backupDestination.dupeMap {
+			if err := orphanFunc(string(v)); err != nil {
+				return err
+			}
+		}
+	}
+
+	// If scan-only mode, we're done
+	if fc == nil {
+		logFunc("Scan only. Going no further")
+		return nil
+	}
+
+	// Now copy files from each source
+	for i, srcDir := range srcDirs {
+		logFunc(fmt.Sprintf("Looking for files to copy from source %d", i+1))
+		copyFilesArray, err := extractCopyFiles(srcDir, dta[i+1], backupLabelName, registerFunc, maxNumBackups, shutdownChan)
+		if err != nil {
+			return fmt.Errorf("BackupRunnerMultiSource cannot extract files from source %d, %w", i+1, err)
+		}
+
+		logFunc(fmt.Sprintf("Now starting Copy from source %d", i+1))
+		err = doCopies(
+			srcDir, destDir,
+			backupLabelName,
+			fc,
+			copyFilesArray, maxNumBackups,
+			logFunc, shutdownChan,
+		)
+		if err != nil {
+			return err
+		}
+		logFunc(fmt.Sprintf("Finished Copy from source %d", i+1))
+	}
+
+	return nil
+}
+
 func BackupRunner(
 	xc *core.XMLCfg,
 	maxNumBackups int,
@@ -423,6 +570,7 @@ func BackupRunner(
 	// they have all their existing md5s up to date
 	// First of all get the srcDir updated with files that are already in destDir
 	var bs backScanner
+	bs.dupeFunc = orphanFunc
 	dt, err := bs.scanBackupDirectories(destDir, srcDir, backupLabelName, registerFunc, logFunc, shutdownChan)
 	if err != nil {
 		return err

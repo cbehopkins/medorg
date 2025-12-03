@@ -49,8 +49,8 @@ func (dm DirectoryMap) Len() int {
 	return len(dm.mp)
 }
 
-// ToMd5File returns the dm as an md5 file
-// i.e. why the hell are we not just using that?
+// ToMd5File converts the directory map to an Md5File structure
+// This is primarily used for XML serialization
 func (dm DirectoryMap) ToMd5File(dir string) (*Md5File, error) {
 	m5f := Md5File{
 		Dir: dir,
@@ -68,7 +68,7 @@ func (dm DirectoryMap) ToMd5File(dir string) (*Md5File, error) {
 	return &m5f, nil
 }
 
-// ToXML
+// ToXML marshals the directory map to XML format
 func (dm DirectoryMap) ToXML(dir string) (output []byte, err error) {
 	m5f, err := dm.ToMd5File(dir)
 	if err != nil {
@@ -77,7 +77,7 @@ func (dm DirectoryMap) ToXML(dir string) (output []byte, err error) {
 	return xml.MarshalIndent(m5f, "", "  ")
 }
 
-// FromXML
+// FromXML unmarshals XML data into the directory map and returns the directory path
 func (dm *DirectoryMap) FromXML(input []byte) (dir string, err error) {
 	var m5f Md5File
 	err = xml.Unmarshal(input, &m5f)

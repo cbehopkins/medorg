@@ -11,9 +11,8 @@ import (
 	"strings"
 )
 
-// FIXME - this is rubbish
-// We will want to pack everything into a single zip file
-// We should be able to use that to pace limit this
+// md5WriteTokenChan limits concurrent MD5 file writes to prevent resource contention
+// TODO: Consider packing files into a single zip archive in the future
 var md5WriteTokenChan = MakeTokenChan(4)
 
 // md5FileWrite write to the directory's file
@@ -26,7 +25,7 @@ func md5FileWrite(directory string, ba []byte) error {
 	if _, err := os.Stat(fn); !errors.Is(err, os.ErrNotExist) {
 		_ = os.Remove(fn)
 	}
-	if ba == nil || (len(ba) == 0) {
+	if len(ba) == 0 {
 		return nil
 	}
 	return os.WriteFile(fn, ba, 0o600)
@@ -141,8 +140,8 @@ func copyFileContents(srcs, dsts string) (err error) {
 	return
 }
 
-// LoadFile load in a filename and return the data a line at a time in the channel
-// FIXME only needed by broken autofix init design
+// LoadFile loads a file and returns its lines via a channel
+// TODO: Refactor autofix initialization to avoid this utility
 func LoadFile(filename string) (theChan chan string) {
 	theChan = make(chan string)
 	go func() {

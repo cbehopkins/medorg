@@ -13,9 +13,8 @@ import (
 	"time"
 )
 
-// Debug if true if we're debugging
-// prevents making file changes
-// Only used in TB at the moment
+// Debug when true prevents making file changes during debugging
+// Currently only used in test bench scenarios
 var Debug bool
 
 type DirectoryMapMod func(DirectoryMap, string)

@@ -187,7 +187,6 @@ func (xc *XMLCfg) VolumeCfgFromDir(dir string) (*VolumeCfg, error) {
 }
 
 // GetVolumeLabel returns the volume label for a destination directory
-// FIXME - this is not needed
 func (xc *XMLCfg) GetVolumeLabel(destDir string) (string, error) {
 	vc, err := xc.VolumeCfgFromDir(destDir)
 	if err != nil {

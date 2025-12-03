@@ -14,7 +14,6 @@ type lastPath struct {
 }
 
 func isChildPath(ref, candidate string) (bool, error) {
-
 	rp, err := filepath.Abs(ref)
 	if err != nil {
 		return false, err
@@ -32,11 +31,13 @@ func (p *lastPath) Get() string {
 	defer p.Unlock()
 	return p.path
 }
+
 func (p *lastPath) Set(path string) {
 	p.Lock()
 	defer p.Unlock()
 	p.path = path
 }
+
 func (p *lastPath) Closer(path string, closerFunc func(string)) error {
 	// The job of this is to work out if we have gone out of scope
 	// i.e. close /fred/bob if we have received /fred/steve
@@ -48,7 +49,7 @@ func (p *lastPath) Closer(path string, closerFunc func(string)) error {
 	if prevPath == "" {
 		return nil
 	}
-	// FIXME make it possbile to select this/another/default to this
+	// TODO: make it possible to select this/another/default to this
 	shouldClose := func(path string) (bool, error) {
 		isChild, err := isChildPath(path, prevPath)
 		if err != nil {

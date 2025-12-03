@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"flag"
 	"fmt"
 	"io/fs"
@@ -240,24 +239,6 @@ func main() {
 	}
 
 	///////////////////////////////////
-	// Progress Bar init
-	messageBar := new(pb.ProgressBar)
-	pool := pb.NewPool(messageBar)
-	err = pool.Start()
-	if err != nil {
-		fmt.Println("Err::", err)
-		retcode = ExitBadVc
-		return
-	}
-
-	defer func() {
-		_ = pool.Stop()
-	}()
-	defer messageBar.Finish()
-	messageBar.SetTemplateString(`{{string . "msg"}}`)
-	messageBar.Set("msg", "Initialzing discombobulator")
-
-	///////////////////////////////////
 	// Catch Ctrl-C sensibly!
 	signalChan := make(chan os.Signal, 1)
 	signal.Notify(signalChan, os.Interrupt)
@@ -267,7 +248,7 @@ func main() {
 		for range signalChan {
 			ccCnt++
 			if ccCnt == 1 {
-				messageBar.Set("msg", "Ctrl-C Detected")
+				fmt.Println("Ctrl-C Detected")
 				close(shutdownChan)
 			} else {
 				os.Exit(1)
@@ -275,100 +256,33 @@ func main() {
 		}
 	}()
 
-	logBar := new(pb.ProgressBar)
-	defer logBar.Finish()
-	logBar.SetTemplateString(`{{string . "msg"}}`)
-	pool.Add(logBar)
-
 	///////////////////////////////////
-	// Support tasks to main backup function need to run first
-	if *tagflg {
-		if len(directories) != 1 {
-			fmt.Println("One directory only please when configuring tags")
-			retcode = ExitOneDirectoryOnly
-			return
-		}
-		vc, err := xc.VolumeCfgFromDir(directories[0])
-		if err != nil {
-			fmt.Println("Err::", err)
-			retcode = ExitBadVc
-			return
-		}
-		fmt.Println("Config name is", vc.Label)
-		return
-	}
-
-	if *statsflg {
-		runStats(pool, messageBar, directories)
-		return
-	}
-
-	///////////////////////////////////
-	// Main backup code starts
-	///////////////////////////////////
-	if len(directories) != 2 {
-		fmt.Println("Error, expected 2 directories!", directories)
-		retcode = ExitTwoDirectoriesOnly
-		return
-	}
-
-	// Setup the function that copies files
-	var wg sync.WaitGroup
-	var copyer func(src, dst core.Fpath) error
-	if *dummyflg {
-		copyer = func(src, dst core.Fpath) error {
-			log.Println("Copy from:", src, " to ", dst)
-			return consumers.ErrDummyCopy
-		}
-	} else {
-		copyer = func(src, dst core.Fpath) error {
-			return poolCopier(src, dst, pool, &wg)
+	// Create config and run
+	var dest string
+	var sources []string
+	if len(directories) > 0 {
+		dest = directories[0]
+		if len(directories) > 1 {
+			sources = directories[1:]
 		}
 	}
-	if *scanflg {
-		copyer = nil
+	cfg := Config{
+		Destination:    dest,
+		Sources:        sources,
+		XMLConfig:      xc,
+		TagMode:        *tagflg,
+		ScanMode:       *scanflg,
+		DummyMode:      *dummyflg,
+		DeleteMode:     *delflg,
+		StatsMode:      *statsflg,
+		LogOutput:      f,
+		MessageWriter:  os.Stdout,
+		ShutdownChan:   shutdownChan,
+		UseProgressBar: true,
 	}
 
-	// Setup the function that deals with orphaned files
-	// i.e. files that are on the backup, but not the source
-	var orphanedFunc func(string) error
-	if *dummyflg {
-		orphanedFunc = func(path string) error {
-			log.Println(path, "orphaned")
-			return nil
-		}
-	} else if *delflg {
-		orphanedFunc = func(path string) error {
-			log.Println(path, "orphaned")
-			if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
-				_ = os.Remove(path)
-			}
-			return nil
-		}
-	}
-
-	logFunc := func(msg string) {
-		logBar.Set("msg", msg)
-		log.Println(msg)
-	}
-
-	// This little bit of code means we get a progress bar on
-	// the backup runner scanning through directory trees
-	// This can take quite some time as it has to load and possibly generate
-	// the xml descriptions for the files (md5 hash calculation)
-	registerFunc := func(dt *core.DirTracker) {
-		topRegisterFunc(dt, pool, &wg)
-	}
-
-	messageBar.Set("msg", "Starting Backup Run")
-	err = consumers.BackupRunner(xc, 2, copyer, directories[0], directories[1], orphanedFunc, logFunc, registerFunc, shutdownChan)
-	messageBar.Set("msg", "Completed Backup Run")
-
+	retcode, err = Run(cfg)
 	if err != nil {
-		messageBar.Set("msg", fmt.Sprint("Unable to complete backup:", err))
-		retcode = ExitIncompleteBackup
-		return
+		fmt.Println("Error:", err)
 	}
-	messageBar.Set("msg", "Waiting for complete")
-	wg.Wait()
 }
