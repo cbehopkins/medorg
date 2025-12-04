@@ -231,7 +231,7 @@ func TestJournalPersistence(t *testing.T) {
 	defer os.RemoveAll(tempDir)
 
 	journalRead := writeAndReadJournal(t, journal, journalPath)
-	if err := journal.Equals(journalRead, nil); err != nil {
+	if err := journal.Equals(&journalRead, nil); err != nil {
 		t.Errorf("Journals not equal after persistence: %v", err)
 	}
 }

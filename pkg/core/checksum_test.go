@@ -42,8 +42,6 @@ func TestB2B(t *testing.T) {
 }
 
 func makeFile(directory string) string {
-	// FIXME it would be quicker to calculate the checksum here
-	// while it's an in memory object
 	buff := make([]byte, 75000)
 	if _, err := rand.Read(buff); err != nil {
 		panic(err)
@@ -76,7 +74,7 @@ func TestMd5(t *testing.T) {
 	// We only have one of these to make file locks easier
 	// This receives a file structure on one channel, opens that file and modifies it accordingly.
 	// In the final application this will be the only thing that can update the xml files
-	wg := newXMLManager(toUpdateXML)
+	wg, errChan := newXMLManager(toUpdateXML)
 
 	toMd5Chan <- FileStruct{Name: tmp_filename, directory: "."}
 	log.Println("Sent the file to check")
@@ -85,6 +83,12 @@ func TestMd5(t *testing.T) {
 	<-closedChan
 	log.Println("Channel Closed, waiting for XmlManager to complete")
 	wg.Wait()
+	// Drain any remaining errors
+	for err := range errChan {
+		if err != nil {
+			t.Error("XML manager error:", err)
+		}
+	}
 	log.Println("All done")
 }
 
@@ -93,11 +97,17 @@ func TestSelfCompat(t *testing.T) {
 	_ = md5FileWrite(".", nil)
 
 	toMd5Chan, toUpdateXML, closedChan := NewChannels()
-	wg := newXMLManager(toUpdateXML)
+	wg, errChan := newXMLManager(toUpdateXML)
 	toMd5Chan <- FileStruct{Name: fileToUse, directory: "."}
 	close(toMd5Chan)
 	<-closedChan
 	wg.Wait()
+	// Drain any remaining errors
+	for err := range errChan {
+		if err != nil {
+			t.Error("XML manager error:", err)
+		}
+	}
 	dm, err := DirectoryMapFromDir(".")
 	if err != nil {
 		t.Error(err)
@@ -144,11 +154,17 @@ func TestPerlCompat(t *testing.T) {
 	}
 	_ = os.Remove("./" + Md5FileName)
 	toMd5Chan, toUpdateXML, closedChan := NewChannels()
-	wg := newXMLManager(toUpdateXML)
+	wg, errChan := newXMLManager(toUpdateXML)
 	toMd5Chan <- FileStruct{Name: fileToUse, directory: "."}
 	close(toMd5Chan)
 	<-closedChan
 	wg.Wait()
+	// Drain any remaining errors
+	for err := range errChan {
+		if err != nil {
+			t.Error("XML manager error:", err)
+		}
+	}
 	dm, err = DirectoryMapFromDir(".")
 	if err != nil {
 		t.Error(err)

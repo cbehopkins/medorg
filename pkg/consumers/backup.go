@@ -125,9 +125,6 @@ func (bdm *backupDupeMap) NewSrcVisitor(
 			_ = fileStruct.AddTag(volumeName)
 		}
 		if !ok && fileStruct.HasTag(volumeName) {
-			// FIXME add testcase for this
-			// The case where the file is not present at the dest
-			// but the tag says that it is
 			fileStruct.RemoveTag(volumeName)
 		}
 
@@ -155,6 +152,161 @@ func (fpll *fpathListList) Add(index int, fp core.Fpath) {
 	(*fpll)[index] = append((*fpll)[index], fp)
 }
 
+// streamingFileProcessor processes files in batches to avoid memory buildup
+// It maintains priority ordering by processing files with fewer existing backups first
+type streamingFileProcessor struct {
+	srcDir          string
+	destDir         string
+	backupLabelName string
+	fc              FileCopier
+	maxNumBackups   int
+	logFunc         func(msg string)
+	shutdownChan    chan struct{}
+
+	// Batching state
+	batches    fpathListList
+	batchSize  int
+	copyTokens chan struct{}
+	mu         sync.Mutex
+	wg         sync.WaitGroup
+	errChan    chan error
+}
+
+func newStreamingFileProcessor(
+	srcDir, destDir, backupLabelName string,
+	fc FileCopier,
+	maxNumBackups int,
+	logFunc func(msg string),
+	shutdownChan chan struct{},
+) *streamingFileProcessor {
+	return &streamingFileProcessor{
+		srcDir:          srcDir,
+		destDir:         destDir,
+		backupLabelName: backupLabelName,
+		fc:              fc,
+		maxNumBackups:   maxNumBackups,
+		logFunc:         logFunc,
+		shutdownChan:    shutdownChan,
+		batches:         fpathListList{},
+		batchSize:       1000, // Process files in chunks of 1000
+		copyTokens:      core.MakeTokenChan(2),
+		errChan:         make(chan error),
+	}
+}
+
+// addFile adds a file to the current batch, potentially triggering a flush
+func (sfp *streamingFileProcessor) addFile(numBackups int, fp core.Fpath) error {
+	sfp.mu.Lock()
+	sfp.batches.Add(numBackups, fp)
+
+	// Count total files in all batches
+	totalFiles := 0
+	for _, batch := range sfp.batches {
+		totalFiles += len(batch)
+	}
+	sfp.mu.Unlock()
+
+	// If we've accumulated enough files, process a batch
+	if totalFiles >= sfp.batchSize {
+		return sfp.processBatch()
+	}
+	return nil
+}
+
+// processBatch processes the highest priority batch (fewest existing backups)
+func (sfp *streamingFileProcessor) processBatch() error {
+	sfp.mu.Lock()
+
+	// Find first non-empty batch (these are ordered by priority)
+	var filesToProcess fpathList
+	for i, batch := range sfp.batches {
+		if len(batch) > 0 {
+			if i >= sfp.maxNumBackups {
+				// Skip files that already have too many backups
+				sfp.batches[i] = fpathList{}
+				continue
+			}
+			filesToProcess = batch
+			sfp.batches[i] = fpathList{}
+			break
+		}
+	}
+	sfp.mu.Unlock()
+
+	if len(filesToProcess) == 0 {
+		return nil
+	}
+
+	// Process this batch of files
+	for _, file := range filesToProcess {
+		select {
+		case <-sfp.shutdownChan:
+			return nil
+		default:
+		}
+
+		// Get a token to limit concurrency
+		<-sfp.copyTokens
+
+		sfp.wg.Add(1)
+		go func(file core.Fpath) {
+			defer sfp.wg.Done()
+			defer func() { sfp.copyTokens <- struct{}{} }()
+			err := doACopy(sfp.srcDir, sfp.destDir, sfp.backupLabelName, file, sfp.fc)
+			if err != nil {
+				select {
+				case sfp.errChan <- err:
+				default:
+				}
+			}
+		}(file)
+	}
+
+	return nil
+}
+
+// flush processes all remaining files
+func (sfp *streamingFileProcessor) flush() error {
+	// Process all remaining batches
+	for {
+		sfp.mu.Lock()
+		hasFiles := false
+		for _, batch := range sfp.batches {
+			if len(batch) > 0 {
+				hasFiles = true
+				break
+			}
+		}
+		sfp.mu.Unlock()
+
+		if !hasFiles {
+			break
+		}
+
+		if err := sfp.processBatch(); err != nil {
+			return err
+		}
+	}
+
+	// Wait for all copy operations to complete
+	sfp.wg.Wait()
+	close(sfp.copyTokens)
+	close(sfp.errChan)
+
+	// Check for any errors
+	for err := range sfp.errChan {
+		if errors.Is(err, ErrNoSpace) {
+			sfp.logFunc("Destination full")
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("copy failed, %w::%s, %s, %s", err, sfp.srcDir, sfp.destDir, sfp.backupLabelName)
+		}
+	}
+
+	return nil
+}
+
 // scanBackupDirectories will mark srcDir's ArchiveAt
 // tag, with any files that are already found in the destination
 func (bs backScanner) scanBackupDirectories(
@@ -170,7 +322,7 @@ func (bs backScanner) scanBackupDirectories(
 	}
 	dta := core.AutoVisitFilesInDirectories([]string{destDir, srcDir}, nil)
 	// Handle errors from directory traversal
-	errChan := make(chan error)
+	errChan := make(chan error, len(dta)) // Buffer with capacity = number of senders
 	var wg sync.WaitGroup
 	wg.Add(len(dta))
 	for _, ndt := range dta {
@@ -201,9 +353,9 @@ func (bs backScanner) scanBackupDirectories(
 	var backupSource backupDupeMap
 
 	logFunc("Initial scan for anything that needs building")
-	dta[0].Revisit(destDir, registerFunc, backupDestination.AddVisit, shutdownChan)
+	dta[0].RevisitAll(destDir, registerFunc, backupDestination.AddVisit, shutdownChan)
 	logFunc("Scanning Source for Files already at destination")
-	dta[1].Revisit(srcDir, registerFunc, backupSource.NewSrcVisitor(bs.lookupFunc, &backupDestination, volumeName), shutdownChan)
+	dta[1].RevisitAll(srcDir, registerFunc, backupSource.NewSrcVisitor(bs.lookupFunc, &backupDestination, volumeName), shutdownChan)
 	logFunc("Dealing with duplicates")
 	if (bs.dupeFunc != nil) && (backupDestination.Len() > 0) {
 		// There's stuff on the backup that's not in the Source
@@ -221,6 +373,9 @@ func (bs backScanner) scanBackupDirectories(
 // extractCopyFiles will look for files that are not backed up
 // i.e. walk through src file system looking for files
 // That don't have the volume name as an archived at
+//
+// NOTE: This function is kept for testing purposes to validate file extraction logic.
+// Production code uses streamingExtractAndCopy to avoid memory buildup.
 func extractCopyFiles(srcDir string, dt *core.DirTracker, volumeName string, registerFunc func(*core.DirTracker), maxNumBackups int, shutdownChan chan struct{}) (fpathListList, error) {
 	var lk sync.Mutex
 	remainingFiles := fpathListList{}
@@ -243,8 +398,50 @@ func extractCopyFiles(srcDir string, dt *core.DirTracker, volumeName string, reg
 		lk.Unlock()
 		return nil
 	}
-	dt.Revisit(srcDir, registerFunc, visitFunc, nil)
+	dt.RevisitAll(srcDir, registerFunc, visitFunc, nil)
 	return remainingFiles, nil
+}
+
+// streamingExtractAndCopy walks the source directory and processes files in batches
+// to avoid memory buildup when backing up large collections
+func streamingExtractAndCopy(
+	srcDir, destDir, volumeName string,
+	dt *core.DirTracker,
+	registerFunc func(*core.DirTracker),
+	fc FileCopier,
+	maxNumBackups int,
+	logFunc func(msg string),
+	shutdownChan chan struct{},
+) error {
+	processor := newStreamingFileProcessor(
+		srcDir, destDir, volumeName,
+		fc, maxNumBackups,
+		logFunc, shutdownChan,
+	)
+
+	visitFunc := func(dm core.DirectoryEntryInterface, dir, fn string, fileStruct core.FileStruct) error {
+		// Skip metadata files - these should never be backed up
+		if fn == core.Md5FileName || fn == ".mdjournal.xml" || fn == ".mdbackup.xml" {
+			return nil
+		}
+
+		if fileStruct.HasTag(volumeName) {
+			return nil
+		}
+		fp := core.NewFpath(dir, fn)
+		lenArchive := len(fileStruct.BackupDest)
+		if lenArchive > maxNumBackups {
+			return nil
+		}
+
+		// Add to processor, which handles batching automatically
+		return processor.addFile(lenArchive, fp)
+	}
+
+	dt.RevisitAll(srcDir, registerFunc, visitFunc, nil)
+
+	// Flush any remaining files
+	return processor.flush()
 }
 
 type FileCopier func(src, dst core.Fpath) error
@@ -312,6 +509,10 @@ func doACopy(
 	return dmDst.Persist(destDir)
 }
 
+// doCopies processes a pre-collected list of files to copy
+//
+// NOTE: This function is kept for testing purposes.
+// Production code uses streamingExtractAndCopy for memory-efficient streaming.
 func doCopies(
 	srcDir, destDir string,
 	backupLabelName string,
@@ -321,7 +522,7 @@ func doCopies(
 ) error {
 	// I don't like this pattern as it's not a clean pipeline - but the alternatives feel worse
 	copyTokens := core.MakeTokenChan(2)
-	copyErrChan := make(chan error)
+	copyErrChan := make(chan error, 2) // Buffer with capacity = number of concurrent goroutines (matches token limit)
 	var cwg sync.WaitGroup
 	go func() {
 		defer func() {
@@ -397,7 +598,7 @@ func BackupRunnerMultiSource(
 	}
 	logFunc(fmt.Sprint("Determined label as: \"", backupLabelName, "\" :now scanning directories"))
 
-	// Step 1: Run check_calc to calculate/update all MD5 checksums
+	// Step 1: Run mdcalc to calculate/update all MD5 checksums
 	// This ensures destination and all sources have up-to-date .medorg.xml files
 	allDirs := make([]string, 0, 1+len(srcDirs))
 	allDirs = append(allDirs, destDir)
@@ -410,16 +611,16 @@ func BackupRunnerMultiSource(
 		Scrub:     false,
 		AutoFix:   nil,
 	}
-	logFunc("Running check_calc on all directories (destination + sources)")
+	logFunc("Running mdcalc on all directories (destination + sources)")
 	if err := RunCheckCalc(allDirs, checkCalcOpts); err != nil {
-		return fmt.Errorf("error running check_calc: %w", err)
+		return fmt.Errorf("error running mdcalc: %w", err)
 	}
 
 	// Step 2: Scan all directories (checksums already calculated)
 	dta := core.AutoVisitFilesInDirectories(allDirs, nil)
 
 	// Handle errors from directory traversal
-	errChan := make(chan error)
+	errChan := make(chan error, len(dta)) // Buffer with capacity = number of senders
 	var wg sync.WaitGroup
 	wg.Add(len(dta))
 	for _, ndt := range dta {
@@ -447,7 +648,7 @@ func BackupRunnerMultiSource(
 	// Build destination file map
 	var backupDestination backupDupeMap
 	logFunc("Initial scan for anything that needs building")
-	dta[0].Revisit(destDir, registerFunc, backupDestination.AddVisit, shutdownChan)
+	dta[0].RevisitAll(destDir, registerFunc, backupDestination.AddVisit, shutdownChan)
 
 	// Scan all sources and mark files found in destination
 	for i, srcDir := range srcDirs {
@@ -463,10 +664,8 @@ func BackupRunnerMultiSource(
 			}
 			return nil
 		}
-		dta[i+1].Revisit(srcDir, registerFunc, removeMatchingVisitor, shutdownChan)
-	}
-
-	// Now handle orphans - files in destination but not in ANY source
+		dta[i+1].RevisitAll(srcDir, registerFunc, removeMatchingVisitor, shutdownChan)
+	} // Now handle orphans - files in destination but not in ANY source
 	logFunc("Dealing with duplicates")
 	if (orphanFunc != nil) && (backupDestination.Len() > 0) {
 		for _, v := range backupDestination.dupeMap {
@@ -482,25 +681,23 @@ func BackupRunnerMultiSource(
 		return nil
 	}
 
-	// Now copy files from each source
+	// Now copy files from each source using streaming approach
 	for i, srcDir := range srcDirs {
 		logFunc(fmt.Sprintf("Looking for files to copy from source %d", i+1))
-		copyFilesArray, err := extractCopyFiles(srcDir, dta[i+1], backupLabelName, registerFunc, maxNumBackups, shutdownChan)
-		if err != nil {
-			return fmt.Errorf("BackupRunnerMultiSource cannot extract files from source %d, %w", i+1, err)
-		}
 
-		logFunc(fmt.Sprintf("Now starting Copy from source %d", i+1))
-		err = doCopies(
-			srcDir, destDir,
-			backupLabelName,
+		err = streamingExtractAndCopy(
+			srcDir, destDir, backupLabelName,
+			dta[i+1],
+			registerFunc,
 			fc,
-			copyFilesArray, maxNumBackups,
-			logFunc, shutdownChan,
+			maxNumBackups,
+			logFunc,
+			shutdownChan,
 		)
 		if err != nil {
-			return err
+			return fmt.Errorf("BackupRunnerMultiSource failed copying from source %d, %w", i+1, err)
 		}
+
 		logFunc(fmt.Sprintf("Finished Copy from source %d", i+1))
 	}
 
@@ -528,7 +725,7 @@ func BackupRunner(
 	}
 	logFunc(fmt.Sprint("Determined label as: \"", backupLabelName, "\" :now scanning directories"))
 
-	// Step 1: Run check_calc to calculate/update all MD5 checksums
+	// Step 1: Run mdcalc to calculate/update all MD5 checksums
 	// This ensures both source and destination have up-to-date .medorg.xml files
 	checkCalcOpts := CheckCalcOptions{
 		CalcCount: 2, // Default parallelism
@@ -537,13 +734,13 @@ func BackupRunner(
 		Scrub:     false,
 		AutoFix:   nil,
 	}
-	logFunc("Running check_calc on source and destination")
+	logFunc("Running mdcalc on source and destination")
 	if err := RunCheckCalc([]string{srcDir, destDir}, checkCalcOpts); err != nil {
-		return fmt.Errorf("error running check_calc: %w", err)
+		return fmt.Errorf("error running mdcalc: %w", err)
 	}
 
 	// Step 2: Scan directories and mark files (no checksum calculation needed)
-	// Go ahead and run a check_calc style scan of the directories and make sure
+	// Go ahead and run a mdcalc style scan of the directories and make sure
 	// they have all their existing md5s up to date
 	// First of all get the srcDir updated with files that are already in destDir
 	var bs backScanner
@@ -559,21 +756,19 @@ func BackupRunner(
 	}
 	logFunc("Looking for files to  copy")
 
-	copyFilesArray, err := extractCopyFiles(srcDir, dt[1], backupLabelName, registerFunc, maxNumBackups, shutdownChan)
+	err = streamingExtractAndCopy(
+		srcDir, destDir, backupLabelName,
+		dt[1],
+		registerFunc,
+		fc,
+		maxNumBackups,
+		logFunc,
+		shutdownChan,
+	)
 	if err != nil {
-		return fmt.Errorf("BackupRunner cannot extract files, %w", err)
+		return fmt.Errorf("BackupRunner failed, %w", err)
 	}
 
-	logFunc("Now starting Copy")
-
-	err = doCopies(
-		srcDir, destDir,
-		backupLabelName,
-		fc,
-		copyFilesArray, maxNumBackups,
-		logFunc, shutdownChan,
-	)
-
 	logFunc("Finished Copy")
-	return err
+	return nil
 }

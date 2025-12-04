@@ -7,6 +7,7 @@ import (
 	"io"
 	"io/fs"
 	"log"
+	"maps"
 	"os"
 	"path/filepath"
 	"sync"
@@ -36,10 +37,19 @@ func NewDirectoryMap() *DirectoryMap {
 	itm.mp = make(map[string]FileStruct)
 	itm.stale = new(bool)
 	itm.lock = new(sync.RWMutex)
+	// Does not need to be protected by a lock as it is set once here
+	// Or becomes the responsibility of the user to not moduify it concurrently
 	itm.VisitFunc = func(dm DirectoryMap, directory, file string, d fs.DirEntry) error {
 		return ErrUnimplementedVisitor
 	}
 	return itm
+}
+
+// SetVisitFunc sets the visitor function with proper synchronization
+func (dm *DirectoryMap) SetVisitFunc(f func(dm DirectoryMap, directory, file string, d fs.DirEntry) error) {
+	dm.lock.Lock()
+	defer dm.lock.Unlock()
+	dm.VisitFunc = f
 }
 
 // Len gth of the directoty map
@@ -461,16 +471,15 @@ func (dm DirectoryMap) UpdateChecksum(directory, file string, forceUpdate bool) 
 	if Debug && file == "" {
 		return errors.New("asked to update a checksum on a null filename")
 	}
-	log.Println("Updating vchecksum for", directory, file)
+	log.Println("Updating checksum for", directory, file)
 	fc := func(fs *FileStruct) error {
 		return fs.UpdateChecksum(forceUpdate)
 	}
 	return dm.RunFsFc(directory, file, fc)
 }
 
-// DeleteMissingFiles Delete any file entries that are in the dm,
+// DeleteMissingFiles deletes any file entries that are in the dm,
 // but not on the disk
-// FIXME write a test for this
 func (dm DirectoryMap) DeleteMissingFiles() error {
 	fc := func(fileName string, fs FileStruct) (FileStruct, error) {
 		fp := filepath.Join(fs.directory, fileName)
@@ -523,7 +532,10 @@ func (dm DirectoryMap) Visitor(directory, file string, d fs.DirEntry) error {
 	// We pass self in, so that the worker func can be declared once
 	// rather than always having to be a closure
 	// This is slightly odd, but requires fewer closures - and the costs associated
-	return dm.VisitFunc(dm, directory, file, d)
+	dm.lock.RLock()
+	visitFunc := dm.VisitFunc
+	dm.lock.RUnlock()
+	return visitFunc(dm, directory, file, d)
 }
 
 // UpdateValues in the DirectoryEntry to those found on the fs
@@ -547,10 +559,13 @@ func (dm DirectoryMap) UpdateValues(directory string, d fs.DirEntry) error {
 
 func (dm DirectoryMap) Copy() DirectoryEntryJournalableInterface {
 	cp := NewDirectoryMap()
-	for k, v := range dm.mp {
-		cp.mp[k] = v
-	}
-	cp.VisitFunc = dm.VisitFunc
+	dm.lock.RLock()
+	maps.Copy(cp.mp, dm.mp)
+	visitFunc := dm.VisitFunc
+	dm.lock.RUnlock()
+	cp.lock.Lock()
+	cp.VisitFunc = visitFunc
+	cp.lock.Unlock()
 	return cp
 }
 
@@ -584,10 +599,14 @@ func (dm0 DirectoryMap) Equal(dm DirectoryEntryInterface) bool {
 	return true
 }
 
-func (dm DirectoryMap) Revisit(dir string, visitor func(dm DirectoryEntryInterface, directory string, file string, fileStruct FileStruct) error) {
+func (dm DirectoryMap) Revisit(dir string, visitor func(dm DirectoryEntryInterface, directory string, file string, fileStruct FileStruct) error) error {
 	for path, fileStruct := range dm.mp {
-		_ = visitor(dm, dir, path, fileStruct)
+		if err := visitor(dm, dir, path, fileStruct); err != nil {
+			return fmt.Errorf("visitor error for file %s in directory %s: %w", path, dir, err)
+		}
 	}
-	// FIXME why don't we do anything with errors?
-	_ = dm.Persist(dir)
+	if err := dm.Persist(dir); err != nil {
+		return fmt.Errorf("error persisting directory after revisit of %s: %w", dir, err)
+	}
+	return nil
 }

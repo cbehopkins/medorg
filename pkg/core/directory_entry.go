@@ -3,6 +3,7 @@ package core
 import (
 	"io/fs"
 	"sync"
+	"sync/atomic"
 )
 
 type workItem struct {
@@ -19,7 +20,7 @@ type DirectoryVisitorFunc func(dm DirectoryEntryInterface, directory string, fil
 type DirectoryEntryInterface interface {
 	Persist(string) error
 	Visitor(directory, file string, d fs.DirEntry) error
-	Revisit(dir string, visitor func(dm DirectoryEntryInterface, directory string, file string, fileStruct FileStruct) error)
+	Revisit(dir string, visitor func(dm DirectoryEntryInterface, directory string, file string, fileStruct FileStruct) error) error
 }
 
 // DirectoryEntryJournalableInterface if you want to store all info
@@ -44,9 +45,10 @@ type DirectoryEntry struct {
 	workItems   chan workItem
 	closeChan   chan struct{}
 	Dir         string
-	errorChan   chan error
+	errorChan   chan error // now buffered
 	Dm          DirectoryEntryInterface
 	activeFiles *sync.WaitGroup
+	closed      *atomic.Bool
 }
 
 // NewDirectoryEntry creates a directory entry
@@ -63,8 +65,9 @@ func NewDirectoryEntry(path string, mkF EntryMaker) (DirectoryEntry, error) {
 
 	itm.workItems = make(chan workItem)
 	itm.closeChan = make(chan struct{})
-	itm.errorChan = make(chan error)
+	itm.errorChan = make(chan error, 4) // buffered to avoid blocking
 	itm.activeFiles = new(sync.WaitGroup)
+	itm.closed = &atomic.Bool{}
 	return itm, nil
 }
 
@@ -76,7 +79,12 @@ func (de DirectoryEntry) ErrChan() <-chan error {
 
 // Close the directory
 func (de DirectoryEntry) Close() {
+	// Use atomic CAS to ensure we only close once
+	if !de.closed.CompareAndSwap(false, true) {
+		return // Already closed
+	}
 	close(de.closeChan)
+	close(de.workItems) // Safe: atomic.Bool ensures only one Close() runs
 }
 
 // VisitFile satisfy the DirectoryTrackerInterface
@@ -99,21 +107,53 @@ func (de DirectoryEntry) worker() {
 	// allow file paths to be sent to us for processing
 	for {
 		select {
-		case wi := <-de.workItems:
+		case wi, ok := <-de.workItems:
+			if !ok {
+				// workItems closed (by Close()), finish up
+				de.activeFiles.Wait()
+				select {
+				case de.errorChan <- de.Dm.Persist(de.Dir):
+				default:
+				}
+				return
+			}
 			go func(dir, file string, d fs.DirEntry) {
-				de.errorChan <- de.Dm.Visitor(dir, file, d)
+				err := de.Dm.Visitor(dir, file, d)
+				// Non-blocking send - if channel full, error is dropped
+				// This prevents deadlock if errorChan gets backed up
+				select {
+				case de.errorChan <- err:
+				default:
+				}
 				wi.callback()
 				de.activeFiles.Done()
 			}(wi.dir, wi.file, wi.d)
 		case <-de.closeChan:
-			close(de.workItems)
+			// closeChan signals us to finish, but Close() already closed workItems
+			// so the next iteration will hit the !ok case and exit
+			// Just drain any remaining items that were sent before workItems closed
+			for wi := range de.workItems {
+				go func(dir, file string, d fs.DirEntry, callback func()) {
+					err := de.Dm.Visitor(dir, file, d)
+					// Non-blocking send - prevent deadlock if channel full
+					select {
+					case de.errorChan <- err:
+					default:
+					}
+					callback()
+					de.activeFiles.Done()
+				}(wi.dir, wi.file, wi.d, wi.callback)
+			}
 			de.activeFiles.Wait()
-			de.errorChan <- de.Dm.Persist(de.Dir)
+			select {
+			case de.errorChan <- de.Dm.Persist(de.Dir):
+			default:
+			}
 			return
 		}
 	}
 }
 
-func (de DirectoryEntry) Revisit(dir string, visitor func(dm DirectoryEntryInterface, directory string, file string, fileStruct FileStruct) error) {
-	de.Dm.Revisit(dir, visitor)
+func (de DirectoryEntry) Revisit(dir string, visitor func(dm DirectoryEntryInterface, directory string, file string, fileStruct FileStruct) error) error {
+	return de.Dm.Revisit(dir, visitor)
 }

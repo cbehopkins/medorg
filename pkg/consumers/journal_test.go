@@ -54,7 +54,7 @@ func directoryMapFromStuff(path string, dts *directoryTestStuff, deChan chan<- c
 			// Add add multiple would be good for later
 			dm.Add(fs)
 		}
-		return *dm, nil
+		return dm, nil
 	}
 	if dts.De == nil {
 		de, err := core.NewDirectoryEntry(filepath.Join(path, dts.Name), mkFk)
@@ -93,7 +93,7 @@ func runDirectory(t *testing.T, dts *directoryTestStuff, visitFunc func(de core.
 }
 
 func modifyFilesInJournal(changesToMake int, dts directoryTestStuff) error {
-	dm, ok := dts.De.Dm.(core.DirectoryMap)
+	dm, ok := dts.De.Dm.(*core.DirectoryMap)
 	if !ok {
 		return errors.New("Unable to cast spell")
 	}
@@ -107,13 +107,14 @@ func modifyFilesInJournal(changesToMake int, dts directoryTestStuff) error {
 	})
 }
 
-func createInitialJournal(t *testing.T, initialDirectoryStructure *directoryTestStuff) Journal {
-	journal := Journal{}
+func createInitialJournal(t *testing.T, initialDirectoryStructure *directoryTestStuff) *Journal {
+	journal := NewJournal(100)
 	visitFuncInitial0 := func(de core.DirectoryEntry) error {
-		// FIXME can we lose the cast here by working on the interface directly?
-		tmp := de.Dm.(core.DirectoryMap)
-		// dm := tst.(DirectoryEntryJournalableInterface)
-		err := journal.AppendJournalFromDm(&tmp, de.Dir)
+		dm, ok := de.Dm.(core.DirectoryEntryJournalableInterface)
+		if !ok {
+			return fmt.Errorf("Dm does not implement DirectoryEntryJournalableInterface for dir %s", de.Dir)
+		}
+		err := journal.AppendJournalFromDm(dm, de.Dir)
 		if err == ErrFileExistsInJournal {
 			return fmt.Errorf("initial setup TestJournalDummyWalks %w,%s", err, de.Dir)
 		}
@@ -140,8 +141,11 @@ func TestJournalDummyWalk(t *testing.T) {
 	t.Log(journal)
 
 	visitFuncRevisit := func(de core.DirectoryEntry) error {
-		tmp := de.Dm.(core.DirectoryMap)
-		err := journal.AppendJournalFromDm(&tmp, de.Dir)
+		dm, ok := de.Dm.(core.DirectoryEntryJournalableInterface)
+		if !ok {
+			return fmt.Errorf("Dm does not implement DirectoryEntryJournalableInterface for dir %s", de.Dir)
+		}
+		err := journal.AppendJournalFromDm(dm, de.Dir)
 		if err != ErrFileExistsInJournal {
 			t.Log("Got:", de.Dm)
 			return fmt.Errorf("issue on revisit %w,%s", err, de.Dir)
@@ -152,6 +156,7 @@ func TestJournalDummyWalk(t *testing.T) {
 	// Nothing exists on disk in this test, but Journal should report
 	// having seen this already
 	runDirectory(t, &initialDirectoryStructure, visitFuncRevisit)
+	journal.Flush()
 }
 
 // Again no file access, but pretend we are
@@ -172,8 +177,11 @@ func TestJournalDummyAddFiles(t *testing.T) {
 	// Now let's add a few files
 	// This should be a new directory with 3 files
 	visitFuncInitial1 := func(de core.DirectoryEntry) error {
-		tmp := de.Dm.(core.DirectoryMap)
-		err := journal.AppendJournalFromDm(&tmp, de.Dir)
+		dm, ok := de.Dm.(core.DirectoryEntryJournalableInterface)
+		if !ok {
+			return fmt.Errorf("Dm does not implement DirectoryEntryJournalableInterface for dir %s", de.Dir)
+		}
+		err := journal.AppendJournalFromDm(dm, de.Dir)
 		if err == ErrFileExistsInJournal {
 			return fmt.Errorf("initial1 TestJournalBasicXml %w,%s", err, de.Dir)
 		}
@@ -185,6 +193,7 @@ func TestJournalDummyAddFiles(t *testing.T) {
 	if numDirsToAdd != 0 {
 		t.Error("Strange number of directories", numDirsToAdd)
 	}
+	journal.Flush()
 }
 
 func TestJournalDummyModifyFiles(t *testing.T) {
@@ -208,8 +217,11 @@ func TestJournalDummyModifyFiles(t *testing.T) {
 	}
 
 	visitFuncAdd0 := func(de core.DirectoryEntry) error {
-		tmp := de.Dm.(core.DirectoryMap)
-		err := journal.AppendJournalFromDm(&tmp, de.Dir)
+		dm, ok := de.Dm.(core.DirectoryEntryJournalableInterface)
+		if !ok {
+			return fmt.Errorf("Dm does not implement DirectoryEntryJournalableInterface for dir %s", de.Dir)
+		}
+		err := journal.AppendJournalFromDm(dm, de.Dir)
 		if err == ErrFileExistsInJournal {
 			return nil
 		}
@@ -222,23 +234,36 @@ func TestJournalDummyModifyFiles(t *testing.T) {
 	if expectedAdditions != 0 {
 		t.Error("Strange number of expectedAdditions", expectedAdditions)
 	}
+	journal.Flush()
 }
 
-func deleteNDirectories(n int, t *testing.T, initialDirectoryStructure directoryTestStuff, journal Journal) {
-	// FIXME
-	if n != 1 {
-		t.Error("Bang")
-	}
-	bob := initialDirectoryStructure.Dirs[0]
-	bob.parent = &initialDirectoryStructure
-	deletedDirectory := directoryTestStuff{
-		Name: bob.FullPath(),
+func deleteNDirectories(n int, t *testing.T, initialDirectoryStructure directoryTestStuff, journal *Journal) {
+	// Delete the first n directories from the structure
+	if n > len(initialDirectoryStructure.Dirs) {
+		t.Errorf("Cannot delete %d directories, only %d available", n, len(initialDirectoryStructure.Dirs))
+		return
 	}
 
-	// Now we have an entry to delete, submit that to the Journal
+	// Process each directory to be deleted
+	for i := 0; i < n; i++ {
+		bob := initialDirectoryStructure.Dirs[i]
+		bob.parent = &initialDirectoryStructure
+		deletedDirectory := directoryTestStuff{
+			Name: bob.FullPath(),
+		}
+		processSingleDeletion(t, &deletedDirectory, journal)
+	}
+}
+
+func processSingleDeletion(t *testing.T, deletedDirectory *directoryTestStuff, journal *Journal) {
+	t.Helper()
+
 	visitFuncDeleter := func(de core.DirectoryEntry) error {
-		tmp := de.Dm.(core.DirectoryMap)
-		err := journal.AppendJournalFromDm(&tmp, de.Dir)
+		dm, ok := de.Dm.(core.DirectoryEntryJournalableInterface)
+		if !ok {
+			return fmt.Errorf("Dm does not implement DirectoryEntryJournalableInterface for dir %s", de.Dir)
+		}
+		err := journal.AppendJournalFromDm(dm, de.Dir)
 		if err == ErrFileExistsInJournal {
 			// All files should already exist
 			return nil
@@ -248,7 +273,7 @@ func deleteNDirectories(n int, t *testing.T, initialDirectoryStructure directory
 		}
 		return err
 	}
-	runDirectory(t, &deletedDirectory, visitFuncDeleter)
+	runDirectory(t, deletedDirectory, visitFuncDeleter)
 }
 
 // TestJournalDummyRmDir will pretend that we have gone and deleted
@@ -270,8 +295,11 @@ func TestJournalDummyRmDir(t *testing.T) {
 
 	// Now run our original directory structure
 	visitFuncCheck := func(de core.DirectoryEntry) error {
-		tmp := de.Dm.(core.DirectoryMap)
-		err := journal.AppendJournalFromDm(&tmp, de.Dir)
+		dm, ok := de.Dm.(core.DirectoryEntryJournalableInterface)
+		if !ok {
+			return fmt.Errorf("Dm does not implement DirectoryEntryJournalableInterface for dir %s", de.Dir)
+		}
+		err := journal.AppendJournalFromDm(dm, de.Dir)
 		if err == ErrFileExistsInJournal {
 			return nil
 		}
@@ -286,6 +314,7 @@ func TestJournalDummyRmDir(t *testing.T) {
 	if expectedDeletions != 0 {
 		t.Error("Strange number of expectedDeletions", expectedDeletions)
 	}
+	journal.Flush()
 }
 
 // TestJournalDummyVisitDirs will test that the Journal records what we expect
@@ -325,6 +354,7 @@ func TestJournalDummyVisitDirs(t *testing.T) {
 	if expectedDirectoryCount != 0 {
 		t.Error("Unexpected expectedDirectoryCount", expectedDirectoryCount)
 	}
+	journal.Flush()
 }
 
 func TestJournalScannerInternals(t *testing.T) {
@@ -348,7 +378,7 @@ func TestJournalScannerInternals(t *testing.T) {
 			t.Log("Got a record", record)
 			return nil
 		}
-		err := slupReadFunc(strings.NewReader(input.txt), fc)
+		err := SlupReadFunc(strings.NewReader(input.txt), fc)
 		if (err != nil) != (input.failExpected) {
 			t.Error(err)
 		}
@@ -365,13 +395,15 @@ func TestJournalXmlIo(t *testing.T) {
 		populateDirectoryStuff(1, 5),
 		populateDirectoryStuff(1, 5),
 	}
-	journal := createInitialJournal(t, &initialDirectoryStructure)
+	journal := NewJournal(100)
+	defer journal.Flush()
 	var b bytes.Buffer
 	err := journal.ToWriter(&b)
 	if err != nil {
 		t.Error(err)
 	}
-	journalTo := Journal{}
+	journalTo := NewJournal(100)
+	defer journalTo.Flush()
 	err = journalTo.FromReader(&b)
 	if err != nil {
 		t.Error(err)

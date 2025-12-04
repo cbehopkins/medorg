@@ -41,7 +41,7 @@ func errHandler(
 	if registerFunc == nil {
 		registerFunc = func(dt *DirTracker) {}
 	}
-	errChan := make(chan error)
+	errChan := make(chan error, len(dts)) // Buffer with capacity = number of senders
 	var wg sync.WaitGroup
 	wg.Add(len(dts))
 	for _, ndt := range dts {
@@ -78,9 +78,12 @@ func AutoVisitFilesInDirectories(
 		}
 		fileStruct, ok := dm.Get(fn)
 		if !ok {
-			var err error
-			// FIXME we could use the fileInfo from below if we had the option
-			fileStruct, err = NewFileStruct(dir, fn)
+			// Use the DirEntry to get file info instead of redundant os.Stat
+			fileInfo, err := d.Info()
+			if err != nil {
+				return err
+			}
+			fileStruct, err = fileStruct.FromStat(dir, fn, fileInfo)
 			if err != nil {
 				return err
 			}
@@ -97,7 +100,9 @@ func AutoVisitFilesInDirectories(
 	makerFunc := func(dir string) (DirectoryTrackerInterface, error) {
 		mkFk := func(dir string) (DirectoryEntryInterface, error) {
 			dm, err := DirectoryMapFromDir(dir)
-			dm.VisitFunc = visitFunc
+			if err == nil {
+				dm.SetVisitFunc(visitFunc)
+			}
 			return dm, err
 		}
 		return NewDirectoryEntry(dir, mkFk)

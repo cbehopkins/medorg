@@ -8,7 +8,7 @@ import (
 	"github.com/cbehopkins/medorg/pkg/core"
 )
 
-// CheckCalcOptions configures the check_calc operation
+// CheckCalcOptions configures the mdcalc operation
 type CheckCalcOptions struct {
 	CalcCount int      // Number of parallel MD5 calculators (default: 2)
 	Recalc    bool     // Force recalculation of all checksums
@@ -18,7 +18,7 @@ type CheckCalcOptions struct {
 }
 
 // RunCheckCalc calculates and maintains MD5 checksums for files in the given directories.
-// This is the core logic extracted from cmd/check_calc/main.go
+// This is the core logic extracted from cmd/mdcalc/main.go
 //
 // For each directory, it:
 // - Loads existing .medorg.xml or creates new one
@@ -127,7 +127,7 @@ func RunCheckCalc(directories []string, opts CheckCalcOptions) error {
 			}
 
 			// Set the visitor function
-			dm.VisitFunc = visitor
+			dm.SetVisitFunc(visitor)
 
 			// Remove entries for files that no longer exist
 			return dm, dm.DeleteMissingFiles()

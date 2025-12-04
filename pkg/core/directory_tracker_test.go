@@ -43,6 +43,19 @@ func (mdt mockDtType) Close() {
 
 var errTestChanClosed = errors.New("visit called to a closed structure")
 
+func (mdt mockDtType) Visitor(dir, file string, d fs.DirEntry) error {
+	mdt.lock.RLock()
+	closed := *mdt.closed
+	mdt.lock.RUnlock()
+	if closed {
+		return fmt.Errorf("%w at %s/%s", errTestChanClosed, dir, file)
+	}
+	if mdt.visiter != nil {
+		mdt.visiter(dir, file)
+	}
+	return nil
+}
+
 func (mdt mockDtType) VisitFile(dir, file string, d fs.DirEntry, callback func()) {
 	mdt.lock.Lock()
 	if *mdt.closed {
@@ -56,7 +69,8 @@ func (mdt mockDtType) VisitFile(dir, file string, d fs.DirEntry, callback func()
 	callback()
 }
 
-func (dt mockDtType) Revisit(dir string, fileVisitor func(dm DirectoryEntryInterface, dir, fn string, fileStruct FileStruct) error) {
+func (dt mockDtType) Revisit(dir string, fileVisitor func(dm DirectoryEntryInterface, dir, fn string, fileStruct FileStruct) error) error {
+	return nil
 }
 
 func TestDirectoryTrackerAgainstMock(t *testing.T) {

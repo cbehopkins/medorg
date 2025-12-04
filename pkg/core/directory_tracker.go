@@ -19,26 +19,27 @@ type DirectoryTrackerInterface interface {
 	// You must call the callback after you have finished whatever you are doing that might be
 	// resource intensive.
 	VisitFile(dir, file string, d fs.DirEntry, callback func())
-	Revisit(dir string, visitor func(dm DirectoryEntryInterface, directory string, file string, fileStruct FileStruct) error)
 }
 
+// finishedB provides a simple atomic boolean flag for tracking completion state.
+// This was previously more complex with a channel-based notification mechanism,
+// but the channel was never actually used in the codebase, so we simplified to
+// just an atomic boolean. This eliminates the problematic Clear() behavior that
+// would create new channels and potentially orphan goroutines waiting on old ones.
 type finishedB struct {
-	cnt uint32
-	fc  chan struct{}
+	cnt atomic.Uint32
 }
 
 func (f *finishedB) Get() bool {
-	return atomic.LoadUint32(&f.cnt) > 0
+	return f.cnt.Load() > 0
 }
 
 func (f *finishedB) Set() {
-	close(f.fc)
-	atomic.StoreUint32(&f.cnt, 1)
+	f.cnt.Store(1)
 }
 
 func (f *finishedB) Clear() {
-	f.fc = make(chan struct{})
-	atomic.StoreUint32(&f.cnt, 0)
+	f.cnt.Store(0)
 }
 
 type DirTracker struct {
@@ -51,7 +52,7 @@ type DirTracker struct {
 	lastPath        lastPath
 	tokenChan       chan struct{}
 	wg              *sync.WaitGroup
-	errChan         chan error
+	errChan         chan error // now buffered
 	preserveStructs bool
 
 	finished finishedB
@@ -75,31 +76,43 @@ const NumTrackerOutstanding = 4
 // At some later time, we will then close the directory
 // There are no guaranetees about when this will happen
 func NewDirTracker(preserveStructs bool, dir string, newEntry func(string) (DirectoryTrackerInterface, error)) *DirTracker {
-	numOutsanding := NumTrackerOutstanding // FIXME expose this
+	return NewDirTrackerWithConcurrency(preserveStructs, dir, newEntry, NumTrackerOutstanding)
+}
+
+// NewDirTrackerWithConcurrency creates a DirTracker with custom concurrency limit
+// numOutstanding controls how many directories can be processed concurrently
+func NewDirTrackerWithConcurrency(preserveStructs bool, dir string, newEntry func(string) (DirectoryTrackerInterface, error), numOutstanding int) *DirTracker {
 	var dt DirTracker
 	dt.dm = make(map[string]DirectoryTrackerInterface)
 	dt.newEntry = newEntry
-	dt.tokenChan = MakeTokenChan(numOutsanding)
+	dt.tokenChan = MakeTokenChan(numOutstanding)
 	dt.wg = new(sync.WaitGroup)
-	dt.errChan = make(chan error)
-	dt.wg.Add(1) // add one for populateDircount
+	dt.errChan = make(chan error, 8) // buffered to avoid blocking
+	dt.wg.Add(1)                     // add one for populateDircount
 	dt.finished.Clear()
 	dt.preserveStructs = preserveStructs
 	go dt.populateDircount(dir)
 	go func() {
 		err := filepath.WalkDir(dir, dt.directoryWalker)
 		if err != nil {
-			dt.errChan <- err
+			select {
+			case dt.errChan <- err:
+			default:
+			}
 		}
 		for _, val := range dt.dm {
 			val.Close()
 		}
 		dt.wg.Wait()
 		if dt.Total() != dt.Value() {
-			// FIXME I'm not sure panic is correct here
-			// If the file system changes while we are walking, we may not get the correct count
-			// Helpful for debugging though
-			panic("hadn't actually finished")
+			// Send a warning error if the file system changed during the walk
+			// This can happen when files are added/deleted while we're traversing
+			select {
+			case dt.errChan <- fmt.Errorf(
+				"directory walk incomplete: expected to visit %d directories but only visited %d (filesystem may have changed during walk)",
+				dt.Total(), dt.Value()):
+			default:
+			}
 		}
 		dt.finished.Set()
 		close(dt.errChan)
@@ -128,11 +141,6 @@ func (dt *DirTracker) Value() int64 {
 // Finished - have we finished yet?
 func (dt *DirTracker) Finished() bool {
 	return dt.finished.Get()
-}
-
-// Finished Channel - have we finished yet?
-func (dt *DirTracker) FinishedChan() <-chan struct{} {
-	return dt.finished.fc
 }
 
 func (dt *DirTracker) runChild(de DirectoryTrackerInterface) {
@@ -182,8 +190,7 @@ func (dt *DirTracker) populateDircount(dir string) {
 	defer dt.wg.Done()
 	err := filepath.WalkDir(dir, dt.directoryWalkerPopulateDircount)
 	if err != nil {
-		// FIXME Question: I did eveything else on this with atomics - is this correct?
-		dt.directoryCountTotal = -1
+		atomic.StoreInt64(&dt.directoryCountTotal, -1)
 		return
 	}
 }
@@ -213,7 +220,12 @@ func (dt *DirTracker) handleDirectory(path string) error {
 	log.Println("visiting dir", path, dt.Value(), "of", dt.Total())
 	atomic.AddInt64(&dt.directoryCountVisited, 1)
 	closerFunc := func(pt string) {
-		// FIXME we will want this back when we are not revisiting
+		// TODO: Re-enable closerFunc cleanup when preserveStructs is false. Currently disabled
+		// because preserveStructs=true is used during RevisitAll() to keep directory entries
+		// alive in memory for potential reuse. When preserveStructs=false (initial walk only),
+		// we should call Close() on entries we're done with to free resources (file handles,
+		// memory buffers). This is an optimization for single-pass operations where memory
+		// efficiency is more important than reusability of directory structures.
 		de, ok := dt.dm[pt]
 		if ok {
 			de.Close()
@@ -228,10 +240,10 @@ func (dt *DirTracker) handleDirectory(path string) error {
 	}
 	de, err := dt.getDirectoryEntry(path)
 	if err != nil {
-		return fmt.Errorf("%w::%s", err, path)
+		return fmt.Errorf("error getting directory entry for %s: %w", path, err)
 	}
 	if de == nil {
-		return fmt.Errorf("%w::%s", errorMissingDe, path)
+		return fmt.Errorf("missing directory entry for %s: %w", path, errorMissingDe)
 	}
 	return nil
 }
@@ -265,17 +277,17 @@ func (dt *DirTracker) directoryWalker(path string, d fs.DirEntry, err error) err
 
 	de, err := dt.getDirectoryEntry(dir)
 	if err != nil {
-		return fmt.Errorf("%w::%s", err, path)
+		return fmt.Errorf("error getting directory entry for %s: %w", path, err)
 	}
 	if de == nil {
-		return fmt.Errorf("%w::%s", errorMissingDe, path)
+		return fmt.Errorf("missing directory entry for %s: %w", path, errorMissingDe)
 	}
 	de.VisitFile(dir, file, d, returnToken)
 	return nil
 }
 
-// Revisit allows you to walk through an existing structure
-func (dt *DirTracker) Revisit(
+// RevisitAll allows you to walk through all tracked directories in the DirTracker
+func (dt *DirTracker) RevisitAll(
 	dir string,
 	dirVisitor func(dt *DirTracker),
 	fileVisitor func(dm DirectoryEntryInterface, dir, fn string, fileStruct FileStruct) error,
@@ -292,13 +304,18 @@ func (dt *DirTracker) Revisit(
 			select {
 			case _, ok := <-closer:
 				if !ok {
-					log.Println("Revisit saw a closer")
+					log.Println("RevisitAll saw a closer")
 					return
 				}
 			default:
 			}
 		}
 		atomic.AddInt64(&dt.directoryCountVisited, 1)
-		de.Revisit(path, fileVisitor)
+		entry, ok := de.(DirectoryEntry)
+		if ok {
+			entry.Revisit(path, fileVisitor)
+		} else {
+			panic(fmt.Sprintf("RevisitAll: entry for path %s is not of type DirectoryEntry (type: %T) - this is a fundamental design error", path, de))
+		}
 	}
 }

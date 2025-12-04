@@ -4,6 +4,7 @@ import (
 	"crypto/md5"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"hash"
 	"io"
 	"log"
@@ -53,35 +54,41 @@ func md5Calcer(inputChan chan FileStruct, outputChan chan FileStruct, closedChan
 }
 
 // newXMLManager creates a new file manager
-// This receives FileStructs and stroes those contents in
+// This receives FileStructs and stores those contents in
 // an appropriate .md5_file.xml
 // Note there is now CalcBuffer which will cache open structs
 // This trades memory for cpu & IO
-func newXMLManager(inputChan chan FileStruct) *sync.WaitGroup {
-	// FIXME The error management in this is laughable
-	// Not a trivial job to fix though
+// Errors are sent on the returned error channel but do not stop processing of other files
+func newXMLManager(inputChan chan FileStruct) (*sync.WaitGroup, chan error) {
 	var wg sync.WaitGroup
+	errChan := make(chan error, 10) // Buffered to prevent goroutine from blocking
 	wg.Add(1)
-	go managerWorker(inputChan, &wg)
-	return &wg
+	go managerWorker(inputChan, &wg, errChan)
+	return &wg, errChan
 }
 
-func managerWorker(inputChan chan FileStruct, wg *sync.WaitGroup) {
+func managerWorker(inputChan chan FileStruct, wg *sync.WaitGroup, errChan chan error) {
+	defer close(errChan)
 	for fs := range inputChan {
 		if fs.directory == "" {
-			log.Printf("Error: empty directory description for file %s, skipping", fs.Name)
+			errChan <- fmt.Errorf("empty directory description for file %s, skipping", fs.Name)
 			continue
 		}
-		appendXML(fs.directory, []FileStruct{fs})
+		if err := appendXML(fs.directory, []FileStruct{fs}); err != nil {
+			errChan <- fmt.Errorf("error appending XML for file %s in directory %s: %w", fs.Name, fs.directory, err)
+			continue
+		}
 	}
 	log.Println("managerWorker closing")
 	wg.Done()
 }
 
 // appendXML - append items to the existing Xml File
-func appendXML(directory string, fsA []FileStruct) {
-	// FIXME error prop
-	dm, _ := DirectoryMapFromDir(directory)
+func appendXML(directory string, fsA []FileStruct) error {
+	dm, err := DirectoryMapFromDir(directory)
+	if err != nil {
+		return fmt.Errorf("error loading directory map for %s: %w", directory, err)
+	}
 
 	// Add in the items in the input
 	for _, fs := range fsA {
@@ -93,8 +100,10 @@ func appendXML(directory string, fsA []FileStruct) {
 			continue
 		}
 	}
-	// FIXME
-	_ = dm.Persist(directory)
+	if err := dm.Persist(directory); err != nil {
+		return fmt.Errorf("error persisting directory map for %s: %w", directory, err)
+	}
+	return nil
 }
 
 // ReturnChecksumString gets the hash into the format we like it
@@ -130,11 +139,16 @@ func Calculator(fp string) (iw io.Writer, trigger chan struct{}, wg *sync.WaitGr
 
 func md5CalcInternal(h hash.Hash, wgl *sync.WaitGroup, fpl string, trigger chan struct{}) {
 	directory, fn := filepath.Split(fpl)
-	// FIXME error prop
-	dm, _ := DirectoryMapFromDir(directory)
+	dm, err := DirectoryMapFromDir(directory)
+	if err != nil {
+		log.Printf("Error loading directory map for %s: %v", directory, err)
+		wgl.Done()
+		return
+	}
 	completeCalc(trigger, directory, fn, h, dm)
-	// FIXME
-	_ = dm.Persist(directory)
+	if err := dm.Persist(directory); err != nil {
+		log.Printf("Error persisting directory map for %s: %v", directory, err)
+	}
 	wgl.Done()
 }
 
@@ -175,8 +189,9 @@ func (cb *CalcBuffer) Close() {
 	cb.wg.Done()
 	cb.wg.Wait()
 	for dir, dm := range cb.buff {
-		// FIXME
-		_ = dm.Persist(dir)
+		if err := dm.Persist(dir); err != nil {
+			log.Printf("Error persisting directory map for %s: %v", dir, err)
+		}
 	}
 }
 
@@ -224,8 +239,12 @@ func (cb *CalcBuffer) getDir(dir string) (dm *DirectoryMap) {
 		return
 	}
 
-	// FIXME error prop
-	dmL, _ := DirectoryMapFromDir(dir)
+	dmL, err := DirectoryMapFromDir(dir)
+	if err != nil {
+		log.Printf("Error loading directory map for %s: %v", dir, err)
+		// Return empty DirectoryMap to avoid nil pointer issues
+		dmL = *NewDirectoryMap()
+	}
 	dm = &dmL
 	cb.Lock()
 	cb.buff[dir] = dm

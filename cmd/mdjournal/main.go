@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/cbehopkins/medorg/pkg/core"
 )
@@ -34,29 +33,16 @@ func isDir(fn string) bool {
 func main() {
 	var directories []string
 	var xc *core.XMLCfg
+	configPath := flag.String("config", "", "Path to config file (optional, defaults to ~/.medorg.xml)")
 	scanflg := flag.Bool("scan", false, "Only scan files in src & dst updating labels, don't run the backup")
 
 	flag.Parse()
 
 	// Load XMLCfg
 	var err error
-	if xmcf := core.XmConfig(); xmcf != "" {
-		xc, err = core.NewXMLCfg(string(xmcf))
-		if err != nil {
-			fmt.Println("Error loading config file:", err)
-			os.Exit(ExitNoConfig)
-		}
-	} else {
-		fn := filepath.Join(string(core.HomeDir()), "/.core.xml")
-		xc, err = core.NewXMLCfg(fn)
-		if err != nil {
-			fmt.Println("Error creating config file:", err)
-			os.Exit(ExitNoConfig)
-		}
-	}
-
-	if xc == nil {
-		fmt.Println("Unable to get config")
+	xc, err = core.LoadOrCreateXMLCfgWithPath(*configPath)
+	if err != nil {
+		fmt.Println("Error loading config file:", err)
 		os.Exit(ExitNoConfig)
 	}
 

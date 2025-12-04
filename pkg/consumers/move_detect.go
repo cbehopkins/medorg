@@ -45,10 +45,10 @@ func (mvd *moveDetect) runMoveDetectFindDeleted(directory string) error {
 	makerFunc := func(dir string) (core.DirectoryTrackerInterface, error) {
 		mkFk := func(dir string) (core.DirectoryEntryInterface, error) {
 			dm, err := core.DirectoryMapFromDir(dir)
-			dm.VisitFunc = visitFunc
 			if err != nil {
 				return dm, err
 			}
+			dm.SetVisitFunc(visitFunc)
 			return dm, dm.RangeMutate(fc)
 		}
 		return core.NewDirectoryEntry(dir, mkFk)
@@ -84,8 +84,11 @@ func (mvd *moveDetect) runMoveDetectFindNew(directory string) error {
 	makerFunc := func(dir string) (core.DirectoryTrackerInterface, error) {
 		mkFk := func(dir string) (core.DirectoryEntryInterface, error) {
 			dm, err := core.DirectoryMapFromDir(dir)
-			dm.VisitFunc = visitFunc
-			return dm, err
+			if err != nil {
+				return dm, err
+			}
+			dm.SetVisitFunc(visitFunc)
+			return dm, nil
 		}
 		return core.NewDirectoryEntry(dir, mkFk)
 	}
@@ -106,13 +109,30 @@ func (mvd *moveDetect) runMoveDetectFindNew(directory string) error {
 // properties have been added
 func RunMoveDetect(dirs []string) error {
 	var mvd moveDetect
+
+	// Run first pass in parallel - find deleted files
+	errChan := make(chan error, len(dirs))
+	var wg sync.WaitGroup
+	wg.Add(len(dirs))
+
 	for _, dir := range dirs {
-		// FIXME we should be able to run this in parallel
-		err := mvd.runMoveDetectFindDeleted(dir)
-		if err != nil {
-			return err
-		}
+		go func(d string) {
+			defer wg.Done()
+			if err := mvd.runMoveDetectFindDeleted(d); err != nil {
+				errChan <- err
+			}
+		}(dir)
 	}
+
+	wg.Wait()
+	close(errChan)
+
+	// Check for errors from first pass
+	for err := range errChan {
+		return err
+	}
+
+	// Run second pass - find new files with matching properties
 	for _, dir := range dirs {
 		err := mvd.runMoveDetectFindNew(dir)
 		if err != nil {

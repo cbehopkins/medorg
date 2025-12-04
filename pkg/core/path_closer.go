@@ -49,7 +49,6 @@ func (p *lastPath) Closer(path string, closerFunc func(string)) error {
 	if prevPath == "" {
 		return nil
 	}
-	// TODO: make it possible to select this/another/default to this
 	shouldClose := func(path string) (bool, error) {
 		isChild, err := isChildPath(path, prevPath)
 		if err != nil {

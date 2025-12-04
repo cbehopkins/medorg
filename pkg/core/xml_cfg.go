@@ -14,6 +14,12 @@ type SourceDirectory struct {
 	Alias string `xml:"alias,attr"`
 }
 
+// RestoreDestination represents a configured restore destination for an alias
+type RestoreDestination struct {
+	Alias string `xml:"alias,attr"`
+	Path  string `xml:"path,attr"`
+}
+
 // XMLCfg structure used to specify the detailed config
 type XMLCfg struct {
 	XMLName struct{} `xml:"xc"`
@@ -24,6 +30,8 @@ type XMLCfg struct {
 	VolumeLabels []string `xml:"vl"`
 	// Source directories for backup/journal operations
 	SourceDirectories []SourceDirectory `xml:"src"`
+	// Restore destinations mapping aliases to restore paths
+	RestoreDestinations []RestoreDestination `xml:"restore"`
 
 	fn string
 }
@@ -52,6 +60,31 @@ func NewXMLCfg(fn string) (*XMLCfg, error) {
 		}
 	}
 	return itm, nil
+}
+
+// LoadOrCreateXMLCfg loads the config from the default location or creates it if it doesn't exist
+// This is the recommended way to get XMLCfg in commands
+func LoadOrCreateXMLCfg() (*XMLCfg, error) {
+	return LoadOrCreateXMLCfgWithPath("")
+}
+
+// LoadOrCreateXMLCfgWithPath loads the config from the specified path or default location
+// If configPath is empty, uses default behavior (XmConfig or ~/.medorg.xml)
+// If configPath is provided, uses that path directly
+func LoadOrCreateXMLCfgWithPath(configPath string) (*XMLCfg, error) {
+	// If a specific path is provided, use it
+	if configPath != "" {
+		return NewXMLCfg(configPath)
+	}
+
+	// First check if XmConfig returns a location (looks for existing .medorg.xml)
+	if xmcf := XmConfig(); xmcf != "" {
+		return NewXMLCfg(string(xmcf))
+	}
+
+	// If not found, use default location: ~/.medorg.xml
+	fn := ConfigPath(".medorg.xml")
+	return NewXMLCfg(fn)
 }
 
 func (xc *XMLCfg) WriteXmlCfg() error {
@@ -164,4 +197,55 @@ func (xc *XMLCfg) GetAliasForPath(path string) string {
 		}
 	}
 	return ""
+}
+
+// SetRestoreDestination sets or updates the restore destination for an alias
+// If path is empty, uses the source directory path as default
+func (xc *XMLCfg) SetRestoreDestination(alias, path string) error {
+	// If no path provided, try to use the source directory path
+	if path == "" {
+		sd, ok := xc.GetSourceDirectory(alias)
+		if !ok {
+			return fmt.Errorf("alias '%s' not found in source directories", alias)
+		}
+		path = sd.Path
+	}
+
+	cleanPath := filepath.Clean(path)
+
+	// Update existing or add new
+	for i, rd := range xc.RestoreDestinations {
+		if rd.Alias == alias {
+			xc.RestoreDestinations[i].Path = cleanPath
+			return nil
+		}
+	}
+
+	// Add new restore destination
+	xc.RestoreDestinations = append(xc.RestoreDestinations, RestoreDestination{
+		Alias: alias,
+		Path:  cleanPath,
+	})
+	return nil
+}
+
+// GetRestoreDestination returns the restore destination path for an alias
+func (xc *XMLCfg) GetRestoreDestination(alias string) (string, bool) {
+	for _, rd := range xc.RestoreDestinations {
+		if rd.Alias == alias {
+			return rd.Path, true
+		}
+	}
+	return "", false
+}
+
+// RemoveRestoreDestination removes a restore destination by alias
+func (xc *XMLCfg) RemoveRestoreDestination(alias string) bool {
+	for i, rd := range xc.RestoreDestinations {
+		if rd.Alias == alias {
+			xc.RestoreDestinations = append(xc.RestoreDestinations[:i], xc.RestoreDestinations[i+1:]...)
+			return true
+		}
+	}
+	return false
 }

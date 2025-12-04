@@ -7,7 +7,6 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -28,7 +27,6 @@ const (
 	ExitBadVc
 )
 
-// FIXME
 var (
 	MaxBackups = 2
 	AF         *consumers.AutoFix
@@ -163,6 +161,9 @@ func main() {
 	retcode := 0
 	defer func() { os.Exit(retcode) }()
 
+	configPath := flag.String("config", "", "Path to config file (optional, defaults to ~/.medorg.xml)")
+	flag.Parse()
+
 	///////////////////////////////////
 	// Logging setup
 	os.Remove(LOGFILENAME)
@@ -180,28 +181,9 @@ func main() {
 	var directories []string
 	///////////////////////////////////
 	// Read in top level config
-	var xc *core.XMLCfg
-	if xmcf := core.XmConfig(); xmcf != "" {
-		// FIXME should we be casting to string here or fixing the interfaces?
-		var err error
-		xc, err = core.NewXMLCfg(string(xmcf))
-		if err != nil {
-			fmt.Println("Error loading config file:", err)
-			retcode = ExitNoConfig
-			return
-		}
-	} else {
-		fmt.Println("no config file found")
-		fn := filepath.Join(string(core.HomeDir()), "/.core.xml")
-		xc, err = core.NewXMLCfg(fn)
-		if err != nil {
-			fmt.Println("Error creating config file:", err)
-			retcode = ExitNoConfig
-			return
-		}
-	}
-	if xc == nil {
-		fmt.Println("Unable to get config")
+	xc, err := core.LoadOrCreateXMLCfgWithPath(*configPath)
+	if err != nil {
+		fmt.Println("Error loading config file:", err)
 		retcode = ExitNoConfig
 		return
 	}

@@ -30,11 +30,17 @@ type AutoFix struct {
 	RenameFiles  bool
 	ReStaticNum  *regexp.Regexp
 	ReDomainList []*regexp.Regexp
-	// For all the file we encounter, keep their hash
-	// FIXME elsewhere we use size && hash as the key to uniqueness
-	FileHash       map[string]core.FileStruct
+	// For all the files we encounter, keep their hash
+	// Using size+checksum as key for uniqueness (consistent with backup.go)
+	FileHash       map[autoFixKey]core.FileStruct
 	FhLock         *sync.RWMutex
 	SilenceLogging bool
+}
+
+// autoFixKey is used to uniquely identify files by size and checksum
+type autoFixKey struct {
+	size     int64
+	checksum string
 }
 
 // initFileHash needs to be run before we can use the master checkers
@@ -43,7 +49,7 @@ func (af *AutoFix) initFileHash() {
 		af.FhLock = new(sync.RWMutex)
 	}
 	if af.FileHash == nil {
-		af.FileHash = make(map[string]core.FileStruct)
+		af.FileHash = make(map[autoFixKey]core.FileStruct)
 	}
 }
 
@@ -58,9 +64,11 @@ func NewAutoFix(dl []string) *AutoFix {
 // NewAutoFixFile reads in autofix expressions from a file
 func NewAutoFixFile(fn string) *AutoFix {
 	var dl []string
-	// FIXME 10/10 for good intentions minus several million for implementation
-	// We load a line at a time, just to put it all into an array!
-	for s := range core.LoadFile(fn) {
+	for s, err := range core.LoadFileIter(fn) {
+		if err != nil {
+			log.Printf("Warning: error reading autofix file %s: %v", fn, err)
+			continue
+		}
 		dl = append(dl, s)
 	}
 	return NewAutoFix(dl)
@@ -319,7 +327,6 @@ func ResolveFnClash(directory, fn string, extension, orig string) string {
 }
 
 // WkFun Walk function across the supplied directories
-// FIXME add testcases for this function
 func (af *AutoFix) WkFun(dm core.DirectoryMap, directory, file string, d fs.DirEntry) error {
 	fs, ok := dm.Get(file)
 	if !ok {
@@ -342,9 +349,9 @@ func (af *AutoFix) WkFun(dm core.DirectoryMap, directory, file string, d fs.DirE
 	fs, modified := af.CheckRename(fs)
 
 	// Now look to see if we have seen this file's hash before
-	cSum := fs.Checksum
+	key := autoFixKey{size: fs.Size, checksum: fs.Checksum}
 	af.FhLock.RLock()
-	oldFs, ok := af.FileHash[cSum]
+	oldFs, ok := af.FileHash[key]
 	af.FhLock.RUnlock()
 	if ok {
 		var mod bool
@@ -355,7 +362,7 @@ func (af *AutoFix) WkFun(dm core.DirectoryMap, directory, file string, d fs.DirE
 	}
 
 	af.FhLock.Lock()
-	af.FileHash[cSum] = fs
+	af.FileHash[key] = fs
 	af.FhLock.Unlock()
 	if modified {
 		dm.Add(fs)

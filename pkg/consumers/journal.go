@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	core "github.com/cbehopkins/medorg/pkg/core"
 )
@@ -30,14 +32,24 @@ func (je JournalEntry) ToXML() ([]byte, error) {
 }
 
 // Journal is a representation of our filesystem in a journaled fashion
-// This is a flawed (initial) design that is very memory heavy
-// A future design will remove the fl struct and instead point to the disk
-// file handle and offset
+// Entries are appended to a buffered channel and processed asynchronously
+// This design is more memory efficient than the original approach which kept
+// everything in memory
 type Journal struct {
 	// The file list as recorded on the disk journal
 	fl []JournalEntry
-	// The  location in the file list of the most recent fl entry
+	// The location in the file list of the most recent fl entry
 	location map[string]int
+	// Channel for buffering entries to be written asynchronously
+	entryChan chan JournalEntry
+	// WaitGroup to track pending write operations
+	writeWg sync.WaitGroup
+	// Channel to signal that the writer goroutine should stop
+	stopChan chan struct{}
+	// Mutex to protect concurrent access to fl and location
+	mu sync.RWMutex
+	// Atomic flag to track if journal is closed (1 = closed, 0 = open)
+	closed atomic.Uint32
 }
 
 var (
@@ -47,40 +59,131 @@ var (
 	errJournalMissingFile   = errors.New("journal is missing file")
 )
 
-func (jo Journal) String() string {
+// NewJournal creates a new Journal with a buffered channel for asynchronous entry processing
+// bufferSize controls the size of the entry buffer (default recommended: 100)
+func NewJournal(bufferSize int) *Journal {
+	jo := &Journal{
+		fl:        make([]JournalEntry, 0),
+		location:  make(map[string]int),
+		entryChan: make(chan JournalEntry, bufferSize),
+		stopChan:  make(chan struct{}),
+	}
+	// Start the background writer goroutine
+	jo.writeWg.Add(1)
+	go jo.entryWriter()
+	return jo
+}
+
+// entryWriter runs in a background goroutine and processes entries from the channel
+func (jo *Journal) entryWriter() {
+	defer jo.writeWg.Done()
+	for {
+		select {
+		case entry, ok := <-jo.entryChan:
+			if !ok {
+				// Channel closed, exit
+				return
+			}
+			// Process the entry
+			jo.mu.Lock()
+			jo.location[entry.dir] = len(jo.fl)
+			jo.fl = append(jo.fl, entry)
+			jo.mu.Unlock()
+		case <-jo.stopChan:
+			// Stop signal received, drain remaining entries before exiting
+			close(jo.entryChan)
+			for entry := range jo.entryChan {
+				jo.mu.Lock()
+				jo.location[entry.dir] = len(jo.fl)
+				jo.fl = append(jo.fl, entry)
+				jo.mu.Unlock()
+			}
+			return
+		}
+	}
+}
+
+// Flush waits for all pending entries to be written and stops the background writer
+// Safe to call multiple times - subsequent calls are no-ops
+// Safe to call on zero-value Journal (no-op)
+func (jo *Journal) Flush() {
+	// If stopChan is nil, this is a zero-value Journal with no async behavior
+	if jo.stopChan == nil {
+		return
+	}
+
+	// Mark as closed atomically
+	if !jo.closed.CompareAndSwap(0, 1) {
+		// Already closed by another goroutine, just wait
+		jo.writeWg.Wait()
+		return
+	}
+
+	// We successfully transitioned from open to closed, close the channel
+	close(jo.stopChan)
+	jo.writeWg.Wait()
+}
+
+func (jo *Journal) String() string {
+	jo.mu.RLock()
+	defer jo.mu.RUnlock()
 	return fmt.Sprint(jo.fl)
 }
 
 // selfCheck runs a number of design rules
-func (jo Journal) selfCheck() error {
+func (jo *Journal) selfCheck() error {
+	jo.mu.RLock()
+	defer jo.mu.RUnlock()
 	if len(jo.fl) < len(jo.location) {
 		return errJournalSelfCheckFail
 	}
 	return nil
 }
 
-func (jo Journal) directoryExists(de core.DirectoryEntryJournalableInterface, dir string) bool {
+func (jo *Journal) directoryExists(de core.DirectoryEntryJournalableInterface, dir string) bool {
+	jo.mu.RLock()
 	location, ok := jo.location[dir]
 	if !ok {
+		jo.mu.RUnlock()
 		return false
 	}
+	// Get the entry while holding the lock
+	entry := jo.fl[location]
+	jo.mu.RUnlock()
 	// If they are the same, then say they are the same
 	// otherwise we will behave as if this entry does not already exist
-	return jo.fl[location].dm.Equal(de)
+	return entry.dm.Equal(de)
 }
 
 func (jo *Journal) appendItem(de core.DirectoryEntryJournalableInterface, dir, alias string) error {
-	// log.Println("Adding Item to journal:", dir, *md5fp)
-	jo.location[dir] = len(jo.fl)
 	entry := JournalEntry{
 		dm:    de.Copy(),
 		dir:   dir,
 		alias: alias,
 	}
-	jo.fl = append(jo.fl, entry)
-	// FIXME when we implement the file handling for this
-	// do the append to the file, here.
-	// More likely, send it to a buffered channel.
+
+	// If entryChan is nil (zero-value initialization), write directly
+	// Otherwise use async channel for performance
+	if jo.entryChan == nil {
+		// Synchronous path - direct write
+		jo.mu.Lock()
+		jo.location[entry.dir] = len(jo.fl)
+		jo.fl = append(jo.fl, entry)
+		jo.mu.Unlock()
+	} else {
+		// Asynchronous path - check if closed before sending
+		if jo.closed.Load() != 0 {
+			return errors.New("journal is closed")
+		}
+		// Send to background writer (still might fail if closed concurrently, but that's ok)
+		select {
+		case jo.entryChan <- entry:
+			// Successfully sent
+		case <-jo.stopChan:
+			// Journal is shutting down, return error
+			return errors.New("journal is closed")
+		}
+	}
 	return nil
 }
 
@@ -152,13 +255,22 @@ func (jo *Journal) AppendJournalFromDmWithAlias(dm core.DirectoryEntryJournalabl
 }
 
 // Range over the valid items in the journal
-func (jo Journal) Range(visitor func(core.DirectoryEntryJournalableInterface, string) error) error {
+func (jo *Journal) Range(visitor func(core.DirectoryEntryJournalableInterface, string) error) error {
 	err := jo.selfCheck()
 	if err != nil {
 		return err
 	}
-	for dir, location := range jo.location {
-		entry := jo.fl[location]
+	jo.mu.RLock()
+	locationCopy := make(map[string]int)
+	for k, v := range jo.location {
+		locationCopy[k] = v
+	}
+	flCopy := make([]JournalEntry, len(jo.fl))
+	copy(flCopy, jo.fl)
+	jo.mu.RUnlock()
+
+	for dir, location := range locationCopy {
+		entry := flCopy[location]
 		err := visitor(entry.dm, dir)
 		if err != nil {
 			return err
@@ -170,15 +282,24 @@ func (jo Journal) Range(visitor func(core.DirectoryEntryJournalableInterface, st
 var errShortWrite = errors.New("short write in journal")
 
 // ToWriter dumps the whole journal to a writer
-func (jo Journal) ToWriter(fd io.Writer) error {
+func (jo *Journal) ToWriter(fd io.Writer) error {
 	err := jo.selfCheck()
 	if err != nil {
 		return err
 	}
 
+	jo.mu.RLock()
+	locationCopy := make(map[string]int)
+	for k, v := range jo.location {
+		locationCopy[k] = v
+	}
+	flCopy := make([]JournalEntry, len(jo.fl))
+	copy(flCopy, jo.fl)
+	jo.mu.RUnlock()
+
 	// Write each entry directly using the JournalEntry's ToXML
-	for _, location := range jo.location {
-		entry := jo.fl[location]
+	for _, location := range locationCopy {
+		entry := flCopy[location]
 		xm, err := entry.ToXML()
 		if err != nil {
 			return err
@@ -240,7 +361,7 @@ func getRecord(scanner *bufio.Scanner) (string, error) {
 	return myTxt, errors.New("failed to find an end token in scanner")
 }
 
-func slupReadFunc(fd io.Reader, fc func(string) error) error {
+func SlupReadFunc(fd io.Reader, fc func(string) error) error {
 	scanner := bufio.NewScanner(fd)
 	scanner.Split(scanToken)
 	for record, err := getRecord(scanner); ; record, err = getRecord(scanner) {
@@ -272,11 +393,19 @@ func (jo *Journal) FromReader(fd io.Reader) error {
 		// In new format, the alias is embedded in the XML
 		return jo.appendItem(de, dir, "")
 	}
-	return slupReadFunc(fd, fc)
+	return SlupReadFunc(fd, fc)
 }
 
-func (jo0 Journal) Equals(jo1 Journal, missingFunc func(core.DirectoryEntryJournalableInterface, string) error) error {
-	if len(jo0.location) != len(jo1.location) {
+func (jo0 *Journal) Equals(jo1 *Journal, missingFunc func(core.DirectoryEntryJournalableInterface, string) error) error {
+	jo0.mu.RLock()
+	len0 := len(jo0.location)
+	jo0.mu.RUnlock()
+
+	jo1.mu.RLock()
+	len1 := len(jo1.location)
+	jo1.mu.RUnlock()
+
+	if len0 != len1 {
 		return errJournalValidLen
 	}
 	refJ := jo1

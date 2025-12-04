@@ -3,8 +3,8 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
-	"path/filepath"
 	"text/tabwriter"
 
 	"github.com/cbehopkins/medorg/pkg/core"
@@ -17,155 +17,178 @@ const (
 	ExitAliasExists
 	ExitAliasNotFound
 	ExitPathNotExist
+	ExitRestoreSetError
 )
 
 func main() {
-	retcode := 0
-	defer func() { os.Exit(retcode) }()
+	os.Exit(run(os.Stdout))
+}
+
+// run executes the command and writes output to the provided writer.
+// It returns an exit code.
+func run(stdout io.Writer) int {
+	// Global config path variable
+	var configPath string
 
 	// Command line argument processing
 	addCmd := flag.NewFlagSet("add", flag.ExitOnError)
+	addCmd.StringVar(&configPath, "config", "", "Path to config file")
 	addPath := addCmd.String("path", "", "Directory path to add")
 	addAlias := addCmd.String("alias", "", "Alias/shortcode for the directory")
 
 	removeCmd := flag.NewFlagSet("remove", flag.ExitOnError)
+	removeCmd.StringVar(&configPath, "config", "", "Path to config file")
 	removeAlias := removeCmd.String("alias", "", "Alias to remove")
 
 	listCmd := flag.NewFlagSet("list", flag.ExitOnError)
+	listCmd.StringVar(&configPath, "config", "", "Path to config file")
+
+	restoreCmd := flag.NewFlagSet("restore", flag.ExitOnError)
+	restoreCmd.StringVar(&configPath, "config", "", "Path to config file")
+	restoreAlias := restoreCmd.String("alias", "", "Alias to configure restore destination for")
+	restorePath := restoreCmd.String("path", "", "Restore destination path (optional, defaults to source path)")
 
 	if len(os.Args) < 2 {
-		printUsage()
-		retcode = ExitInvalidArgs
-		return
+		printUsageTo(stdout)
+		return ExitInvalidArgs
 	}
 
-	// Load or create XMLCfg
-	var xc *core.XMLCfg
-	var err error
-
-	if xmcf := core.XmConfig(); xmcf != "" {
-		xc, err = core.NewXMLCfg(string(xmcf))
-		if err != nil {
-			fmt.Println("Error loading config file:", err)
-			retcode = ExitNoConfig
-			return
-		}
-	} else {
-		fn := filepath.Join(string(core.HomeDir()), "/.core.xml")
-		xc, err = core.NewXMLCfg(fn)
-		if err != nil {
-			fmt.Println("Error creating config file:", err)
-			retcode = ExitNoConfig
-			return
-		}
-	}
-
-	if xc == nil {
-		fmt.Println("Unable to get config")
-		retcode = ExitNoConfig
-		return
-	}
-
-	defer func() {
-		if retcode == ExitOk {
-			err := xc.WriteXmlCfg()
-			if err != nil {
-				fmt.Println("Error while saving config file:", err)
-				retcode = ExitNoConfig
-			}
-		}
-	}()
-
-	// Parse subcommand
+	// Parse subcommand to get config path before loading config
 	switch os.Args[1] {
 	case "add":
 		if err := addCmd.Parse(os.Args[2:]); err != nil {
-			fmt.Println("Error parsing add command:", err)
-			retcode = ExitInvalidArgs
-			return
+			fmt.Fprintln(stdout, "Error parsing add command:", err)
+			return ExitInvalidArgs
 		}
+	case "remove":
+		if err := removeCmd.Parse(os.Args[2:]); err != nil {
+			fmt.Fprintln(stdout, "Error parsing remove command:", err)
+			return ExitInvalidArgs
+		}
+	case "list":
+		if err := listCmd.Parse(os.Args[2:]); err != nil {
+			fmt.Fprintln(stdout, "Error parsing list command:", err)
+			return ExitInvalidArgs
+		}
+	case "restore":
+		if err := restoreCmd.Parse(os.Args[2:]); err != nil {
+			fmt.Fprintln(stdout, "Error parsing restore command:", err)
+			return ExitInvalidArgs
+		}
+	default:
+		printUsageTo(stdout)
+		return ExitInvalidArgs
+	}
 
+	// Load XMLCfg after parsing to get configPath
+	xc, err := core.LoadOrCreateXMLCfgWithPath(configPath)
+	if err != nil {
+		fmt.Fprintln(stdout, "Error loading config file:", err)
+		return ExitNoConfig
+	}
+
+	// helper to persist config on success
+	writeCfg := func() int {
+		if err := xc.WriteXmlCfg(); err != nil {
+			fmt.Fprintln(stdout, "Error while saving config file:", err)
+			return ExitNoConfig
+		}
+		return ExitOk
+	}
+
+	// Execute subcommand
+	switch os.Args[1] {
+	case "add":
 		if *addPath == "" || *addAlias == "" {
-			fmt.Println("Error: both -path and -alias are required")
+			fmt.Fprintln(stdout, "Error: both -path and -alias are required")
 			addCmd.PrintDefaults()
-			retcode = ExitInvalidArgs
-			return
+			return ExitInvalidArgs
 		}
 
 		// Verify path exists
 		if _, err := os.Stat(*addPath); os.IsNotExist(err) {
-			fmt.Printf("Error: path '%s' does not exist\n", *addPath)
-			retcode = ExitPathNotExist
-			return
+			fmt.Fprintf(stdout, "Error: path '%s' does not exist\n", *addPath)
+			return ExitPathNotExist
 		}
 
 		// Add to config
 		if !xc.AddSourceDirectory(*addPath, *addAlias) {
-			fmt.Printf("Error: alias '%s' already exists\n", *addAlias)
-			retcode = ExitAliasExists
-			return
+			fmt.Fprintf(stdout, "Error: alias '%s' already exists\n", *addAlias)
+			return ExitAliasExists
 		}
 
-		fmt.Printf("Added source directory: %s -> %s\n", *addAlias, *addPath)
+		fmt.Fprintf(stdout, "Added source directory: %s -> %s\n", *addAlias, *addPath)
+		return writeCfg()
 
 	case "remove":
-		if err := removeCmd.Parse(os.Args[2:]); err != nil {
-			fmt.Println("Error parsing remove command:", err)
-			retcode = ExitInvalidArgs
-			return
-		}
-
 		if *removeAlias == "" {
-			fmt.Println("Error: -alias is required")
+			fmt.Fprintln(stdout, "Error: -alias is required")
 			removeCmd.PrintDefaults()
-			retcode = ExitInvalidArgs
-			return
+			return ExitInvalidArgs
 		}
 
 		if !xc.RemoveSourceDirectory(*removeAlias) {
-			fmt.Printf("Error: alias '%s' not found\n", *removeAlias)
-			retcode = ExitAliasNotFound
-			return
+			fmt.Fprintf(stdout, "Error: alias '%s' not found\n", *removeAlias)
+			return ExitAliasNotFound
 		}
-
-		fmt.Printf("Removed source directory with alias: %s\n", *removeAlias)
+		fmt.Fprintf(stdout, "Removed source directory with alias: %s\n", *removeAlias)
+		return writeCfg()
 
 	case "list":
-		if err := listCmd.Parse(os.Args[2:]); err != nil {
-			fmt.Println("Error parsing list command:", err)
-			retcode = ExitInvalidArgs
-			return
-		}
-
 		if len(xc.SourceDirectories) == 0 {
-			fmt.Println("No source directories configured")
-			return
+			fmt.Fprintln(stdout, "No source directories configured")
+			return ExitOk
 		}
 
-		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+		w := tabwriter.NewWriter(stdout, 0, 0, 2, ' ', 0)
 		fmt.Fprintln(w, "ALIAS\tPATH")
 		fmt.Fprintln(w, "-----\t----")
 		for _, sd := range xc.SourceDirectories {
 			fmt.Fprintf(w, "%s\t%s\n", sd.Alias, sd.Path)
 		}
 		w.Flush()
+		return ExitOk
+
+	case "restore":
+		if *restoreAlias == "" {
+			fmt.Fprintln(stdout, "Error: -alias is required")
+			restoreCmd.PrintDefaults()
+			return ExitInvalidArgs
+		}
+
+		// Set restore destination (empty path means use source path)
+		if err := xc.SetRestoreDestination(*restoreAlias, *restorePath); err != nil {
+			fmt.Fprintf(stdout, "Error: %v\n", err)
+			return ExitRestoreSetError
+		}
+
+		destPath, _ := xc.GetRestoreDestination(*restoreAlias)
+		if *restorePath == "" {
+			fmt.Fprintf(stdout, "Configured restore destination for '%s' to default (source path): %s\n", *restoreAlias, destPath)
+		} else {
+			fmt.Fprintf(stdout, "Configured restore destination for '%s': %s\n", *restoreAlias, destPath)
+		}
+		return writeCfg()
 
 	default:
-		printUsage()
-		retcode = ExitInvalidArgs
+		printUsageTo(stdout)
+		return ExitInvalidArgs
 	}
 }
 
-func printUsage() {
-	fmt.Println("mdsource - Manage source directories for medorg backup and journal")
-	fmt.Println("")
-	fmt.Println("Usage:")
-	fmt.Println("  mdsource add -path <directory> -alias <shortcode>")
-	fmt.Println("  mdsource remove -alias <shortcode>")
-	fmt.Println("  mdsource list")
-	fmt.Println("")
-	fmt.Println("Examples:")
-	fmt.Println("  mdsource add -path /mnt/hda1/media -alias media")
-	fmt.Println("  mdsource remove -alias media")
-	fmt.Println("  mdsource list")
+func printUsageTo(w io.Writer) {
+	fmt.Fprintln(w, "mdsource - Manage source directories for medorg backup and journal")
+	fmt.Fprintln(w, "")
+	fmt.Fprintln(w, "Usage:")
+	fmt.Fprintln(w, "  mdsource add -path <directory> -alias <shortcode>")
+	fmt.Fprintln(w, "  mdsource remove -alias <shortcode>")
+	fmt.Fprintln(w, "  mdsource list")
+	fmt.Fprintln(w, "  mdsource restore -alias <shortcode> [-path <destination>]")
+	fmt.Fprintln(w, "")
+	fmt.Fprintln(w, "Examples:")
+	fmt.Fprintln(w, "  mdsource add -path /mnt/hda1/media -alias media")
+	fmt.Fprintln(w, "  mdsource remove -alias media")
+	fmt.Fprintln(w, "  mdsource list")
+	fmt.Fprintln(w, "  mdsource restore -alias media -path /new/media/location")
+	fmt.Fprintln(w, "  mdsource restore -alias media  # uses source path as default")
 }

@@ -12,7 +12,6 @@ import (
 )
 
 // md5WriteTokenChan limits concurrent MD5 file writes to prevent resource contention
-// TODO: Consider packing files into a single zip archive in the future
 var md5WriteTokenChan = MakeTokenChan(4)
 
 // md5FileWrite write to the directory's file
@@ -141,7 +140,49 @@ func copyFileContents(srcs, dsts string) (err error) {
 }
 
 // LoadFile loads a file and returns its lines via a channel
-// TODO: Refactor autofix initialization to avoid this utility
+// LoadFileIter yields non-comment, non-empty lines from a file as an iterator
+// Yields tuples of (line, error) so caller can handle errors properly
+// More efficient than LoadFile as it doesn't spawn a goroutine
+func LoadFileIter(filename string) func(yield func(string, error) bool) {
+	return func(yield func(string, error) bool) {
+		if filename == "" {
+			return
+		}
+		f, err := os.Open(filename)
+		if err != nil {
+			if !os.IsNotExist(err) {
+				yield("", fmt.Errorf("error opening file %s: %w", filename, err))
+			}
+			return
+		}
+		defer func() {
+			if closeErr := f.Close(); closeErr != nil {
+				yield("", fmt.Errorf("error closing file %s: %w", filename, closeErr))
+			}
+		}()
+
+		r := bufio.NewReader(f)
+		var lastErr error
+		for s, e := Readln(r); e == nil; s, e = Readln(r) {
+			lastErr = e
+			comment := strings.HasPrefix(s, "//")
+			comment = comment || strings.HasPrefix(s, "#")
+			if comment {
+				continue
+			}
+			if s == "" {
+				continue
+			}
+			if !yield(s, nil) {
+				return
+			}
+		}
+		if lastErr != nil && lastErr != io.EOF {
+			yield("", fmt.Errorf("error reading file %s: %w", filename, lastErr))
+		}
+	}
+}
+
 func LoadFile(filename string) (theChan chan string) {
 	theChan = make(chan string)
 	go func() {

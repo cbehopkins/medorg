@@ -4,7 +4,7 @@ This directory contains the executable command-line tools for the medorg project
 
 ## Available Commands
 
-### check_calc
+### mdcalc
 Performs checksum calculation and various file operations:
 - Calculate/update MD5 checksums for files
 - Detect and handle duplicate files
@@ -12,12 +12,12 @@ Performs checksum calculation and various file operations:
 - Auto-rename files based on regex rules
 - Concentrate files from subdirectories
 
-**Build:** `go build ./cmd/check_calc`
+**Build:** `go build ./cmd/mdcalc`
 
 **Usage examples:**
 ```bash
 # Calculate checksums in current directory
-./check_calc
+./mdcalc
 
 # Enable rename functionality
 ./check_calc -rnm
