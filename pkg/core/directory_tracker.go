@@ -55,7 +55,8 @@ type DirTracker struct {
 	errChan         chan error // now buffered
 	preserveStructs bool
 
-	finished finishedB
+	finished     finishedB
+	finishedChan chan struct{}
 }
 
 // MakeTokenChan creates a buffered channel with a fixed number of tokens for concurrency control
@@ -88,7 +89,8 @@ func NewDirTrackerWithConcurrency(preserveStructs bool, dir string, newEntry fun
 	dt.tokenChan = MakeTokenChan(numOutstanding)
 	dt.wg = new(sync.WaitGroup)
 	dt.errChan = make(chan error, 8) // buffered to avoid blocking
-	dt.wg.Add(1)                     // add one for populateDircount
+	dt.finishedChan = make(chan struct{})
+	dt.wg.Add(1) // add one for populateDircount
 	dt.finished.Clear()
 	dt.preserveStructs = preserveStructs
 	go dt.populateDircount(dir)
@@ -117,6 +119,7 @@ func NewDirTrackerWithConcurrency(preserveStructs bool, dir string, newEntry fun
 		dt.finished.Set()
 		close(dt.errChan)
 		close(dt.tokenChan)
+		close(dt.finishedChan)
 	}()
 
 	return &dt
@@ -141,6 +144,11 @@ func (dt *DirTracker) Value() int64 {
 // Finished - have we finished yet?
 func (dt *DirTracker) Finished() bool {
 	return dt.finished.Get()
+}
+
+// FinishedChan returns a channel that will be closed when the directory tracking is complete
+func (dt *DirTracker) FinishedChan() <-chan struct{} {
+	return dt.finishedChan
 }
 
 func (dt *DirTracker) runChild(de DirectoryTrackerInterface) {
