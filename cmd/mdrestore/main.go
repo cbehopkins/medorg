@@ -56,7 +56,7 @@ func main() {
 	}
 
 	// Load XMLCfg
-	xc, err := core.LoadOrCreateXMLCfgWithPath(*configPath)
+	xc, err := core.LoadOrCreateMdConfigWithPath(*configPath)
 	if err != nil {
 		fmt.Println("Error loading config file:", err)
 		retcode = ExitNoConfig

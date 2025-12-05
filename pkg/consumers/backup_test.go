@@ -289,7 +289,7 @@ func TestPreExistingBackupTags(t *testing.T) {
 	destDir := dirs[1]
 
 	// First pass: backup all files
-	var xc core.XMLCfg
+	var xc core.MdConfig
 	var firstPassCount uint32
 	fc := func(src, dst core.Fpath) error {
 		t.Logf("First pass: Copy %s", src)
@@ -480,7 +480,7 @@ func TestBackupMain(t *testing.T) {
 
 	// Using zero-value XMLCfg is acceptable for this test since BackupRunner
 	// only needs it to implement VolumeLabeler interface
-	var xc core.XMLCfg
+	var xc core.MdConfig
 	fc := func(src, dst core.Fpath) error {
 		t.Log("Copy", src, "to", dst)
 		if err := core.CopyFile(src, dst); err != nil {
@@ -635,7 +635,7 @@ func TestBackupChecksumMaintenance(t *testing.T) {
 		return nil
 	}
 
-	var xc core.XMLCfg
+	var xc core.MdConfig
 	fc := func(src, dst core.Fpath) error {
 		return core.CopyFile(src, dst)
 	}
@@ -702,7 +702,7 @@ func TestBackupOrphanDetection(t *testing.T) {
 	destDir := dirs[1]
 
 	// Perform initial backup
-	var xc core.XMLCfg
+	var xc core.MdConfig
 	fc := func(src, dst core.Fpath) error {
 		return core.CopyFile(src, dst)
 	}

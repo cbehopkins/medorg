@@ -30,7 +30,7 @@ func TestRestoreDuplicateContentFiles(t *testing.T) {
 	}
 
 	// Create XMLCfg
-	xc, err := core.NewXMLCfg(configPath)
+	xc, err := core.NewMdConfig(configPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -226,7 +226,7 @@ func TestRestoreDuplicateContentAcrossSubdirs(t *testing.T) {
 	}
 
 	// Create XMLCfg
-	xc, err := core.NewXMLCfg(configPath)
+	xc, err := core.NewMdConfig(configPath)
 	if err != nil {
 		t.Fatal(err)
 	}

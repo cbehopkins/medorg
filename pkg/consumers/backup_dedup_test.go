@@ -75,7 +75,7 @@ func TestBackupDuplicateContentFiles(t *testing.T) {
 	}
 
 	// Run backup
-	var xc core.XMLCfg
+	var xc core.MdConfig
 	var copyCount uint32
 	var copiedFiles []string
 
@@ -197,7 +197,7 @@ func TestBackupDuplicateContentInSubdirs(t *testing.T) {
 	t.Logf("✓ Files in different subdirectories have matching checksum: %s", fs1.Checksum)
 
 	// Run backup
-	var xc core.XMLCfg
+	var xc core.MdConfig
 	var copyCount uint32
 
 	fc := func(src, dst core.Fpath) error {

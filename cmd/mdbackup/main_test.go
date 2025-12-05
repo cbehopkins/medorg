@@ -14,7 +14,7 @@ import (
 // Integration tests for mdbackup
 
 // Helper function to setup volume configs for source and destination directories
-func setupVolumeConfigs(t *testing.T, xc *core.XMLCfg, dirs ...string) {
+func setupVolumeConfigs(t *testing.T, xc *core.MdConfig, dirs ...string) {
 	t.Helper()
 	for _, dir := range dirs {
 		vc, err := xc.VolumeCfgFromDir(dir)
@@ -49,10 +49,10 @@ func makeTempDirs(t *testing.T, names ...string) (map[string]string, func()) {
 }
 
 // helper: create XML config at given base directory
-func newXMLCfgAt(t *testing.T, base string) *core.XMLCfg {
+func newXMLCfgAt(t *testing.T, base string) *core.MdConfig {
 	t.Helper()
 	cfgFile := filepath.Join(base, ".medorg.xml")
-	xc, err := core.NewXMLCfg(cfgFile)
+	xc, err := core.NewMdConfig(cfgFile)
 	if err != nil {
 		t.Fatalf("Failed to create XML config: %v", err)
 	}
@@ -127,7 +127,7 @@ func TestIntegration_BasicBackup_NoFiles(t *testing.T) {
 
 	// Create XML config
 	configFile := filepath.Join(srcDir, ".medorg.xml")
-	xc, err := core.NewXMLCfg(configFile)
+	xc, err := core.NewMdConfig(configFile)
 	if err != nil {
 		t.Fatalf("Failed to create XML config: %v", err)
 	}
@@ -364,7 +364,7 @@ func TestIntegration_ScanMode(t *testing.T) {
 
 	// Create XML config
 	configFile := filepath.Join(srcDir, ".medorg.xml")
-	xc, _ := core.NewXMLCfg(configFile)
+	xc, _ := core.NewMdConfig(configFile)
 	setupVolumeConfigs(t, xc, srcDir, dstDir)
 
 	var logBuf, msgBuf bytes.Buffer

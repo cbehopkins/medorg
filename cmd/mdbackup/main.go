@@ -181,7 +181,7 @@ func main() {
 	var directories []string
 	///////////////////////////////////
 	// Read in top level config
-	xc, err := core.LoadOrCreateXMLCfgWithPath(*configPath)
+	xc, err := core.LoadOrCreateMdConfigWithPath(*configPath)
 	if err != nil {
 		fmt.Println("Error loading config file:", err)
 		retcode = ExitNoConfig

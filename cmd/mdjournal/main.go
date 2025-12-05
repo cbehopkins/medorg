@@ -32,7 +32,7 @@ func isDir(fn string) bool {
 
 func main() {
 	var directories []string
-	var xc *core.XMLCfg
+	var xc *core.MdConfig
 	configPath := flag.String("config", "", "Path to config file (optional, defaults to ~/.medorg.xml)")
 	scanflg := flag.Bool("scan", false, "Only scan files in src & dst updating labels, don't run the backup")
 
@@ -40,7 +40,7 @@ func main() {
 
 	// Load XMLCfg
 	var err error
-	xc, err = core.LoadOrCreateXMLCfgWithPath(*configPath)
+	xc, err = core.LoadOrCreateMdConfigWithPath(*configPath)
 	if err != nil {
 		fmt.Println("Error loading config file:", err)
 		os.Exit(ExitNoConfig)

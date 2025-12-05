@@ -45,7 +45,7 @@ func TestBackupDestinationMetadataRecovery(t *testing.T) {
 
 	// STEP 1: Perform initial backup
 	t.Log("=== STEP 1: Initial backup ===")
-	var xc core.XMLCfg
+	var xc core.MdConfig
 	var initialCopyCount uint32
 	fc := func(src, dst core.Fpath) error {
 		atomic.AddUint32(&initialCopyCount, 1)
@@ -196,7 +196,7 @@ func TestBackupDestinationMetadataRecoveryWithSubdirs(t *testing.T) {
 	}
 
 	// Initial backup
-	var xc core.XMLCfg
+	var xc core.MdConfig
 	var initialCopyCount uint32
 	fc := func(src, dst core.Fpath) error {
 		atomic.AddUint32(&initialCopyCount, 1)
@@ -326,7 +326,7 @@ func TestBackupSourceMetadataRecovery(t *testing.T) {
 	t.Log("✓ Source .medorg.xml deleted")
 
 	// Run backup - should recalculate source metadata and perform backup
-	var xc core.XMLCfg
+	var xc core.MdConfig
 	var copyCount uint32
 	fc := func(src, dst core.Fpath) error {
 		atomic.AddUint32(&copyCount, 1)

@@ -41,11 +41,11 @@ func runCheckCalc(t *testing.T, dir string, args ...string) (string, string, err
 		fullArgs = append(fullArgs, dir)
 		cmd = exec.Command(checkCalcBinary, fullArgs...)
 	} else {
-		// Fallback to go run
-		fullArgs := append([]string{"run", "main.go"}, args...)
+		// Fallback to go run - run from the mdcalc directory
+		fullArgs := append([]string{"run", "."}, args...)
 		fullArgs = append(fullArgs, dir)
 		cmd = exec.Command("go", fullArgs...)
-		cmd.Dir = filepath.Dir(dir)
+		// cmd.Dir should be left as default (test directory) or set to mdcalc directory
 	}
 
 	var stdout, stderr bytes.Buffer

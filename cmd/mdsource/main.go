@@ -81,7 +81,7 @@ func run(stdout io.Writer) int {
 	}
 
 	// Load XMLCfg after parsing to get configPath
-	xc, err := core.LoadOrCreateXMLCfgWithPath(configPath)
+	xc, err := core.LoadOrCreateMdConfigWithPath(configPath)
 	if err != nil {
 		fmt.Fprintln(stdout, "Error loading config file:", err)
 		return ExitNoConfig

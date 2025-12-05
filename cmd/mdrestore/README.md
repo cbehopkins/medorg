@@ -25,7 +25,7 @@ mdrestore --journal backup.journal /mnt/backup1
 
 1. **Read volume label** - Reads the volume label from the source directory (backup location)
 2. **Parse journal** - Reads the journal file to understand what files should exist
-3. **Map aliases** - Maps each alias in the journal to a restore destination from XMLCfg
+3. **Map aliases** - Maps each alias in the journal to a restore destination from MdConfig
 4. **Calculate checksums** - Runs check_calc on each restore destination
 5. **Compare and copy** - For each file in the journal:
    - Checks if file exists in destination with correct MD5

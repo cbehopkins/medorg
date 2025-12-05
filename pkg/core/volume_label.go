@@ -27,7 +27,7 @@ type VolumeCfg struct {
 }
 
 // NewVolumeCfg reads the config from an xml file
-func NewVolumeCfg(xc *XMLCfg, fn string) (*VolumeCfg, error) {
+func NewVolumeCfg(xc *MdConfig, fn string) (*VolumeCfg, error) {
 	itm := new(VolumeCfg)
 	var f *os.File
 	_, err := os.Stat(fn)
@@ -126,7 +126,7 @@ func (vc VolumeCfg) Persist() error {
 	return nil
 }
 
-func (vc *VolumeCfg) GenerateNewVolumeLabel(xc *XMLCfg) error {
+func (vc *VolumeCfg) GenerateNewVolumeLabel(xc *MdConfig) error {
 	for {
 		vc.Label = RandStringBytesMaskImprSrcSB(8)
 		if xc.AddLabel(vc.Label) {
@@ -180,14 +180,14 @@ func findVolumeConfig(dir string) string {
 }
 
 // VolumeCfgFromDir get volume config appropriate for the requested directory
-func (xc *XMLCfg) VolumeCfgFromDir(dir string) (*VolumeCfg, error) {
+func (xc *MdConfig) VolumeCfgFromDir(dir string) (*VolumeCfg, error) {
 	fn := findVolumeConfig(dir)
 	vc, err := NewVolumeCfg(xc, fn)
 	return vc, err
 }
 
 // GetVolumeLabel returns the volume label for a destination directory
-func (xc *XMLCfg) GetVolumeLabel(destDir string) (string, error) {
+func (xc *MdConfig) GetVolumeLabel(destDir string) (string, error) {
 	vc, err := xc.VolumeCfgFromDir(destDir)
 	if err != nil {
 		return "", err

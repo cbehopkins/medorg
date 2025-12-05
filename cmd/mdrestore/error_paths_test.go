@@ -20,7 +20,7 @@ func TestRun_JournalReadError(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	xc, err := core.NewXMLCfg(configPath)
+	xc, err := core.NewMdConfig(configPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +59,7 @@ func TestRun_NoDestinationForAlias(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	xc, err := core.NewXMLCfg(configPath)
+	xc, err := core.NewMdConfig(configPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +114,7 @@ func TestRun_DestinationDoesNotExist(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	xc, err := core.NewXMLCfg(configPath)
+	xc, err := core.NewMdConfig(configPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,7 +180,7 @@ func TestRun_CompleteRestore(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	xc, err := core.NewXMLCfg(configPath)
+	xc, err := core.NewMdConfig(configPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -261,7 +261,7 @@ func TestRun_ChecksumCalculationError(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	xc, err := core.NewXMLCfg(configPath)
+	xc, err := core.NewMdConfig(configPath)
 	if err != nil {
 		t.Fatal(err)
 	}

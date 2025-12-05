@@ -14,7 +14,7 @@ import (
 type Config struct {
 	JournalPath string
 	SourceDir   string
-	XMLConfig   *core.XMLCfg
+	XMLConfig   *core.MdConfig
 	Stdout      io.Writer
 }
 

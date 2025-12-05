@@ -20,8 +20,8 @@ type RestoreDestination struct {
 	Path  string `xml:"path,attr"`
 }
 
-// XMLCfg structure used to specify the detailed config
-type XMLCfg struct {
+// MdConfig structure used to specify the detailed config
+type MdConfig struct {
 	XMLName struct{} `xml:"xc"`
 
 	// Autoformatting rules
@@ -36,10 +36,10 @@ type XMLCfg struct {
 	fn string
 }
 
-// NewXMLCfg reads the config from an xml file
+// NewMdConfig reads the config from an xml file
 // Returns error if file exists but cannot be read or parsed
-func NewXMLCfg(fn string) (*XMLCfg, error) {
-	itm := new(XMLCfg)
+func NewMdConfig(fn string) (*MdConfig, error) {
+	itm := new(MdConfig)
 	itm.fn = fn
 	var f *os.File
 	_, err := os.Stat(fn)
@@ -47,47 +47,47 @@ func NewXMLCfg(fn string) (*XMLCfg, error) {
 	if !os.IsNotExist(err) {
 		f, err = os.Open(fn)
 		if err != nil {
-			return nil, fmt.Errorf("error opening NewXMLCfg file: %w", err)
+			return nil, fmt.Errorf("error opening MdConfig file: %w", err)
 		}
 		byteValue, err := io.ReadAll(f)
 		_ = f.Close()
 		if err != nil {
-			return nil, fmt.Errorf("error loading NewXMLCfg file: %w", err)
+			return nil, fmt.Errorf("error loading MdConfig file: %w", err)
 		}
 		err = itm.FromXML(byteValue)
 		if err != nil {
-			return nil, fmt.Errorf("unable to unmarshal config, NewXMLCfg: %w", err)
+			return nil, fmt.Errorf("unable to unmarshal config: %w", err)
 		}
 	}
 	return itm, nil
 }
 
-// LoadOrCreateXMLCfg loads the config from the default location or creates it if it doesn't exist
-// This is the recommended way to get XMLCfg in commands
-func LoadOrCreateXMLCfg() (*XMLCfg, error) {
-	return LoadOrCreateXMLCfgWithPath("")
+// LoadOrCreateMdConfig loads the config from the default location or creates it if it doesn't exist
+// This is the recommended way to get MdConfig in commands
+func LoadOrCreateMdConfig() (*MdConfig, error) {
+	return LoadOrCreateMdConfigWithPath("")
 }
 
-// LoadOrCreateXMLCfgWithPath loads the config from the specified path or default location
+// LoadOrCreateMdConfigWithPath loads the config from the specified path or default location
 // If configPath is empty, uses default behavior (XmConfig or ~/.medorg.xml)
 // If configPath is provided, uses that path directly
-func LoadOrCreateXMLCfgWithPath(configPath string) (*XMLCfg, error) {
+func LoadOrCreateMdConfigWithPath(configPath string) (*MdConfig, error) {
 	// If a specific path is provided, use it
 	if configPath != "" {
-		return NewXMLCfg(configPath)
+		return NewMdConfig(configPath)
 	}
 
 	// First check if XmConfig returns a location (looks for existing .medorg.xml)
 	if xmcf := XmConfig(); xmcf != "" {
-		return NewXMLCfg(string(xmcf))
+		return NewMdConfig(string(xmcf))
 	}
 
 	// If not found, use default location: ~/.medorg.xml
 	fn := ConfigPath(".medorg.xml")
-	return NewXMLCfg(fn)
+	return NewMdConfig(fn)
 }
 
-func (xc *XMLCfg) WriteXmlCfg() error {
+func (xc *MdConfig) WriteXmlCfg() error {
 	data, err := xml.MarshalIndent(xc, "", "  ")
 	if err != nil {
 		return err
@@ -97,7 +97,7 @@ func (xc *XMLCfg) WriteXmlCfg() error {
 }
 
 // FromXML populate from an ba
-func (xc *XMLCfg) FromXML(input []byte) (err error) {
+func (xc *MdConfig) FromXML(input []byte) (err error) {
 	err = xml.Unmarshal(input, xc)
 	// fmt.Printf("Unmarshalling completed on:\n%v\nOutput:\n%v\n\n",input, xc)
 	switch err {
@@ -110,7 +110,7 @@ func (xc *XMLCfg) FromXML(input []byte) (err error) {
 	return
 }
 
-func (xc *XMLCfg) HasLabel(label string) bool {
+func (xc *MdConfig) HasLabel(label string) bool {
 	for _, v := range xc.VolumeLabels {
 		if label == v {
 			return true
@@ -121,7 +121,7 @@ func (xc *XMLCfg) HasLabel(label string) bool {
 
 // Add a volume label
 // returns false if the label already exists
-func (xc *XMLCfg) AddLabel(label string) bool {
+func (xc *MdConfig) AddLabel(label string) bool {
 	if xc.HasLabel(label) {
 		return false
 	}
@@ -131,7 +131,7 @@ func (xc *XMLCfg) AddLabel(label string) bool {
 }
 
 // HasSourceDirectory checks if a source directory with the given alias exists
-func (xc *XMLCfg) HasSourceDirectory(alias string) bool {
+func (xc *MdConfig) HasSourceDirectory(alias string) bool {
 	for _, sd := range xc.SourceDirectories {
 		if sd.Alias == alias {
 			return true
@@ -142,7 +142,7 @@ func (xc *XMLCfg) HasSourceDirectory(alias string) bool {
 
 // AddSourceDirectory adds a new source directory with an alias
 // Returns false if the alias already exists
-func (xc *XMLCfg) AddSourceDirectory(path, alias string) bool {
+func (xc *MdConfig) AddSourceDirectory(path, alias string) bool {
 	if xc.HasSourceDirectory(alias) {
 		return false
 	}
@@ -157,7 +157,7 @@ func (xc *XMLCfg) AddSourceDirectory(path, alias string) bool {
 
 // RemoveSourceDirectory removes a source directory by alias
 // Returns true if removed, false if not found
-func (xc *XMLCfg) RemoveSourceDirectory(alias string) bool {
+func (xc *MdConfig) RemoveSourceDirectory(alias string) bool {
 	for i, sd := range xc.SourceDirectories {
 		if sd.Alias == alias {
 			xc.SourceDirectories = append(xc.SourceDirectories[:i], xc.SourceDirectories[i+1:]...)
@@ -169,7 +169,7 @@ func (xc *XMLCfg) RemoveSourceDirectory(alias string) bool {
 
 // GetSourceDirectory returns the source directory for a given alias
 // Returns empty SourceDirectory if not found
-func (xc *XMLCfg) GetSourceDirectory(alias string) (SourceDirectory, bool) {
+func (xc *MdConfig) GetSourceDirectory(alias string) (SourceDirectory, bool) {
 	for _, sd := range xc.SourceDirectories {
 		if sd.Alias == alias {
 			return sd, true
@@ -179,7 +179,7 @@ func (xc *XMLCfg) GetSourceDirectory(alias string) (SourceDirectory, bool) {
 }
 
 // GetSourcePaths returns all configured source directory paths
-func (xc *XMLCfg) GetSourcePaths() []string {
+func (xc *MdConfig) GetSourcePaths() []string {
 	paths := make([]string, len(xc.SourceDirectories))
 	for i, sd := range xc.SourceDirectories {
 		paths[i] = sd.Path
@@ -189,7 +189,7 @@ func (xc *XMLCfg) GetSourcePaths() []string {
 
 // GetAliasForPath returns the alias for a given path
 // Returns empty string if not found
-func (xc *XMLCfg) GetAliasForPath(path string) string {
+func (xc *MdConfig) GetAliasForPath(path string) string {
 	cleanPath := filepath.Clean(path)
 	for _, sd := range xc.SourceDirectories {
 		if sd.Path == cleanPath {
@@ -201,7 +201,7 @@ func (xc *XMLCfg) GetAliasForPath(path string) string {
 
 // SetRestoreDestination sets or updates the restore destination for an alias
 // If path is empty, uses the source directory path as default
-func (xc *XMLCfg) SetRestoreDestination(alias, path string) error {
+func (xc *MdConfig) SetRestoreDestination(alias, path string) error {
 	// If no path provided, try to use the source directory path
 	if path == "" {
 		sd, ok := xc.GetSourceDirectory(alias)
@@ -230,7 +230,7 @@ func (xc *XMLCfg) SetRestoreDestination(alias, path string) error {
 }
 
 // GetRestoreDestination returns the restore destination path for an alias
-func (xc *XMLCfg) GetRestoreDestination(alias string) (string, bool) {
+func (xc *MdConfig) GetRestoreDestination(alias string) (string, bool) {
 	for _, rd := range xc.RestoreDestinations {
 		if rd.Alias == alias {
 			return rd.Path, true
@@ -240,7 +240,7 @@ func (xc *XMLCfg) GetRestoreDestination(alias string) (string, bool) {
 }
 
 // RemoveRestoreDestination removes a restore destination by alias
-func (xc *XMLCfg) RemoveRestoreDestination(alias string) bool {
+func (xc *MdConfig) RemoveRestoreDestination(alias string) bool {
 	for i, rd := range xc.RestoreDestinations {
 		if rd.Alias == alias {
 			xc.RestoreDestinations = append(xc.RestoreDestinations[:i], xc.RestoreDestinations[i+1:]...)

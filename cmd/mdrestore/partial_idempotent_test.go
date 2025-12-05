@@ -30,7 +30,7 @@ func TestMdrestore_PartialFailure_Idempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	xc, err := core.NewXMLCfg(configPath)
+	xc, err := core.NewMdConfig(configPath)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -19,7 +19,7 @@ func isDir(fn string) bool {
 
 func main() {
 	var directories []string
-	var xc *core.XMLCfg
+	var xc *core.MdConfig
 
 	configPath := flag.String("config", "", "Path to config file (optional, defaults to ~/.medorg.xml)")
 	scrubflg := flag.Bool("scrub", false, "Scrub all backup labels from src records")
@@ -35,7 +35,7 @@ func main() {
 	// Load XMLCfg (needed for rename and for getting source directories)
 	var err error
 	if *configPath != "" || core.XmConfig() != "" {
-		xc, err = core.LoadOrCreateXMLCfgWithPath(*configPath)
+		xc, err = core.LoadOrCreateMdConfigWithPath(*configPath)
 		if err != nil {
 			fmt.Println("Error loading config file:", err)
 			// Don't exit - config is optional for basic operations
@@ -44,7 +44,7 @@ func main() {
 	} else if *rnmflg {
 		// Only error if rename was requested but no config found
 		fmt.Println("no config file found (required for rename)")
-		xc, err = core.LoadOrCreateXMLCfg()
+		xc, err = core.LoadOrCreateMdConfig()
 		if err != nil {
 			fmt.Println("Error creating config file:", err)
 			os.Exit(5)
