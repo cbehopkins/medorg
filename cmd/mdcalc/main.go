@@ -4,7 +4,10 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"runtime"
+	"time"
 
+	"github.com/cbehopkins/medorg/pkg/adaptive"
 	"github.com/cbehopkins/medorg/pkg/consumers"
 	"github.com/cbehopkins/medorg/pkg/core"
 )
@@ -29,6 +32,7 @@ func main() {
 	rnmflg := flag.Bool("rename", false, "Auto Rename Files")
 	rclflg := flag.Bool("recalc", false, "Recalculate all checksums")
 	valflg := flag.Bool("validate", false, "Validate all checksums")
+	adaptiveflg := flag.Bool("adaptive", false, "Enable adaptive token tuning to find optimal concurrency")
 
 	flag.Parse()
 
@@ -90,6 +94,13 @@ func main() {
 		fmt.Println("Finished move detection")
 	}
 
+	// Create adaptive tuner if requested
+	var tuner *adaptive.Tuner
+	if *adaptiveflg {
+		tuner = adaptive.NewTunerWithConfig(1, 2*runtime.NumCPU(), 30*time.Second)
+		fmt.Printf("Adaptive tuning enabled (tokens: 1-%d, check interval: 30s)\n", 2*runtime.NumCPU())
+	}
+
 	// Run the check_calc operation using the extracted package function
 	opts := consumers.CheckCalcOptions{
 		CalcCount: *calcCnt,
@@ -97,6 +108,7 @@ func main() {
 		Validate:  *valflg,
 		Scrub:     *scrubflg,
 		AutoFix:   AF,
+		Tuner:     tuner,
 	}
 
 	err = consumers.RunCheckCalc(directories, opts)

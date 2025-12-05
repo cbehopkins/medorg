@@ -5,16 +5,18 @@ import (
 	"fmt"
 	"io/fs"
 
+	"github.com/cbehopkins/medorg/pkg/adaptive"
 	"github.com/cbehopkins/medorg/pkg/core"
 )
 
 // CheckCalcOptions configures the mdcalc operation
 type CheckCalcOptions struct {
-	CalcCount int      // Number of parallel MD5 calculators (default: 2)
-	Recalc    bool     // Force recalculation of all checksums
-	Validate  bool     // Validate existing checksums
-	Scrub     bool     // Remove backup destination tags
-	AutoFix   *AutoFix // Optional auto-fix for file renaming/deletion
+	CalcCount int         // Number of parallel MD5 calculators (default: 2)
+	Recalc    bool        // Force recalculation of all checksums
+	Validate  bool        // Validate existing checksums
+	Scrub     bool        // Remove backup destination tags
+	AutoFix   *AutoFix    // Optional auto-fix for file renaming/deletion
+	Tuner     *adaptive.Tuner // Optional adaptive tuner for dynamic token adjustment
 }
 
 // RunCheckCalc calculates and maintains MD5 checksums for files in the given directories.
@@ -33,11 +35,19 @@ func RunCheckCalc(directories []string, opts CheckCalcOptions) error {
 		opts.CalcCount = 2
 	}
 
-	// Create token buffer for limiting parallel MD5 calculations
-	tokenBuffer := make(chan struct{}, opts.CalcCount)
-	defer close(tokenBuffer)
-	for i := 0; i < opts.CalcCount; i++ {
-		tokenBuffer <- struct{}{}
+	// Use tuner if provided, otherwise use static token buffer
+	var tokenBuffer chan struct{}
+	if opts.Tuner != nil {
+		opts.Tuner.Start()
+		defer opts.Tuner.Stop()
+		// We'll use the tuner's token mechanism
+	} else {
+		// Create token buffer for limiting parallel MD5 calculations
+		tokenBuffer = make(chan struct{}, opts.CalcCount)
+		defer close(tokenBuffer)
+		for i := 0; i < opts.CalcCount; i++ {
+			tokenBuffer <- struct{}{}
+		}
 	}
 
 	// Visitor function - processes each file in each directory
@@ -70,8 +80,13 @@ func RunCheckCalc(directories []string, opts CheckCalcOptions) error {
 
 			// Handle validate flag - verify existing checksums
 			if opts.Validate {
-				<-tokenBuffer
-				defer func() { tokenBuffer <- struct{}{} }()
+				if opts.Tuner != nil {
+					<-opts.Tuner.AcquireToken()
+					defer opts.Tuner.ReleaseToken()
+				} else {
+					<-tokenBuffer
+					defer func() { tokenBuffer <- struct{}{} }()
+				}
 				err = fs.ValidateChecksum()
 				if errors.Is(err, core.ErrRecalced) {
 					// Checksum had to be recalculated, but that's ok
@@ -91,13 +106,25 @@ func RunCheckCalc(directories []string, opts CheckCalcOptions) error {
 			}
 
 			// Calculate checksum (with concurrency control)
-			<-tokenBuffer
-			defer func() { tokenBuffer <- struct{}{} }()
+			if opts.Tuner != nil {
+				<-opts.Tuner.AcquireToken()
+				defer opts.Tuner.ReleaseToken()
+			} else {
+				<-tokenBuffer
+				defer func() { tokenBuffer <- struct{}{} }()
+			}
+			
 			err = fs.UpdateChecksum(opts.Recalc)
 			if errors.Is(err, ErrIOError) {
 				// Log but don't fail on IO errors (file might be locked)
 				return nil
 			}
+			
+			// Record bytes processed if tuner is active
+			if opts.Tuner != nil && info.Size() > 0 {
+				opts.Tuner.RecordBytes(info.Size())
+			}
+			
 			return err
 		}
 
