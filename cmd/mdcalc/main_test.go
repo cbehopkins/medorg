@@ -639,3 +639,98 @@ func TestIntegration_ValidateFlag(t *testing.T) {
 	// Just verify it runs
 	t.Logf("Validation after corruption: err=%v, stdout=%s, stderr=%s", err, stdout, stderr)
 }
+
+func TestIntegration_ScrubFlag(t *testing.T) {
+	// Test the -scrub flag removes backup destination tags
+	dir, cleanup := makeTempDir(t, "scrub")
+	defer cleanup()
+
+	// Create test files
+	createFile(t, dir, "file1.txt", "test content 1")
+	createFile(t, dir, "file2.txt", "test content 2")
+
+	// First run to create checksums
+	if _, _, err := runCheckCalc(t, dir); err != nil {
+		t.Fatalf("initial run failed: %v", err)
+	}
+
+	// Manually add backup destination tags to simulate files that have been backed up
+	mdFile := readMd5File(t, dir)
+	if len(mdFile.Files) != 2 {
+		t.Fatalf("expected 2 files, got %d", len(mdFile.Files))
+	}
+
+	// Add backup destinations to files
+	mdFile.Files[0].AddBackupDestination("backup1")
+	mdFile.Files[0].AddBackupDestination("backup2")
+	mdFile.Files[1].AddBackupDestination("backup1")
+
+	// Write the modified md5 file
+	mdFileXML := filepath.Join(dir, core.Md5FileName)
+	data, err := xml.Marshal(mdFile)
+	if err != nil {
+		t.Fatalf("failed to marshal md5 file: %v", err)
+	}
+	if err := os.WriteFile(mdFileXML, data, 0o644); err != nil {
+		t.Fatalf("failed to write md5 file: %v", err)
+	}
+
+	// Verify backup destinations exist before scrub
+	mdFile = readMd5File(t, dir)
+	if len(mdFile.Files[0].BackupDest) != 2 {
+		t.Errorf("expected 2 backup destinations for file1, got %d", len(mdFile.Files[0].BackupDest))
+	}
+	if len(mdFile.Files[1].BackupDest) != 1 {
+		t.Errorf("expected 1 backup destination for file2, got %d", len(mdFile.Files[1].BackupDest))
+	}
+
+	// Run with -scrub flag
+	stdout, stderr, err := runCheckCalc(t, dir, "-scrub")
+	if err != nil {
+		t.Fatalf("check_calc with -scrub failed: %v\nstdout: %s\nstderr: %s", err, stdout, stderr)
+	}
+
+	// Verify backup destinations have been removed
+	mdFile = readMd5File(t, dir)
+	if len(mdFile.Files[0].BackupDest) != 0 {
+		t.Errorf("expected 0 backup destinations after scrub for file1, got %d", len(mdFile.Files[0].BackupDest))
+	}
+	if len(mdFile.Files[1].BackupDest) != 0 {
+		t.Errorf("expected 0 backup destinations after scrub for file2, got %d", len(mdFile.Files[1].BackupDest))
+	}
+}
+
+func TestIntegration_ScrubFlagWithoutBackups(t *testing.T) {
+	// Test the -scrub flag on files with no backup destinations
+	dir, cleanup := makeTempDir(t, "scrub-clean")
+	defer cleanup()
+
+	// Create test file
+	createFile(t, dir, "file1.txt", "test content")
+
+	// First run to create checksums
+	if _, _, err := runCheckCalc(t, dir); err != nil {
+		t.Fatalf("initial run failed: %v", err)
+	}
+
+	// Verify no backup destinations
+	mdFile := readMd5File(t, dir)
+	if len(mdFile.Files) != 1 {
+		t.Fatalf("expected 1 file, got %d", len(mdFile.Files))
+	}
+	if len(mdFile.Files[0].BackupDest) != 0 {
+		t.Errorf("expected 0 backup destinations initially, got %d", len(mdFile.Files[0].BackupDest))
+	}
+
+	// Run with -scrub flag (should have no effect)
+	stdout, stderr, err := runCheckCalc(t, dir, "-scrub")
+	if err != nil {
+		t.Fatalf("check_calc with -scrub failed: %v\nstdout: %s\nstderr: %s", err, stdout, stderr)
+	}
+
+	// Verify still no backup destinations
+	mdFile = readMd5File(t, dir)
+	if len(mdFile.Files[0].BackupDest) != 0 {
+		t.Errorf("expected 0 backup destinations after scrub, got %d", len(mdFile.Files[0].BackupDest))
+	}
+}
