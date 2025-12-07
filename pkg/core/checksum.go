@@ -127,6 +127,64 @@ func CalcMd5File(directory, fn string) (string, error) {
 	return ReturnChecksumString(h), nil
 }
 
+// ProgressCallback is called with byte count as data is being processed
+type ProgressCallback func(bytesProcessed int64, timestamp time.Time)
+
+// CalcMd5FileWithProgress calculates the checksum while reporting progress
+// callback is called with the number of bytes processed and current timestamp
+// This allows real-time throughput monitoring during large file checksums
+func CalcMd5FileWithProgress(directory, fn string, callback ProgressCallback) (string, error) {
+	fp := filepath.Join(directory, fn)
+	f, err := os.Open(fp)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = f.Close() }()
+
+	h := md5.New()
+
+	// Create a progress-tracking reader that wraps the file
+	pr := &progressReader{
+		reader:   f,
+		hash:     h,
+		callback: callback,
+	}
+
+	// Copy with progress tracking
+	if _, err := io.Copy(io.Discard, pr); err != nil {
+		return "", err
+	}
+
+	return ReturnChecksumString(h), nil
+}
+
+// progressReader wraps an io.Reader to track bytes and report progress
+type progressReader struct {
+	reader   io.Reader
+	hash     hash.Hash
+	callback ProgressCallback
+	bytes    int64
+}
+
+func (pr *progressReader) Read(p []byte) (n int, err error) {
+	n, err = pr.reader.Read(p)
+	if n > 0 {
+		// Write to hash (if hash is provided)
+		if pr.hash != nil {
+			if _, hashErr := pr.hash.Write(p[:n]); hashErr != nil {
+				return n, hashErr
+			}
+		}
+
+		// Update byte count and call progress callback with delta
+		pr.bytes += int64(n)
+		if pr.callback != nil {
+			pr.callback(int64(n), time.Now())
+		}
+	}
+	return n, err
+}
+
 // Calculator is useful where we get streams of bytes in (e.g. from the network)
 // We expose an io.Writer
 // close the trigger chanel then wait for the writes to finish

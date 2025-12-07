@@ -11,11 +11,11 @@ import (
 
 // CheckCalcOptions configures the mdcalc operation
 type CheckCalcOptions struct {
-	CalcCount int         // Number of parallel MD5 calculators (default: 2)
-	Recalc    bool        // Force recalculation of all checksums
-	Validate  bool        // Validate existing checksums
-	Scrub     bool        // Remove backup destination tags
-	AutoFix   *AutoFix    // Optional auto-fix for file renaming/deletion
+	CalcCount int             // Number of parallel MD5 calculators (default: 2)
+	Recalc    bool            // Force recalculation of all checksums
+	Validate  bool            // Validate existing checksums
+	Scrub     bool            // Remove backup destination tags
+	AutoFix   *AutoFix        // Optional auto-fix for file renaming/deletion
 	Tuner     *adaptive.Tuner // Optional adaptive tuner for dynamic token adjustment
 }
 
@@ -83,11 +83,15 @@ func RunCheckCalc(directories []string, opts CheckCalcOptions) error {
 				if opts.Tuner != nil {
 					<-opts.Tuner.AcquireToken()
 					defer opts.Tuner.ReleaseToken()
+
+					err = fs.ValidateChecksumWithProgress(func(bytes int64) {
+						opts.Tuner.RecordBytes(bytes)
+					})
 				} else {
 					<-tokenBuffer
 					defer func() { tokenBuffer <- struct{}{} }()
+					err = fs.ValidateChecksum()
 				}
-				err = fs.ValidateChecksum()
 				if errors.Is(err, core.ErrRecalced) {
 					// Checksum had to be recalculated, but that's ok
 					return nil
@@ -105,26 +109,25 @@ func RunCheckCalc(directories []string, opts CheckCalcOptions) error {
 				return err
 			}
 
-			// Calculate checksum (with concurrency control)
+			// Calculate checksum (with concurrency control and optional progress tracking)
 			if opts.Tuner != nil {
 				<-opts.Tuner.AcquireToken()
 				defer opts.Tuner.ReleaseToken()
+
+				err = fs.UpdateChecksumWithProgress(opts.Recalc, func(bytes int64) {
+					opts.Tuner.RecordBytes(bytes)
+				})
 			} else {
 				<-tokenBuffer
 				defer func() { tokenBuffer <- struct{}{} }()
+				err = fs.UpdateChecksum(opts.Recalc)
 			}
-			
-			err = fs.UpdateChecksum(opts.Recalc)
+
 			if errors.Is(err, ErrIOError) {
 				// Log but don't fail on IO errors (file might be locked)
 				return nil
 			}
-			
-			// Record bytes processed if tuner is active
-			if opts.Tuner != nil && info.Size() > 0 {
-				opts.Tuner.RecordBytes(info.Size())
-			}
-			
+
 			return err
 		}
 

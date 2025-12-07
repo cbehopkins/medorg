@@ -22,7 +22,7 @@ type testCase struct {
 }
 
 // setupTestDir creates a temp directory and journal
-func setupTestDir(t *testing.T, tc testCase) (tempDir, journalPath string, journal consumers.Journal) {
+func setupTestDir(t *testing.T, tc testCase) (tempDir, journalPath string, journal *consumers.Journal) {
 	t.Helper()
 	tempDir, err := os.MkdirTemp("", "mdjournal-test-*")
 	if err != nil {
@@ -47,7 +47,7 @@ func setupTestDir(t *testing.T, tc testCase) (tempDir, journalPath string, journ
 }
 
 // writeAndReadJournal writes journal to file and reads it back
-func writeAndReadJournal(t *testing.T, journal consumers.Journal, journalPath string) consumers.Journal {
+func writeAndReadJournal(t *testing.T, journal *consumers.Journal, journalPath string) *consumers.Journal {
 	t.Helper()
 	fh, err := os.Create(journalPath)
 	if err != nil {
@@ -65,7 +65,7 @@ func writeAndReadJournal(t *testing.T, journal consumers.Journal, journalPath st
 	}
 	defer fhRead.Close()
 
-	journalRead := consumers.Journal{}
+	journalRead := &consumers.Journal{}
 	if err = journalRead.FromReader(fhRead); err != nil {
 		t.Fatalf("Failed to read journal: %v", err)
 	}
@@ -73,7 +73,7 @@ func writeAndReadJournal(t *testing.T, journal consumers.Journal, journalPath st
 }
 
 // countJournalContents counts directories and files in journal
-func countJournalContents(t *testing.T, journal consumers.Journal) (dirCount, fileCount int, files map[string]bool) {
+func countJournalContents(t *testing.T, journal *consumers.Journal) (dirCount, fileCount int, files map[string]bool) {
 	t.Helper()
 	files = make(map[string]bool)
 	err := journal.Range(func(de core.DirectoryEntryJournalableInterface, dir string) error {
@@ -157,7 +157,7 @@ func TestJournalCreation(t *testing.T) {
 			validateFunc: func(t *testing.T, journalPath string) {
 				fhRead, _ := os.Open(journalPath)
 				defer fhRead.Close()
-				journal := consumers.Journal{}
+				journal := &consumers.Journal{}
 				journal.FromReader(fhRead)
 
 				_, _, files := countJournalContents(t, journal)
@@ -231,15 +231,15 @@ func TestJournalPersistence(t *testing.T) {
 	defer os.RemoveAll(tempDir)
 
 	journalRead := writeAndReadJournal(t, journal, journalPath)
-	if err := journal.Equals(&journalRead, nil); err != nil {
+	if err := journal.Equals(journalRead, nil); err != nil {
 		t.Errorf("Journals not equal after persistence: %v", err)
 	}
 }
 
 // createJournalForDirectories is a helper function for testing
 // This extracts the core journaling logic
-func createJournalForDirectories(directories []string) (consumers.Journal, error) {
-	journal := consumers.Journal{}
+func createJournalForDirectories(directories []string) (*consumers.Journal, error) {
+	journal := &consumers.Journal{}
 	// Store directory maps to add to journal after processing
 	dirMaps := make(map[string]*core.DirectoryMap)
 
@@ -289,7 +289,7 @@ func createJournalForDirectories(directories []string) (consumers.Journal, error
 	for _, dir := range directories {
 		errChan := core.NewDirTracker(false, dir, makerFunc).ErrChan()
 		for err := range errChan {
-			return journal, err
+			return nil, err
 		}
 	}
 
@@ -298,7 +298,7 @@ func createJournalForDirectories(directories []string) (consumers.Journal, error
 		if err := journal.AppendJournalFromDm(dm, dir); err != nil {
 			// ErrFileExistsInJournal is not a real error, just informational
 			if !errors.Is(err, consumers.ErrFileExistsInJournal) {
-				return journal, err
+				return nil, err
 			}
 		}
 	}

@@ -97,8 +97,11 @@ func main() {
 	// Create adaptive tuner if requested
 	var tuner *adaptive.Tuner
 	if *adaptiveflg {
-		tuner = adaptive.NewTunerWithConfig(1, 2*runtime.NumCPU(), 30*time.Second)
-		fmt.Printf("Adaptive tuning enabled (tokens: 1-%d, check interval: 30s)\n", 2*runtime.NumCPU())
+		tuner = adaptive.NewTunerWithConfig(1, 2*runtime.NumCPU(), 60*time.Second)
+		// When using tuner, set CalcCount to max tokens so we have enough workers
+		*calcCnt = 2 * runtime.NumCPU()
+		fmt.Printf("Adaptive tuning enabled (workers: %d, tokens: 1-%d, check interval: 60s)\n",
+			*calcCnt, 2*runtime.NumCPU())
 	}
 
 	// Run the check_calc operation using the extracted package function
