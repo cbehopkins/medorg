@@ -139,10 +139,9 @@ func copyFileContents(srcs, dsts string) (err error) {
 	return
 }
 
-// LoadFile loads a file and returns its lines via a channel
-// LoadFileIter yields non-comment, non-empty lines from a file as an iterator
+// LoadFileIter loads a file and returns its lines via a channel
+// it yields non-comment, non-empty lines from a file as an iterator
 // Yields tuples of (line, error) so caller can handle errors properly
-// More efficient than LoadFile as it doesn't spawn a goroutine
 func LoadFileIter(filename string) func(yield func(string, error) bool) {
 	return func(yield func(string, error) bool) {
 		if filename == "" {
@@ -163,7 +162,7 @@ func LoadFileIter(filename string) func(yield func(string, error) bool) {
 
 		r := bufio.NewReader(f)
 		var lastErr error
-		for s, e := Readln(r); e == nil; s, e = Readln(r) {
+		for s, e := readln(r); e == nil; s, e = readln(r) {
 			lastErr = e
 			comment := strings.HasPrefix(s, "//")
 			comment = comment || strings.HasPrefix(s, "#")
@@ -183,46 +182,9 @@ func LoadFileIter(filename string) func(yield func(string, error) bool) {
 	}
 }
 
-func LoadFile(filename string) (theChan chan string) {
-	theChan = make(chan string)
-	go func() {
-		defer close(theChan)
-		if filename == "" {
-			return
-		}
-		f, err := os.Open(filename)
-		if err == os.ErrNotExist {
-			return
-		} else if err != nil {
-			if os.IsNotExist(err) {
-				return
-			}
-			fmt.Printf("error opening  LoadFile file:%s: %T\n", filename, err)
-			os.Exit(1)
-			return
-		}
-		defer func() { _ = f.Close() }()
-
-		r := bufio.NewReader(f)
-		for s, e := Readln(r); e == nil; s, e = Readln(r) {
-			//= strings.TrimSpace(s)
-			comment := strings.HasPrefix(s, "//")
-			comment = comment || strings.HasPrefix(s, "#")
-			if comment {
-				continue
-			}
-			if s == "" {
-				continue
-			}
-			theChan <- s
-		}
-	}()
-	return
-}
-
-// Readln reads a whole line of input
+// readln reads a whole line of input
 // Only needed by LoadFile, which we should improve on...
-func Readln(r *bufio.Reader) (string, error) {
+func readln(r *bufio.Reader) (string, error) {
 	var (
 		isPrefix = true
 		err      error

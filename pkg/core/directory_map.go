@@ -78,17 +78,6 @@ func (dm DirectoryMap) ToMd5File(dir string) (*Md5File, error) {
 	return &m5f, nil
 }
 
-// ToMd5FileWithAlias converts the directory map to an Md5File structure with an alias
-// Used for journal entries with source directory aliases
-func (dm DirectoryMap) ToMd5FileWithAlias(dir, alias string) (*Md5File, error) {
-	m5f, err := dm.ToMd5File(dir)
-	if err != nil {
-		return nil, err
-	}
-	m5f.Alias = alias
-	return m5f, nil
-}
-
 // ToXML marshals the directory map to XML format
 func (dm DirectoryMap) ToXML(dir string) (output []byte, err error) {
 	m5f, err := dm.ToMd5File(dir)
@@ -101,7 +90,8 @@ func (dm DirectoryMap) ToXML(dir string) (output []byte, err error) {
 // ToXMLWithAlias marshals the directory map to XML format with an alias
 // Used for journal entries
 func (dm DirectoryMap) ToXMLWithAlias(dir, alias string) (output []byte, err error) {
-	m5f, err := dm.ToMd5FileWithAlias(dir, alias)
+	m5f, err := dm.ToMd5File(dir)
+	m5f.Alias = alias
 	if err != nil {
 		return nil, err
 	}
@@ -130,8 +120,8 @@ func (dm DirectoryMap) Add(fs FileStruct) {
 	dm.lock.Unlock()
 }
 
-// Rm Removes a filename from the dm
-func (dm DirectoryMap) Rm(fn string) {
+// rm Removes a filename from the dm
+func (dm DirectoryMap) rm(fn string) {
 	dm.lock.Lock()
 	delete(dm.mp, fn)
 	*dm.stale = true
@@ -140,7 +130,7 @@ func (dm DirectoryMap) Rm(fn string) {
 
 // RmFile is similar to rm, but updates the directory
 func (dm DirectoryMap) RmFile(dir, fn string) error {
-	dm.Rm(fn)
+	dm.rm(fn)
 	err := dm.Persist(dir)
 	if err != nil {
 		return err
@@ -239,6 +229,7 @@ func (dm DirectoryMap) AddMetadata(fm FileMetadata) {
 
 // ForEachFile iterates over all files in the directory map
 // The callback receives the filename and file metadata
+// This is a read only operation
 func (dm DirectoryMap) ForEachFile(fn func(filename string, fm FileMetadata) error) error {
 	dm.lock.RLock()
 	defer dm.lock.RUnlock()
@@ -323,12 +314,8 @@ func (dm DirectoryMap) ForEachFileMod(fn func(filename string, fm FileMetadata) 
 	for _, k := range deleteList {
 		delete(dm.mp, k)
 	}
-	for k, v := range updates {
-		dm.mp[k] = v
-	}
-	for k, v := range adds {
-		dm.mp[k] = v
-	}
+	maps.Copy(dm.mp, updates)
+	maps.Copy(dm.mp, adds)
 	return nil
 }
 
@@ -366,7 +353,8 @@ func (dm DirectoryMap) AddFile(fm FileMetadata) error {
 
 // RemoveFile removes file metadata (implements DirectoryStorage.RemoveFile)
 func (dm DirectoryMap) RemoveFile(filename string) error {
-	dm.Rm(filename)
+	dir, fn := filepath.Split(filename)
+	dm.RmFile(dir, fn)
 	return nil
 }
 
@@ -467,6 +455,7 @@ func (dm DirectoryMap) RunFsFc(directory, file string, fc func(fs *FileStruct) e
 }
 
 // UpdateChecksum will recalc the checksum of an entry
+// This is intended as a test helper function
 func (dm DirectoryMap) UpdateChecksum(directory, file string, forceUpdate bool) error {
 	if Debug && file == "" {
 		return errors.New("asked to update a checksum on a null filename")

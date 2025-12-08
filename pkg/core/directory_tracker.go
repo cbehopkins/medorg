@@ -42,6 +42,10 @@ func (f *finishedB) Clear() {
 	f.cnt.Store(0)
 }
 
+// DirTracker tracks directories and their entries
+// It functions as a cache of DirectoryEntry structures
+// That is an entry for each directory we have seen
+// It will try and be intelligent about retiring entries when we are done with them
 type DirTracker struct {
 	directoryCountTotal   int64
 	directoryCountVisited int64
@@ -52,7 +56,7 @@ type DirTracker struct {
 	lastPath        lastPath
 	tokenChan       chan struct{}
 	wg              *sync.WaitGroup
-	errChan         chan error // now buffered
+	errChan         chan error
 	preserveStructs bool
 
 	finished     finishedB
@@ -62,7 +66,7 @@ type DirTracker struct {
 // MakeTokenChan creates a buffered channel with a fixed number of tokens for concurrency control
 func MakeTokenChan(numOutstanding int) chan struct{} {
 	tkc := make(chan struct{}, numOutstanding)
-	for i := 0; i < numOutstanding; i++ {
+	for range numOutstanding {
 		tkc <- struct{}{}
 	}
 	return tkc
@@ -77,16 +81,10 @@ const NumTrackerOutstanding = 4
 // At some later time, we will then close the directory
 // There are no guaranetees about when this will happen
 func NewDirTracker(preserveStructs bool, dir string, newEntry func(string) (DirectoryTrackerInterface, error)) *DirTracker {
-	return NewDirTrackerWithConcurrency(preserveStructs, dir, newEntry, NumTrackerOutstanding)
-}
-
-// NewDirTrackerWithConcurrency creates a DirTracker with custom concurrency limit
-// numOutstanding controls how many directories can be processed concurrently
-func NewDirTrackerWithConcurrency(preserveStructs bool, dir string, newEntry func(string) (DirectoryTrackerInterface, error), numOutstanding int) *DirTracker {
 	var dt DirTracker
 	dt.dm = make(map[string]DirectoryTrackerInterface)
 	dt.newEntry = newEntry
-	dt.tokenChan = MakeTokenChan(numOutstanding)
+	dt.tokenChan = MakeTokenChan(NumTrackerOutstanding)
 	dt.wg = new(sync.WaitGroup)
 	dt.errChan = make(chan error, 8) // buffered to avoid blocking
 	dt.finishedChan = make(chan struct{})
@@ -126,7 +124,7 @@ func NewDirTrackerWithConcurrency(preserveStructs bool, dir string, newEntry fun
 }
 
 // ErrChan - returns any errors we encounter
-// We retuyrn as a channel as we don't stop on *most* errors
+// We return as a channel as we don't stop on *most* errors
 func (dt *DirTracker) ErrChan() <-chan error {
 	return dt.errChan
 }

@@ -84,7 +84,7 @@ func makeTestFilesAndDirectories(directory string, numberOfDirectoriesWide, numb
 
 func moveDetectDirCreationCount(numberOfDirectoriesWide, numberOfDirectoriesDeep, numberOfFiles int) int {
 	runningCnt := 0
-	for i := 0; i < numberOfDirectoriesWide; i++ {
+	for range numberOfDirectoriesWide {
 		runningCnt += numberOfFiles
 		if numberOfDirectoriesDeep > 0 {
 			runningCnt += moveDetectDirCreationCount(numberOfDirectoriesWide, numberOfDirectoriesDeep-1, numberOfFiles)

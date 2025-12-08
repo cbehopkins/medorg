@@ -22,6 +22,7 @@ func VisitFilesWithInterface(
 
 // VisitFilesInDirectories: You should default to using this utility function where you can
 // It's probably what you want!
+// A register function is called when we start processing a directory
 // You can supply a visitor and get the fileStruct associated with the file in question
 // Any changes you make to that will be reflected on disk
 // Note it only visits files that already have an entry (This might need to be fixed?)

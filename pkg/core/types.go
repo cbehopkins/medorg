@@ -1,5 +1,7 @@
 package core
 
+import "time"
+
 // Core Interfaces - Define the contracts between different parts of the system
 // These interfaces establish clear boundaries and allow for better decoupling
 
@@ -76,3 +78,6 @@ type BackupTracker interface {
 	// HasBackupOn checks if backed up to a specific volume
 	HasBackupOn(label string) bool
 }
+
+// ProgressCallback is called with byte count as data is being processed
+type ProgressCallback func(bytesProcessed int64, timestamp time.Time)
