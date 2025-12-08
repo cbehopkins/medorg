@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/cbehopkins/medorg/pkg/cli"
 	"github.com/cbehopkins/medorg/pkg/core"
 )
 
@@ -120,8 +121,8 @@ func TestRestoreDuplicateContentFiles(t *testing.T) {
 		t.Fatalf("Run failed: %v\nOutput: %s", err, output.String())
 	}
 
-	if exitCode != ExitOk {
-		t.Errorf("Expected exit code %d, got %d\nOutput: %s", ExitOk, exitCode, output.String())
+	if exitCode != cli.ExitOk {
+		t.Errorf("Expected exit code %d, got %d\nOutput: %s", cli.ExitOk, exitCode, output.String())
 	}
 
 	// Verify BOTH files were restored as separate files
@@ -302,8 +303,8 @@ func TestRestoreDuplicateContentAcrossSubdirs(t *testing.T) {
 		t.Fatalf("Run failed: %v\nOutput: %s", err, output.String())
 	}
 
-	if exitCode != ExitOk {
-		t.Errorf("Expected exit code %d, got %d\nOutput: %s", ExitOk, exitCode, output.String())
+	if exitCode != cli.ExitOk {
+		t.Errorf("Expected exit code %d, got %d\nOutput: %s", cli.ExitOk, exitCode, output.String())
 	}
 
 	// Verify both files restored to correct subdirectories (preserving structure)

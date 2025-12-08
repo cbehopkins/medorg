@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/cbehopkins/medorg/pkg/cli"
 	"github.com/cbehopkins/medorg/pkg/core"
 )
 
@@ -43,8 +44,8 @@ func TestRun_JournalReadError(t *testing.T) {
 	if err == nil {
 		t.Error("Expected error when journal cannot be read")
 	}
-	if exitCode != ExitRestoreError {
-		t.Errorf("Expected exit code %d, got %d", ExitRestoreError, exitCode)
+	if exitCode != cli.ExitRestoreError {
+		t.Errorf("Expected exit code %d, got %d", cli.ExitRestoreError, exitCode)
 	}
 }
 
@@ -92,8 +93,8 @@ func TestRun_NoDestinationForAlias(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
-	if exitCode != ExitOk {
-		t.Errorf("Expected exit code %d, got %d", ExitOk, exitCode)
+	if exitCode != cli.ExitOk {
+		t.Errorf("Expected exit code %d, got %d", cli.ExitOk, exitCode)
 	}
 
 	outputStr := output.String()
@@ -155,8 +156,8 @@ func TestRun_DestinationDoesNotExist(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
-	if exitCode != ExitOk {
-		t.Errorf("Expected exit code %d, got %d", ExitOk, exitCode)
+	if exitCode != cli.ExitOk {
+		t.Errorf("Expected exit code %d, got %d", cli.ExitOk, exitCode)
 	}
 
 	outputStr := output.String()
@@ -232,8 +233,8 @@ func TestRun_CompleteRestore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)
 	}
-	if exitCode != ExitOk {
-		t.Errorf("Expected exit code %d, got %d", ExitOk, exitCode)
+	if exitCode != cli.ExitOk {
+		t.Errorf("Expected exit code %d, got %d", cli.ExitOk, exitCode)
 	}
 
 	outputStr := output.String()
@@ -307,8 +308,8 @@ func TestRun_ChecksumCalculationError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
-	if exitCode != ExitOk {
-		t.Errorf("Expected exit code %d, got %d", ExitOk, exitCode)
+	if exitCode != cli.ExitOk {
+		t.Errorf("Expected exit code %d, got %d", cli.ExitOk, exitCode)
 	}
 
 	// The checksum calculation should warn but not fail completely

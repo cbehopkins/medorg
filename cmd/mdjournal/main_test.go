@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cbehopkins/medorg/pkg/cli"
 	"github.com/cbehopkins/medorg/pkg/consumers"
 	"github.com/cbehopkins/medorg/pkg/core"
 )
@@ -28,8 +29,8 @@ func TestIntegration_EmptyDirectory(t *testing.T) {
 	}
 
 	exitCode, err := Run(cfg)
-	if exitCode != ExitOk {
-		t.Errorf("Expected exit code %d, got %d", ExitOk, exitCode)
+	if exitCode != cli.ExitOk {
+		t.Errorf("Expected exit code %d, got %d", cli.ExitOk, exitCode)
 	}
 	if err != nil {
 		t.Errorf("Unexpected error: %v", err)
@@ -59,7 +60,7 @@ func TestIntegration_SingleFile(t *testing.T) {
 	}
 
 	exitCode, err := Run(cfg)
-	if exitCode != ExitOk || err != nil {
+	if exitCode != cli.ExitOk || err != nil {
 		t.Fatalf("Run() failed: exit=%d, err=%v", exitCode, err)
 	}
 
@@ -158,7 +159,7 @@ func TestIntegration_MultipleDirectories(t *testing.T) {
 	}
 
 	exitCode, err := Run(cfg)
-	if exitCode != ExitOk || err != nil {
+	if exitCode != cli.ExitOk || err != nil {
 		t.Fatalf("Run() failed: exit=%d, err=%v", exitCode, err)
 	}
 

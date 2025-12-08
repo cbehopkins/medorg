@@ -8,17 +8,10 @@ import (
 	"time"
 
 	"github.com/cbehopkins/medorg/pkg/adaptive"
+	"github.com/cbehopkins/medorg/pkg/cli"
 	"github.com/cbehopkins/medorg/pkg/consumers"
 	"github.com/cbehopkins/medorg/pkg/core"
 )
-
-func isDir(fn string) bool {
-	stat, err := os.Stat(fn)
-	if err != nil {
-		return false
-	}
-	return stat.IsDir()
-}
 
 func main() {
 	var directories []string
@@ -56,20 +49,9 @@ func main() {
 	}
 
 	// Get directories: command line args take precedence, otherwise use config
-	if flag.NArg() > 0 {
-		for _, fl := range flag.Args() {
-			if isDir(fl) {
-				directories = append(directories, fl)
-			}
-		}
-	} else if xc != nil {
-		// Use source directories from config
-		directories = xc.GetSourcePaths()
-		if len(directories) == 0 {
-			// Fall back to current directory
-			directories = []string{"."}
-		}
-	} else {
+	resolver := cli.NewSourceDirResolver(flag.Args(), xc, os.Stdout)
+	directories, _ = resolver.Resolve()
+	if len(directories) == 0 {
 		directories = []string{"."}
 	}
 

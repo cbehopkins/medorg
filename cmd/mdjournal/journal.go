@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/cbehopkins/medorg/pkg/cli"
 	"github.com/cbehopkins/medorg/pkg/consumers"
 	"github.com/cbehopkins/medorg/pkg/core"
 )
@@ -41,7 +42,7 @@ func Run(cfg Config) (int, error) {
 		AutoFix:   nil,
 	}
 	if err := consumers.RunCheckCalc(cfg.Directories, checkCalcOpts); err != nil {
-		return ExitWalkError, fmt.Errorf("error running check_calc: %w", err)
+		return cli.ExitWalkError, fmt.Errorf("error running check_calc: %w", err)
 	}
 
 	journal := consumers.Journal{}
@@ -67,7 +68,7 @@ func Run(cfg Config) (int, error) {
 	for _, dir := range cfg.Directories {
 		dm, err := core.DirectoryMapFromDir(dir)
 		if err != nil {
-			return ExitWalkError, fmt.Errorf("error reading directory map from %s: %w", dir, err)
+			return cli.ExitWalkError, fmt.Errorf("error reading directory map from %s: %w", dir, err)
 		}
 
 		// Get alias for this directory if available
@@ -86,7 +87,7 @@ func Run(cfg Config) (int, error) {
 		if err != nil {
 			// ErrFileExistsInJournal is not a real error, just informational
 			if err != consumers.ErrFileExistsInJournal {
-				return ExitWalkError, fmt.Errorf("error adding directory to journal: %w", err)
+				return cli.ExitWalkError, fmt.Errorf("error adding directory to journal: %w", err)
 			}
 		}
 	}
@@ -94,13 +95,13 @@ func Run(cfg Config) (int, error) {
 	// Write journal to file
 	fh, err := os.Create(cfg.JournalPath)
 	if err != nil {
-		return ExitJournalWriteError, fmt.Errorf("unable to open journal for writing: %w", err)
+		return cli.ExitJournalWriteError, fmt.Errorf("unable to open journal for writing: %w", err)
 	}
 	defer fh.Close()
 
 	if err := journal.ToWriter(fh); err != nil {
-		return ExitJournalWriteError, fmt.Errorf("error writing journal: %w", err)
+		return cli.ExitJournalWriteError, fmt.Errorf("error writing journal: %w", err)
 	}
 
-	return ExitOk, nil
+	return cli.ExitOk, nil
 }

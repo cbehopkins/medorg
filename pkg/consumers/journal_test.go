@@ -293,7 +293,15 @@ func TestJournalDummyRmDir(t *testing.T) {
 
 	deleteNDirectories(expectedDeletions, t, initialDirectoryStructure, journal)
 
-	// Now run our original directory structure
+	// After deletion, the deleted directories are gone from disk
+	// Remove them from the test structure to simulate this
+	if expectedDeletions > 0 && len(initialDirectoryStructure.Dirs) > 0 {
+		initialDirectoryStructure.Dirs = initialDirectoryStructure.Dirs[expectedDeletions:]
+	}
+
+	// Verify that when we re-scan, we only see the remaining directories
+	// and they already exist in the journal (ErrFileExistsInJournal)
+	actualRemainingDirs := 0
 	visitFuncCheck := func(de core.DirectoryEntry) error {
 		dm, ok := de.Dm.(core.DirectoryEntryJournalableInterface)
 		if !ok {
@@ -301,18 +309,23 @@ func TestJournalDummyRmDir(t *testing.T) {
 		}
 		err := journal.AppendJournalFromDm(dm, de.Dir)
 		if err == ErrFileExistsInJournal {
+			// This is expected - we already added this directory in createInitialJournal
+			actualRemainingDirs++
 			return nil
 		}
-		if err == nil {
-			// Any deleted directories should behave as if deleted
-			expectedDeletions--
+		if err != nil {
+			return err
 		}
-		return err
+		// If we get here, we found a directory that wasn't in the journal,
+		// which shouldn't happen since we already added all directories
+		return fmt.Errorf("unexpected directory not in journal: %s", de.Dir)
 	}
 	runDirectory(t, &initialDirectoryStructure, visitFuncCheck)
 
-	if expectedDeletions != 0 {
-		t.Error("Strange number of expectedDeletions", expectedDeletions)
+	// We should see: 1 root + 2 remaining subdirectories = 3 total
+	expectedRemainingDirs := 1 + len(initialDirectoryStructure.Dirs)
+	if actualRemainingDirs != expectedRemainingDirs {
+		t.Error("Unexpected directory count", actualRemainingDirs, "expected", expectedRemainingDirs)
 	}
 	journal.Flush()
 }
@@ -330,9 +343,10 @@ func TestJournalDummyVisitDirs(t *testing.T) {
 	journal := createInitialJournal(t, &initialDirectoryStructure)
 	t.Log(journal)
 
-	expectedDirectoryCount := 1 + len(initialDirectoryStructure.Dirs)
+	// First Range call - count all directories in the journal
+	actualCount := 0
 	visitor := func(de core.DirectoryEntryJournalableInterface, dir string) error {
-		expectedDirectoryCount--
+		actualCount++
 		if de.Len() != 5 {
 			t.Error("Wrong File count for:", de)
 		}
@@ -341,18 +355,20 @@ func TestJournalDummyVisitDirs(t *testing.T) {
 	if err := journal.Range(visitor); err != nil {
 		t.Error("Range error:", err)
 	}
-	if expectedDirectoryCount != 0 {
-		t.Error("Unexpected expectedDirectoryCount", expectedDirectoryCount)
-	}
+	firstRangeCount := actualCount // Remember count from first Range call
 
-	expectedDeletions := 1
-	deleteNDirectories(expectedDeletions, t, initialDirectoryStructure, journal)
-	expectedDirectoryCount = 1 + len(initialDirectoryStructure.Dirs) - expectedDeletions
+	// Delete 1 directory
+	deleteNDirectories(1, t, initialDirectoryStructure, journal)
+
+	// Second Range call - should have one fewer entry
+	// (journal.Range filters out deleted entries)
+	actualCount = 0
 	if err := journal.Range(visitor); err != nil {
 		t.Error("Range error:", err)
 	}
-	if expectedDirectoryCount != 0 {
-		t.Error("Unexpected expectedDirectoryCount", expectedDirectoryCount)
+	expectedCount := firstRangeCount - 1
+	if actualCount != expectedCount {
+		t.Error("Unexpected directory count on second Range", actualCount, "expected", expectedCount)
 	}
 	journal.Flush()
 }

@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/cbehopkins/medorg/pkg/cli"
 	"github.com/cbehopkins/medorg/pkg/core"
 )
 
@@ -115,8 +116,8 @@ func TestMdrestore_PartialFailure_Idempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)
 	}
-	if exitCode1 != ExitOk {
-		t.Errorf("Expected exit code %d, got %d", ExitOk, exitCode1)
+	if exitCode1 != cli.ExitOk {
+		t.Errorf("Expected exit code %d, got %d", cli.ExitOk, exitCode1)
 	}
 
 	firstRunCopies := atomic.LoadInt32(&copyCount)
@@ -156,8 +157,8 @@ func TestMdrestore_PartialFailure_Idempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run failed on second attempt: %v", err)
 	}
-	if exitCode2 != ExitOk {
-		t.Errorf("Expected exit code %d on second run, got %d", ExitOk, exitCode2)
+	if exitCode2 != cli.ExitOk {
+		t.Errorf("Expected exit code %d on second run, got %d", cli.ExitOk, exitCode2)
 	}
 
 	secondRunCopies := atomic.LoadInt32(&copyCount)

@@ -10,40 +10,17 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cbehopkins/medorg/pkg/cli"
 	"github.com/cbehopkins/medorg/pkg/consumers"
 	"github.com/cbehopkins/medorg/pkg/core"
 	pb "github.com/cbehopkins/pb/v3"
 	bytesize "github.com/inhies/go-bytesize"
 )
 
-const (
-	ExitOk = iota
-	ExitNoConfig
-	ExitOneDirectoryOnly
-	ExitTwoDirectoriesOnly
-	ExitProgressBar
-	ExitIncompleteBackup
-	ExitSuppliedDirNotFound
-	ExitBadVc
-)
-
 var (
 	MaxBackups = 2
 	AF         *consumers.AutoFix
 )
-
-func isDir(fn string) bool {
-	stat, err := os.Stat(fn)
-	if os.IsNotExist(err) {
-		return false
-	}
-	if os.IsExist(err) || err == nil {
-		if stat.IsDir() {
-			return true
-		}
-	}
-	return false
-}
 
 func sizeOf(fn string) int {
 	fi, err := os.Stat(fn)
@@ -166,14 +143,13 @@ func main() {
 
 	///////////////////////////////////
 	// Logging setup
-	os.Remove(LOGFILENAME)
-	f, err := os.OpenFile(LOGFILENAME, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0o666)
-	if err != nil {
-		fmt.Printf("error opening log file: %v\n", err)
-		retcode = 1
+	f, exitCode := cli.SetupLogFile(LOGFILENAME)
+	if exitCode != cli.ExitOk {
+		fmt.Printf("error opening log file: %v\n", exitCode)
+		retcode = exitCode
 		return
 	}
-	defer f.Close()
+	defer f.(*os.File).Close()
 
 	log.SetOutput(f)
 	log.Println("This is a test log entry")
@@ -181,10 +157,10 @@ func main() {
 	var directories []string
 	///////////////////////////////////
 	// Read in top level config
-	xc, err := core.LoadOrCreateMdConfigWithPath(*configPath)
-	if err != nil {
-		fmt.Println("Error loading config file:", err)
-		retcode = ExitNoConfig
+	loader := cli.NewConfigLoader(*configPath, os.Stderr)
+	xc, exitCode := loader.Load()
+	if exitCode != cli.ExitOk {
+		retcode = exitCode
 		return
 	}
 	defer func() {
@@ -206,15 +182,12 @@ func main() {
 	flag.Parse()
 	if flag.NArg() > 0 {
 		for _, fl := range flag.Args() {
-			_, err := os.Stat(fl)
-			if os.IsNotExist(err) {
-				fmt.Println(fl, "does not exist!")
-				retcode = ExitSuppliedDirNotFound
+			if err := cli.ValidatePath(fl, true); err != nil {
+				fmt.Println(err)
+				retcode = cli.ExitSuppliedDirNotFound
 				return
 			}
-			if isDir(fl) {
-				directories = append(directories, fl)
-			}
+			directories = append(directories, fl)
 		}
 	} else {
 		// If no directories provided, read from config
@@ -273,8 +246,5 @@ func main() {
 		UseProgressBar:       true,
 	}
 
-	retcode, err = Run(cfg)
-	if err != nil {
-		fmt.Println("Error:", err)
-	}
+	cli.ExitFromRun(Run(cfg))
 }

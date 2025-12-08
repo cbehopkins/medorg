@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cbehopkins/medorg/pkg/cli"
 	"github.com/cbehopkins/medorg/pkg/core"
 )
 
@@ -87,19 +88,19 @@ func TestIntegration_TagMode(t *testing.T) {
 
 			var logBuf, msgBuf bytes.Buffer
 			cfg := Config{
-				Destination:    dirs["tag-dest"],
-				VolumeConfigProvider:      xc,
-				TagMode:        true,
-				LogOutput:      &logBuf,
-				MessageWriter:  &msgBuf,
-				UseProgressBar: false,
+				Destination:          dirs["tag-dest"],
+				VolumeConfigProvider: xc,
+				TagMode:              true,
+				LogOutput:            &logBuf,
+				MessageWriter:        &msgBuf,
+				UseProgressBar:       false,
 			}
 			if tc.withSource {
 				cfg.Sources = []string{dirs["tag-src"]}
 			}
 
 			exitCode, err := Run(cfg)
-			if exitCode != ExitOk || err != nil {
+			if exitCode != cli.ExitOk || err != nil {
 				t.Fatalf("Tag mode failed: exit=%d err=%v", exitCode, err)
 			}
 			if tc.checkLabel {
@@ -137,18 +138,18 @@ func TestIntegration_BasicBackup_NoFiles(t *testing.T) {
 
 	var logBuf, msgBuf bytes.Buffer
 	cfg := Config{
-		Destination:    dstDir,
-		Sources:        []string{srcDir},
-		VolumeConfigProvider:      xc,
-		DummyMode:      true, // Don't actually copy in this test
-		LogOutput:      &logBuf,
-		MessageWriter:  &msgBuf,
-		UseProgressBar: false,
+		Destination:          dstDir,
+		Sources:              []string{srcDir},
+		VolumeConfigProvider: xc,
+		DummyMode:            true, // Don't actually copy in this test
+		LogOutput:            &logBuf,
+		MessageWriter:        &msgBuf,
+		UseProgressBar:       false,
 	}
 
 	exitCode, err := Run(cfg)
-	if exitCode != ExitOk {
-		t.Errorf("Expected exit code %d, got %d", ExitOk, exitCode)
+	if exitCode != cli.ExitOk {
+		t.Errorf("Expected exit code %d, got %d", cli.ExitOk, exitCode)
 	}
 	if err != nil {
 		t.Errorf("Unexpected error: %v", err)
@@ -240,7 +241,7 @@ func TestIntegration_BackupCopyVariants(t *testing.T) {
 			var logBuf, msgBuf bytes.Buffer
 			cfg := Config{Destination: dirs["dst"], Sources: srcPaths, VolumeConfigProvider: xc, LogOutput: &logBuf, MessageWriter: &msgBuf}
 			exitCode, err := Run(cfg)
-			if exitCode != ExitOk || err != nil {
+			if exitCode != cli.ExitOk || err != nil {
 				t.Fatalf("Run failed: exit=%d err=%v", exitCode, err)
 			}
 
@@ -280,7 +281,7 @@ func TestIntegration_DeleteMode(t *testing.T) {
 		var logBuf, msgBuf bytes.Buffer
 		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src"]}, VolumeConfigProvider: xc, DeleteMode: true, LogOutput: &logBuf, MessageWriter: &msgBuf}
 		exitCode, err := Run(cfg)
-		if exitCode != ExitOk || err != nil {
+		if exitCode != cli.ExitOk || err != nil {
 			t.Fatalf("Run failed: exit=%d err=%v", exitCode, err)
 		}
 		if _, err := os.Stat(orphan); !os.IsNotExist(err) {
@@ -315,7 +316,7 @@ func TestIntegration_DeleteMode(t *testing.T) {
 		// initial backup
 		var lb1, mb1 bytes.Buffer
 		cfg1 := Config{Destination: dirs["dst"], Sources: []string{dirs["src1"], dirs["src2"]}, VolumeConfigProvider: xc, LogOutput: &lb1, MessageWriter: &mb1}
-		if exitCode, err := Run(cfg1); exitCode != ExitOk || err != nil {
+		if exitCode, err := Run(cfg1); exitCode != cli.ExitOk || err != nil {
 			t.Fatalf("initial backup failed: exit=%d err=%v", exitCode, err)
 		}
 
@@ -332,7 +333,7 @@ func TestIntegration_DeleteMode(t *testing.T) {
 		// delete mode
 		var lb2, mb2 bytes.Buffer
 		cfg2 := Config{Destination: dirs["dst"], Sources: []string{dirs["src1"], dirs["src2"]}, VolumeConfigProvider: xc, DeleteMode: true, LogOutput: &lb2, MessageWriter: &mb2}
-		if exitCode, err := Run(cfg2); exitCode != ExitOk || err != nil {
+		if exitCode, err := Run(cfg2); exitCode != cli.ExitOk || err != nil {
 			t.Fatalf("delete mode failed: exit=%d err=%v\nLog:\n%s", exitCode, err, lb2.String())
 		}
 
@@ -369,18 +370,18 @@ func TestIntegration_ScanMode(t *testing.T) {
 
 	var logBuf, msgBuf bytes.Buffer
 	cfg := Config{
-		Destination:    dstDir,
-		Sources:        []string{srcDir},
-		VolumeConfigProvider:      xc,
-		ScanMode:       true, // Scan only, don't copy
-		LogOutput:      &logBuf,
-		MessageWriter:  &msgBuf,
-		UseProgressBar: false,
+		Destination:          dstDir,
+		Sources:              []string{srcDir},
+		VolumeConfigProvider: xc,
+		ScanMode:             true, // Scan only, don't copy
+		LogOutput:            &logBuf,
+		MessageWriter:        &msgBuf,
+		UseProgressBar:       false,
 	}
 
 	exitCode, err := Run(cfg)
-	if exitCode != ExitOk {
-		t.Errorf("Expected exit code %d, got %d", ExitOk, exitCode)
+	if exitCode != cli.ExitOk {
+		t.Errorf("Expected exit code %d, got %d", cli.ExitOk, exitCode)
 	}
 	if err != nil {
 		t.Errorf("Unexpected error: %v", err)
@@ -401,8 +402,8 @@ func TestIntegration_ErrorCases(t *testing.T) {
 		var logBuf, msgBuf bytes.Buffer
 		cfg := Config{Destination: dirs["base"], VolumeConfigProvider: xc, LogOutput: &logBuf, MessageWriter: &msgBuf}
 		exitCode, err := Run(cfg)
-		if exitCode != ExitTwoDirectoriesOnly {
-			t.Errorf("want exit %d got %d", ExitTwoDirectoriesOnly, exitCode)
+		if exitCode != cli.ExitTwoDirectoriesOnly {
+			t.Errorf("want exit %d got %d", cli.ExitTwoDirectoriesOnly, exitCode)
 		}
 		if err == nil {
 			t.Error("expected error for wrong directory count")
@@ -415,8 +416,8 @@ func TestIntegration_ErrorCases(t *testing.T) {
 		var logBuf, msgBuf bytes.Buffer
 		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src"]}, VolumeConfigProvider: nil, LogOutput: &logBuf, MessageWriter: &msgBuf}
 		exitCode, err := Run(cfg)
-		if exitCode != ExitNoConfig {
-			t.Errorf("want exit %d got %d", ExitNoConfig, exitCode)
+		if exitCode != cli.ExitNoConfig {
+			t.Errorf("want exit %d got %d", cli.ExitNoConfig, exitCode)
 		}
 		if err == nil {
 			t.Error("expected error for missing config")
@@ -443,7 +444,7 @@ func TestIntegration_EdgeCases(t *testing.T) {
 		var logBuf, msgBuf bytes.Buffer
 		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src"]}, VolumeConfigProvider: xc, LogOutput: &logBuf, MessageWriter: &msgBuf}
 		exitCode, err := Run(cfg)
-		if exitCode != ExitOk || err != nil {
+		if exitCode != cli.ExitOk || err != nil {
 			t.Fatalf("Run failed: exit=%d err=%v", exitCode, err)
 		}
 
@@ -479,7 +480,7 @@ func TestIntegration_EdgeCases(t *testing.T) {
 		var logBuf, msgBuf bytes.Buffer
 		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src"]}, VolumeConfigProvider: xc, LogOutput: &logBuf, MessageWriter: &msgBuf}
 		exitCode, err := Run(cfg)
-		if exitCode != ExitOk || err != nil {
+		if exitCode != cli.ExitOk || err != nil {
 			t.Fatalf("Run failed: exit=%d err=%v", exitCode, err)
 		}
 
@@ -528,7 +529,7 @@ func TestIntegration_EdgeCases(t *testing.T) {
 		var logBuf, msgBuf bytes.Buffer
 		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src"]}, VolumeConfigProvider: xc, LogOutput: &logBuf, MessageWriter: &msgBuf}
 		exitCode, err := Run(cfg)
-		if exitCode != ExitOk || err != nil {
+		if exitCode != cli.ExitOk || err != nil {
 			t.Fatalf("Run failed: exit=%d err=%v", exitCode, err)
 		}
 
@@ -560,7 +561,7 @@ func TestIntegration_EdgeCases(t *testing.T) {
 		var logBuf, msgBuf bytes.Buffer
 		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src"]}, VolumeConfigProvider: xc, LogOutput: &logBuf, MessageWriter: &msgBuf}
 		exitCode, err := Run(cfg)
-		if exitCode != ExitOk || err != nil {
+		if exitCode != cli.ExitOk || err != nil {
 			t.Fatalf("Run failed: exit=%d err=%v", exitCode, err)
 		}
 
@@ -595,7 +596,7 @@ func TestIntegration_EdgeCases(t *testing.T) {
 		var logBuf, msgBuf bytes.Buffer
 		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src1"], dirs["src2"]}, VolumeConfigProvider: xc, LogOutput: &logBuf, MessageWriter: &msgBuf}
 		exitCode, err := Run(cfg)
-		if exitCode != ExitOk || err != nil {
+		if exitCode != cli.ExitOk || err != nil {
 			t.Fatalf("Run failed: exit=%d err=%v", exitCode, err)
 		}
 
@@ -638,7 +639,7 @@ func TestIntegration_EdgeCases(t *testing.T) {
 		var logBuf, msgBuf bytes.Buffer
 		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src"]}, VolumeConfigProvider: xc, LogOutput: &logBuf, MessageWriter: &msgBuf}
 		exitCode, err := Run(cfg)
-		if exitCode != ExitOk || err != nil {
+		if exitCode != cli.ExitOk || err != nil {
 			t.Fatalf("Run failed: exit=%d err=%v", exitCode, err)
 		}
 
@@ -672,7 +673,7 @@ func TestIntegration_EdgeCases(t *testing.T) {
 		var logBuf, msgBuf bytes.Buffer
 		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src"]}, VolumeConfigProvider: xc, DummyMode: true, LogOutput: &logBuf, MessageWriter: &msgBuf}
 		exitCode, err := Run(cfg)
-		if exitCode != ExitOk || err != nil {
+		if exitCode != cli.ExitOk || err != nil {
 			t.Fatalf("Run failed: exit=%d err=%v", exitCode, err)
 		}
 
@@ -705,7 +706,7 @@ func TestIntegration_EdgeCases(t *testing.T) {
 		var logBuf, msgBuf bytes.Buffer
 		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src"]}, VolumeConfigProvider: xc, LogOutput: &logBuf, MessageWriter: &msgBuf}
 		exitCode, err := Run(cfg)
-		if exitCode != ExitOk || err != nil {
+		if exitCode != cli.ExitOk || err != nil {
 			t.Fatalf("Run failed: exit=%d err=%v", exitCode, err)
 		}
 
@@ -738,7 +739,7 @@ func TestIntegration_EdgeCases(t *testing.T) {
 		var logBuf, msgBuf bytes.Buffer
 		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src"]}, VolumeConfigProvider: xc, LogOutput: &logBuf, MessageWriter: &msgBuf}
 		exitCode, err := Run(cfg)
-		if exitCode != ExitOk || err != nil {
+		if exitCode != cli.ExitOk || err != nil {
 			t.Fatalf("Run failed: exit=%d err=%v", exitCode, err)
 		}
 

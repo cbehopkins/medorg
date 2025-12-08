@@ -5,62 +5,48 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/cbehopkins/medorg/pkg/core"
-)
-
-const (
-	ExitOk = iota
-	ExitNoConfig
-	ExitInvalidArgs
-	ExitJournalNotFound
-	ExitSourceNotFound
-	ExitRestoreError
+	"github.com/cbehopkins/medorg/pkg/cli"
 )
 
 func main() {
-	retcode := 0
-	defer func() { os.Exit(retcode) }()
+	cli.ExitFromRun(run())
+}
 
-	// Command line flags
+func run() (int, error) {
 	configPath := flag.String("config", "", "Path to config file (optional, defaults to ~/.medorg.xml)")
 	journalPath := flag.String("journal", "", "Path to journal file (required)")
 	flag.Parse()
 
 	if *journalPath == "" {
 		printUsage()
-		retcode = ExitInvalidArgs
-		return
+		return cli.ExitInvalidArgs, nil
 	}
 
 	if flag.NArg() < 1 {
 		fmt.Println("Error: source directory (backup location) required")
 		printUsage()
-		retcode = ExitInvalidArgs
-		return
+		return cli.ExitInvalidArgs, nil
 	}
 
 	sourceDir := flag.Arg(0)
 
 	// Verify journal exists
-	if _, err := os.Stat(*journalPath); os.IsNotExist(err) {
+	if err := cli.ValidatePath(*journalPath, false); err != nil {
 		fmt.Printf("Error: journal file '%s' does not exist\n", *journalPath)
-		retcode = ExitJournalNotFound
-		return
+		return cli.ExitJournalNotFound, nil
 	}
 
 	// Verify source directory exists
-	if _, err := os.Stat(sourceDir); os.IsNotExist(err) {
+	if err := cli.ValidatePath(sourceDir, true); err != nil {
 		fmt.Printf("Error: source directory '%s' does not exist\n", sourceDir)
-		retcode = ExitSourceNotFound
-		return
+		return cli.ExitSourceNotFound, nil
 	}
 
-	// Load XMLCfg
-	xc, err := core.LoadOrCreateMdConfigWithPath(*configPath)
-	if err != nil {
-		fmt.Println("Error loading config file:", err)
-		retcode = ExitNoConfig
-		return
+	// Load config using common loader
+	loader := cli.NewConfigLoader(*configPath, os.Stderr)
+	xc, exitCode := loader.Load()
+	if exitCode != cli.ExitOk {
+		return exitCode, nil
 	}
 
 	// Run restore
@@ -71,11 +57,7 @@ func main() {
 		Stdout:      os.Stdout,
 	}
 
-	exitCode, err := Run(cfg)
-	if err != nil {
-		fmt.Println("Error:", err)
-	}
-	retcode = exitCode
+	return Run(cfg)
 }
 
 func printUsage() {

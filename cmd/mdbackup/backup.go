@@ -9,6 +9,7 @@ import (
 	"os"
 	"sync"
 
+	"github.com/cbehopkins/medorg/pkg/cli"
 	"github.com/cbehopkins/medorg/pkg/consumers"
 	"github.com/cbehopkins/medorg/pkg/core"
 	pb "github.com/cbehopkins/pb/v3"
@@ -61,7 +62,7 @@ func Run(cfg Config) (int, error) {
 
 	// Validate config
 	if cfg.VolumeConfigProvider == nil {
-		return ExitNoConfig, errors.New("no volume config provider")
+		return cli.ExitNoConfig, errors.New("no volume config provider")
 	}
 
 	// Setup progress bar or simple logging
@@ -75,7 +76,7 @@ func Run(cfg Config) (int, error) {
 		pool = pb.NewPool(messageBar)
 		err := pool.Start()
 		if err != nil {
-			return ExitProgressBar, fmt.Errorf("failed to start progress bar: %w", err)
+			return cli.ExitProgressBar, fmt.Errorf("failed to start progress bar: %w", err)
 		}
 		defer pool.Stop()
 		defer messageBar.Finish()
@@ -106,14 +107,14 @@ func Run(cfg Config) (int, error) {
 	// Handle tag mode (configure destination only)
 	if cfg.TagMode {
 		if cfg.Destination == "" {
-			return ExitOneDirectoryOnly, errors.New("destination directory required when configuring tags")
+			return cli.ExitOneDirectoryOnly, errors.New("destination directory required when configuring tags")
 		}
 		vc, err := cfg.VolumeConfigProvider.VolumeCfgFromDir(cfg.Destination)
 		if err != nil {
-			return ExitBadVc, fmt.Errorf("failed to get volume config: %w", err)
+			return cli.ExitBadVc, fmt.Errorf("failed to get volume config: %w", err)
 		}
 		fmt.Fprintf(cfg.MessageWriter, "Config name is %s\n", vc.Label)
-		return ExitOk, nil
+		return cli.ExitOk, nil
 	}
 
 	// Handle stats mode (scan destination + sources)
@@ -128,12 +129,12 @@ func Run(cfg Config) (int, error) {
 		} else {
 			runStatsSimple(dirs, setMessage, logFunc)
 		}
-		return ExitOk, nil
+		return cli.ExitOk, nil
 	}
 
 	// Main backup mode - requires destination and at least one source
 	if cfg.Destination == "" || len(cfg.Sources) == 0 {
-		return ExitTwoDirectoriesOnly, fmt.Errorf("expected destination + at least 1 source, got dest='%s' sources=%d", cfg.Destination, len(cfg.Sources))
+		return cli.ExitTwoDirectoriesOnly, fmt.Errorf("expected destination + at least 1 source, got dest='%s' sources=%d", cfg.Destination, len(cfg.Sources))
 	}
 
 	// Setup the copier function
@@ -202,7 +203,7 @@ func Run(cfg Config) (int, error) {
 
 		if err != nil {
 			setMessage(fmt.Sprint("Unable to complete backup:", err))
-			return ExitIncompleteBackup, err
+			return cli.ExitIncompleteBackup, err
 		}
 	} else {
 		// Single source - use original BackupRunner
@@ -223,7 +224,7 @@ func Run(cfg Config) (int, error) {
 
 			if err != nil {
 				setMessage(fmt.Sprint("Unable to complete backup:", err))
-				return ExitIncompleteBackup, err
+				return cli.ExitIncompleteBackup, err
 			}
 		}
 	}
@@ -231,7 +232,7 @@ func Run(cfg Config) (int, error) {
 	setMessage("Waiting for complete")
 	wg.Wait()
 
-	return ExitOk, nil
+	return cli.ExitOk, nil
 }
 
 // runStatsSimple runs statistics without progress bar

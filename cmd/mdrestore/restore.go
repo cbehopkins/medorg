@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/cbehopkins/medorg/pkg/cli"
 	"github.com/cbehopkins/medorg/pkg/core"
 )
 
@@ -23,14 +24,14 @@ func Run(cfg Config) (int, error) {
 	// Step 2: Read volume label from source directory
 	sourceVolumeLabel, err := cfg.XMLConfig.GetVolumeLabel(cfg.SourceDir)
 	if err != nil {
-		return ExitRestoreError, fmt.Errorf("failed to read volume label from source: %w", err)
+		return cli.ExitRestoreError, fmt.Errorf("failed to read volume label from source: %w", err)
 	}
 	fmt.Fprintf(cfg.Stdout, "Source volume label: %s\n", sourceVolumeLabel)
 
 	// Step 3: Read journal to understand expected files
 	journal, err := readJournal(cfg.JournalPath)
 	if err != nil {
-		return ExitRestoreError, fmt.Errorf("failed to read journal: %w", err)
+		return cli.ExitRestoreError, fmt.Errorf("failed to read journal: %w", err)
 	}
 	fmt.Fprintf(cfg.Stdout, "Read journal with %d entries\n", len(journal.Entries))
 
@@ -142,7 +143,7 @@ func Run(cfg Config) (int, error) {
 		fmt.Fprintf(cfg.Stdout, "\nRestore complete!\n")
 	}
 
-	return ExitOk, nil
+	return cli.ExitOk, nil
 }
 
 // JournalEntry represents an entry in the journal
