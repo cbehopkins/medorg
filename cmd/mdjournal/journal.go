@@ -7,7 +7,6 @@ import (
 
 	"github.com/cbehopkins/medorg/pkg/cli"
 	"github.com/cbehopkins/medorg/pkg/consumers"
-	"github.com/cbehopkins/medorg/pkg/core"
 )
 
 // Config holds the configuration for mdjournal
@@ -47,7 +46,7 @@ func Run(cfg Config) (int, error) {
 		return cli.ExitWalkError, fmt.Errorf("error running check_calc: %w", err)
 	}
 
-	journal := consumers.Journal{}
+	journal := consumers.NewJournal()
 
 	// Read existing journal if requested and file exists
 	if cfg.ReadExisting {
@@ -66,17 +65,13 @@ func Run(cfg Config) (int, error) {
 	}
 	fmt.Println("Using Journal Path:", cfg.JournalPath)
 
-	// Step 2: Read .medorg.xml files and populate journal
-	// No checksum calculation needed - just read the existing data
+	// Step 2: Populate journal from directories with recursive traversal
+	// Each directory gets the appropriate alias and all subdirectories are included
 	for _, dir := range cfg.Directories {
-		dm, err := core.DirectoryMapFromDir(dir)
-		if err != nil {
-			return cli.ExitWalkError, fmt.Errorf("error reading directory map from %s: %w", dir, err)
-		}
-
 		// Get alias for this directory if available
 		var alias string
 		if cfg.GetAlias != nil {
+			// FIXME this is a messy design - but works for now
 			alias = cfg.GetAlias(dir)
 		}
 		if alias == "" {
@@ -84,13 +79,9 @@ func Run(cfg Config) (int, error) {
 			return cli.ExitAliasNotFound, fmt.Errorf("alias not provided for journal: %s", dir)
 		}
 
-		// Add the directory map to the journal with alias information
-		err = journal.AppendJournalFromDmWithAlias(&dm, dir, alias)
-		if err != nil {
-			// ErrFileExistsInJournal is not a real error, just informational
-			if err != consumers.ErrFileExistsInJournal {
-				return cli.ExitWalkError, fmt.Errorf("error adding directory to journal: %w", err)
-			}
+		// Populate journal using PopulateFromDirectories which handles recursion
+		if err := journal.PopulateFromDirectories(dir, alias); err != nil {
+			return cli.ExitWalkError, fmt.Errorf("error populating journal from %s: %w", dir, err)
 		}
 	}
 

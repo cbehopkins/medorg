@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -166,6 +167,7 @@ type Journal struct {
 }
 
 // readJournal reads and parses the journal file
+// Uses the new journal format with <mdj alias="..."><dr>...</dr></mdj> wrapper
 func readJournal(path string) (*Journal, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -173,72 +175,101 @@ func readJournal(path string) (*Journal, error) {
 	}
 	defer f.Close()
 
-	// Read the entire file
+	journal := &Journal{}
+
+	// Read entire file for parsing
 	data, err := io.ReadAll(f)
 	if err != nil {
 		return nil, err
 	}
 
-	journal := &Journal{}
+	// Parse the XML manually to extract alias and entries
+	decoder := xml.NewDecoder(bytes.NewReader(data))
 
-	// Parse XML records directly to preserve alias
-	content := string(data)
-	for len(content) > 0 {
-		// Find next <dr> tag
-		start := findNext(content, "<dr")
-		if start == -1 {
+	for {
+		token, err := decoder.Token()
+		if err == io.EOF {
 			break
 		}
-		// Find the end of this record
-		end := findNext(content[start:], "</dr>")
-		if end == -1 {
-			break
-		}
-		end += start + 5 // Add start offset and length of "</dr>"
-
-		// Extract the XML record
-		record := content[start:end]
-
-		// Parse this record
-		var m5f core.Md5File
-		if err := xml.Unmarshal([]byte(record), &m5f); err != nil {
-			return nil, fmt.Errorf("failed to parse journal record: %w", err)
+		if err != nil {
+			return nil, fmt.Errorf("error reading XML: %w", err)
 		}
 
-		// Create journal entry
-		entry := JournalEntry{
-			Dir:   m5f.Dir,
-			Alias: m5f.Alias,
+		// Look for <mdj> opening tags with alias attribute
+		startElem, ok := token.(xml.StartElement)
+		if !ok {
+			continue
 		}
 
-		// Extract file information
-		for _, fs := range m5f.Files {
-			for _, bd := range fs.BackupDest {
-				entry.Files = append(entry.Files, JournalFile{
-					Name:       fs.Name,
-					Hash:       fs.Checksum,
-					BackupDest: bd,
-				})
+		if startElem.Name.Local != "mdj" {
+			continue
+		}
+
+		// Extract alias from <mdj alias="...">
+		var currentAlias string
+		for _, attr := range startElem.Attr {
+			if attr.Name.Local == "alias" {
+				currentAlias = attr.Value
+				break
 			}
 		}
 
-		journal.Entries = append(journal.Entries, entry)
+		if currentAlias == "" {
+			continue
+		}
 
-		// Move to next record
-		content = content[end:]
+		// Now decode nested <dr> entries until we hit </mdj>
+		for {
+			token, err := decoder.Token()
+			if err == io.EOF {
+				return nil, fmt.Errorf("unexpected EOF while reading mdj element")
+			}
+			if err != nil {
+				return nil, err
+			}
+
+			// Check for </mdj> closing tag
+			endElem, ok := token.(xml.EndElement)
+			if ok && endElem.Name.Local == "mdj" {
+				break
+			}
+
+			// Look for <dr> elements
+			startElem, ok := token.(xml.StartElement)
+			if !ok {
+				continue
+			}
+
+			if startElem.Name.Local == "dr" {
+				// Decode the directory entry
+				var m5f core.Md5File
+				if err := decoder.DecodeElement(&m5f, &startElem); err != nil {
+					return nil, fmt.Errorf("error decoding directory entry: %w", err)
+				}
+
+				// Create journal entry
+				entry := JournalEntry{
+					Dir:   m5f.Dir,
+					Alias: currentAlias,
+				}
+
+				// Extract file information
+				for _, fs := range m5f.Files {
+					for _, bd := range fs.BackupDest {
+						entry.Files = append(entry.Files, JournalFile{
+							Name:       fs.Name,
+							Hash:       fs.Checksum,
+							BackupDest: bd,
+						})
+					}
+				}
+
+				journal.Entries = append(journal.Entries, entry)
+			}
+		}
 	}
 
 	return journal, nil
-}
-
-// findNext finds the next occurrence of a substring
-func findNext(s, substr string) int {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return i
-		}
-	}
-	return -1
 }
 
 // calculateChecksums runs check_calc on a directory

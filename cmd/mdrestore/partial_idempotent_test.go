@@ -76,17 +76,19 @@ func TestMdrestore_PartialFailure_Idempotent(t *testing.T) {
 	}
 
 	// Create journal with all 3 files using real checksums
-	journalContent := fmt.Sprintf(`<dr dir="." alias="test">
-  <fr fname="file1.txt" checksum="%s" size="8">
-    <bd>VOL_X</bd>
-  </fr>
-  <fr fname="file2.txt" checksum="%s" size="8">
-    <bd>VOL_X</bd>
-  </fr>
-  <fr fname="file3.txt" checksum="%s" size="8">
-    <bd>VOL_X</bd>
-  </fr>
-</dr>`, checksums[0], checksums[1], checksums[2])
+	journalContent := fmt.Sprintf(`<mdj alias="test">
+  <dr dir=".">
+    <fr fname="file1.txt" checksum="%s" mtime="1234567890" size="8">
+      <bd>VOL_X</bd>
+    </fr>
+    <fr fname="file2.txt" checksum="%s" mtime="1234567890" size="8">
+      <bd>VOL_X</bd>
+    </fr>
+    <fr fname="file3.txt" checksum="%s" mtime="1234567890" size="8">
+      <bd>VOL_X</bd>
+    </fr>
+  </dr>
+</mdj>`, checksums[0], checksums[1], checksums[2])
 	if err := os.WriteFile(journalPath, []byte(journalContent), 0o644); err != nil {
 		t.Fatal(err)
 	}

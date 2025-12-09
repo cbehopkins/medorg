@@ -72,11 +72,13 @@ func TestRun_NoDestinationForAlias(t *testing.T) {
 	}
 
 	// Journal with alias that has no config
-	journalContent := `<dr dir="." alias="unknown_alias">
-  <fr fname="test.txt" checksum="abc" size="4">
-    <bd>TEST_VOL</bd>
-  </fr>
-</dr>`
+	journalContent := `<mdj alias="unknown_alias">
+  <dr dir=".">
+    <fr fname="test.txt" checksum="abc" mtime="1234567890" size="4">
+      <bd>TEST_VOL</bd>
+    </fr>
+  </dr>
+</mdj>`
 	if err := os.WriteFile(journalPath, []byte(journalContent), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -135,11 +137,13 @@ func TestRun_DestinationDoesNotExist(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	journalContent := `<dr dir="." alias="test">
-  <fr fname="test.txt" checksum="abc" size="4">
-    <bd>TEST_VOL</bd>
-  </fr>
-</dr>`
+	journalContent := `<mdj alias="test">
+  <dr dir=".">
+    <fr fname="test.txt" checksum="abc" mtime="1234567890" size="4">
+      <bd>TEST_VOL</bd>
+    </fr>
+  </dr>
+</mdj>`
 	if err := os.WriteFile(journalPath, []byte(journalContent), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -212,11 +216,13 @@ func TestRun_CompleteRestore(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	journalContent := `<dr dir="." alias="test">
-  <fr fname="complete.txt" checksum="` + hash + `" size="13">
-    <bd>COMPLETE_VOL</bd>
-  </fr>
-</dr>`
+	journalContent := `<mdj alias="test">
+  <dr dir=".">
+    <fr fname="complete.txt" checksum="` + hash + `" mtime="1234567890" size="13">
+      <bd>COMPLETE_VOL</bd>
+    </fr>
+  </dr>
+</mdj>`
 	if err := os.WriteFile(journalPath, []byte(journalContent), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -280,11 +286,13 @@ func TestRun_ChecksumCalculationError(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	journalContent := `<dr dir="." alias="test">
-  <fr fname="test.txt" checksum="abc" size="4">
-    <bd>TEST_VOL</bd>
-  </fr>
-</dr>`
+	journalContent := `<mdj alias="test">
+  <dr dir=".">
+    <fr fname="test.txt" checksum="abc" mtime="1234567890" size="4">
+      <bd>TEST_VOL</bd>
+    </fr>
+  </dr>
+</mdj>`
 	if err := os.WriteFile(journalPath, []byte(journalContent), 0o644); err != nil {
 		t.Fatal(err)
 	}

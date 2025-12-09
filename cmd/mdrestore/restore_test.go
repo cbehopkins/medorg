@@ -58,12 +58,14 @@ func TestMdrestoreBasic(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Create a simple journal entry
-	journalContent := `<dr dir="." alias="test">
-  <fr fname="testfile.txt" checksum="mock_checksum" size="12">
-    <bd>TEST_VOL</bd>
-  </fr>
-</dr>`
+	// Create a simple journal entry in new format
+	journalContent := `<mdj alias="test">
+  <dr dir=".">
+    <fr fname="testfile.txt" checksum="mock_checksum" mtime="1234567890" size="12">
+      <bd>TEST_VOL</bd>
+    </fr>
+  </dr>
+</mdj>`
 	if err := os.WriteFile(journalPath, []byte(journalContent), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -148,11 +150,13 @@ func TestMdrestoreMissingVolume(t *testing.T) {
 	}
 
 	// Create a journal entry with file on different volume
-	journalContent := `<dr dir="." alias="test">
-  <fr fname="testfile.txt" checksum="mock_checksum" size="12">
-    <bd>VOL_2</bd>
-  </fr>
-</dr>`
+	journalContent := `<mdj alias="test">
+  <dr dir=".">
+    <fr fname="testfile.txt" checksum="mock_checksum" mtime="1234567890" size="12">
+      <bd>VOL_2</bd>
+    </fr>
+  </dr>
+</mdj>`
 	if err := os.WriteFile(journalPath, []byte(journalContent), 0o644); err != nil {
 		t.Fatal(err)
 	}

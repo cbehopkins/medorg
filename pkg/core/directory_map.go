@@ -87,15 +87,10 @@ func (dm DirectoryMap) ToXML(dir string) (output []byte, err error) {
 	return xml.MarshalIndent(m5f, "", "  ")
 }
 
-// ToXMLWithAlias marshals the directory map to XML format with an alias
-// Used for journal entries
+// ToXMLWithAlias is deprecated - alias is no longer part of Md5File
+// Use ToXML instead
 func (dm DirectoryMap) ToXMLWithAlias(dir, alias string) (output []byte, err error) {
-	m5f, err := dm.ToMd5File(dir)
-	m5f.Alias = alias
-	if err != nil {
-		return nil, err
-	}
-	return xml.MarshalIndent(m5f, "", "  ")
+	return dm.ToXML(dir)
 }
 
 // FromXML unmarshals XML data into the directory map and returns the directory path

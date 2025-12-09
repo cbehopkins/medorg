@@ -92,17 +92,19 @@ func TestRestoreDuplicateContentFiles(t *testing.T) {
 	}
 
 	// Create journal with both duplicate files
-	journalContent := `<dr dir="." alias="test">
-  <fr fname="report_v1.txt" checksum="` + checksum1 + `" size="32">
-    <bd>TEST_VOL</bd>
-  </fr>
-  <fr fname="report_final.txt" checksum="` + checksum2 + `" size="32">
-    <bd>TEST_VOL</bd>
-  </fr>
-  <fr fname="unique.txt" checksum="` + checksumUnique + `" size="14">
-    <bd>TEST_VOL</bd>
-  </fr>
-</dr>`
+	journalContent := `<mdj alias="test">
+  <dr dir=".">
+    <fr fname="report_v1.txt" checksum="` + checksum1 + `" mtime="1234567890" size="32">
+      <bd>TEST_VOL</bd>
+    </fr>
+    <fr fname="report_final.txt" checksum="` + checksum2 + `" mtime="1234567890" size="32">
+      <bd>TEST_VOL</bd>
+    </fr>
+    <fr fname="unique.txt" checksum="` + checksumUnique + `" mtime="1234567890" size="14">
+      <bd>TEST_VOL</bd>
+    </fr>
+  </dr>
+</mdj>`
 	if err := os.WriteFile(journalPath, []byte(journalContent), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -275,16 +277,18 @@ func TestRestoreDuplicateContentAcrossSubdirs(t *testing.T) {
 	t.Logf("✓ Files in different subdirs have matching checksum: %s", checksum1)
 
 	// Create journal
-	journalContent := `<dr dir="config/v1" alias="test">
-  <fr fname="settings.yaml" checksum="` + checksum1 + `" size="20">
-    <bd>TEST_VOL</bd>
-  </fr>
-</dr>
-<dr dir="backup/old" alias="test">
-  <fr fname="settings_backup.yaml" checksum="` + checksum2 + `" size="20">
-    <bd>TEST_VOL</bd>
-  </fr>
-</dr>`
+	journalContent := `<mdj alias="test">
+  <dr dir="config/v1">
+    <fr fname="settings.yaml" checksum="` + checksum1 + `" mtime="1234567890" size="20">
+      <bd>TEST_VOL</bd>
+    </fr>
+  </dr>
+  <dr dir="backup/old">
+    <fr fname="settings_backup.yaml" checksum="` + checksum2 + `" mtime="1234567890" size="20">
+      <bd>TEST_VOL</bd>
+    </fr>
+  </dr>
+</mdj>`
 	if err := os.WriteFile(journalPath, []byte(journalContent), 0o644); err != nil {
 		t.Fatal(err)
 	}

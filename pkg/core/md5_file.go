@@ -13,7 +13,6 @@ import (
 type Md5File struct {
 	XMLName struct{}        `xml:"dr"`
 	Dir     string          `xml:"dir,attr,omitempty"`
-	Alias   string          `xml:"alias,attr,omitempty"` // Source directory alias for journal entries
 	Files   FileStructArray `xml:"fr"`
 }
 
