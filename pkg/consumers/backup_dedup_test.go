@@ -3,6 +3,7 @@ package consumers
 import (
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -78,10 +79,13 @@ func TestBackupDuplicateContentFiles(t *testing.T) {
 	var xc core.MdConfig
 	var copyCount uint32
 	var copiedFiles []string
+	var copiedFilesMu sync.Mutex
 
 	fc := func(src, dst core.Fpath) error {
 		atomic.AddUint32(&copyCount, 1)
+		copiedFilesMu.Lock()
 		copiedFiles = append(copiedFiles, filepath.Base(string(dst)))
+		copiedFilesMu.Unlock()
 		t.Logf("Copying: %s -> %s", src, dst)
 		return core.CopyFile(src, dst)
 	}

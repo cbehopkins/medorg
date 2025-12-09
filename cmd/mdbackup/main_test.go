@@ -60,58 +60,6 @@ func newXMLCfgAt(t *testing.T, base string) *core.MdConfig {
 	return xc
 }
 
-func TestIntegration_TagMode(t *testing.T) {
-	cases := []struct {
-		name       string
-		withSource bool
-		checkLabel bool
-	}{
-		{name: "DestinationOnly_LabelPrinted", withSource: false, checkLabel: true},
-		{name: "DestinationWithExtraSources", withSource: true, checkLabel: false},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			dirs, cleanup := makeTempDirs(t, "tag-dest", "tag-src")
-			defer cleanup()
-
-			xc := newXMLCfgAt(t, dirs["tag-dest"])
-			// persist volume for destination
-			vc, err := xc.VolumeCfgFromDir(dirs["tag-dest"])
-			if err != nil {
-				t.Fatalf("Failed to get volume config: %v", err)
-			}
-			if err := vc.Persist(); err != nil {
-				t.Fatalf("Failed to persist volume config: %v", err)
-			}
-			label := vc.Label
-
-			var logBuf, msgBuf bytes.Buffer
-			cfg := Config{
-				Destination:          dirs["tag-dest"],
-				VolumeConfigProvider: xc,
-				TagMode:              true,
-				LogOutput:            &logBuf,
-				MessageWriter:        &msgBuf,
-				UseProgressBar:       false,
-			}
-			if tc.withSource {
-				cfg.Sources = []string{dirs["tag-src"]}
-			}
-
-			exitCode, err := Run(cfg)
-			if exitCode != cli.ExitOk || err != nil {
-				t.Fatalf("Tag mode failed: exit=%d err=%v", exitCode, err)
-			}
-			if tc.checkLabel {
-				if !strings.Contains(msgBuf.String(), label) {
-					t.Errorf("Expected output to contain label %q, got: %s", label, msgBuf.String())
-				}
-			}
-		})
-	}
-}
-
 func TestIntegration_BasicBackup_NoFiles(t *testing.T) {
 	// Create source and destination directories
 	srcDir, err := os.MkdirTemp("", "mdbackup-src-*")

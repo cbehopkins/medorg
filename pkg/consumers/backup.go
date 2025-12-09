@@ -22,6 +22,7 @@ var ErrDummyCopy = errors.New("not really copying, it's all good though")
 var (
 	ErrIOError = syscall.Errno(5) // I don't like this, but don't know a better way
 	// Export of no space left on device from syscall
+	// FIXME what's the windows equivalent?
 	ErrNoSpace = syscall.Errno(28)
 )
 

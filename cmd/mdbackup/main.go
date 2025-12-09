@@ -173,7 +173,7 @@ func main() {
 
 	///////////////////////////////////
 	// Command line argument processing
-	tagflg := flag.Bool("tag", false, "Locate and print the directory tag, create if needed")
+	// FIXME add help flag
 	scanflg := flag.Bool("scan", false, "Only scan files in src & dst updating labels, don't run the backup")
 	dummyflg := flag.Bool("dummy", false, "Don't copy, just tell me what you'd do")
 	delflg := flag.Bool("delete", false, "Delete duplicated Files")
@@ -235,7 +235,6 @@ func main() {
 		Destination:          dest,
 		Sources:              sources,
 		VolumeConfigProvider: xc,
-		TagMode:              *tagflg,
 		ScanMode:             *scanflg,
 		DummyMode:            *dummyflg,
 		DeleteMode:           *delflg,

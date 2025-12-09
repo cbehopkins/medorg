@@ -32,7 +32,7 @@ type Config struct {
 	// VolumeConfigProvider provides volume configuration for directories
 	VolumeConfigProvider VolumeConfigProvider
 
-	TagMode        bool
+	// TagMode        bool
 	ScanMode       bool
 	DummyMode      bool
 	DeleteMode     bool
@@ -105,17 +105,17 @@ func Run(cfg Config) (int, error) {
 	}
 
 	// Handle tag mode (configure destination only)
-	if cfg.TagMode {
-		if cfg.Destination == "" {
-			return cli.ExitOneDirectoryOnly, errors.New("destination directory required when configuring tags")
-		}
-		vc, err := cfg.VolumeConfigProvider.VolumeCfgFromDir(cfg.Destination)
-		if err != nil {
-			return cli.ExitBadVc, fmt.Errorf("failed to get volume config: %w", err)
-		}
-		fmt.Fprintf(cfg.MessageWriter, "Config name is %s\n", vc.Label)
-		return cli.ExitOk, nil
-	}
+	// if cfg.TagMode {
+	// 	if cfg.Destination == "" {
+	// 		return cli.ExitOneDirectoryOnly, errors.New("destination directory required when configuring tags")
+	// 	}
+	// 	vc, err := cfg.VolumeConfigProvider.VolumeCfgFromDir(cfg.Destination)
+	// 	if err != nil {
+	// 		return cli.ExitBadVc, fmt.Errorf("failed to get volume config: %w", err)
+	// 	}
+	// 	fmt.Fprintf(cfg.MessageWriter, "Config name is %s\n", vc.Label)
+	// 	return cli.ExitOk, nil
+	// }
 
 	// Handle stats mode (scan destination + sources)
 	if cfg.StatsMode {
@@ -136,20 +136,33 @@ func Run(cfg Config) (int, error) {
 	if cfg.Destination == "" || len(cfg.Sources) == 0 {
 		return cli.ExitTwoDirectoriesOnly, fmt.Errorf("expected destination + at least 1 source, got dest='%s' sources=%d", cfg.Destination, len(cfg.Sources))
 	}
+	fileSkipper := func(path core.Fpath) bool {
+		// log.Println("Skipping copy of:", path)
+		return false
+	}
 
 	// Setup the copier function
 	var copyer func(src, dst core.Fpath) error
 	if cfg.DummyMode {
 		copyer = func(src, dst core.Fpath) error {
+			if fileSkipper(src) {
+				return nil
+			}
 			log.Println("Copy from:", src, " to ", dst)
 			return consumers.ErrDummyCopy
 		}
 	} else if cfg.UseProgressBar {
 		copyer = func(src, dst core.Fpath) error {
+			if fileSkipper(src) {
+				return nil
+			}
 			return poolCopier(src, dst, pool, &wg)
 		}
 	} else {
 		copyer = func(src, dst core.Fpath) error {
+			if fileSkipper(src) {
+				return nil
+			}
 			log.Println("Copying:", src, "to", dst)
 			return core.CopyFile(src, dst)
 		}

@@ -9,7 +9,7 @@ import (
 )
 
 func main() {
-	configPath := flag.String("config", "", "Path to config file (optional, defaults to ~/.medorg.xml)")
+	configPath := flag.String("config", "", "Path to config file (optional, defaults to ~/.mdcfg.xml)")
 	scanflg := flag.Bool("scan", false, "Only scan files in src & dst updating labels, don't run the backup")
 
 	flag.Parse()
