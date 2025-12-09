@@ -53,6 +53,7 @@ func NewConfigLoader(configPath string, stdout io.Writer) *ConfigLoader {
 	if stdout == nil {
 		stdout = os.Stdout
 	}
+	fmt.Println("New Config Loader with:", configPath)
 	return &ConfigLoader{
 		ConfigPath: configPath,
 		Stdout:     stdout,
@@ -62,6 +63,7 @@ func NewConfigLoader(configPath string, stdout io.Writer) *ConfigLoader {
 // Load loads or creates the MdConfig.
 // Returns the config and an exit code. Exit code is ExitOk on success.
 func (cl *ConfigLoader) Load() (*core.MdConfig, int) {
+	fmt.Println("Loading config with path:", cl.ConfigPath)
 	xc, err := core.LoadOrCreateMdConfigWithPath(cl.ConfigPath)
 	if err != nil {
 		fmt.Fprintf(cl.Stdout, "Error loading config file: %v\n", err)

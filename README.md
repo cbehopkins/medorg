@@ -17,8 +17,8 @@ medorg provides a complete workflow for backing up large file collections across
 - **Idempotent operations** - Safe to re-run without duplicating work
 
 **How it works:**
-- Each directory maintains a `.md5_list.xml` file recording checksums for all files
-- A configuration file `.medorg.xml` (in current directory or `~/.medorg.xml`) manages source directories and restore destinations
+- Each directory maintains a `.medorg.xml` file recording checksums for all files
+- A configuration file `.mdcfg.xml` (in current directory or `~/.mdcfg.xml`) manages source directories and restore destinations
 - Backup volumes are labeled and tracked in journal files
 - Files can be restored from any combination of backup volumes
 
@@ -169,7 +169,7 @@ mdsource --config /path/to/config.xml list
 mdrestore --config /path/to/config.xml --journal journal.xml /volume
 ```
 
-If not specified, commands look for `.medorg.xml` in the current directory or home directory (`~/.medorg.xml`).
+If not specified, commands look for `.mdcfg.xml` in the current directory or home directory (`~/.mdcfg.xml`).
 
 The configuration file stores:
 - Source directory paths and aliases
@@ -224,7 +224,7 @@ The backup system is optimized for large collections:
 - **Streaming Architecture**: Files are processed in batches (1000 at a time) rather than loading all file paths into memory at once
 - **Memory Efficient**: Suitable for backing up millions of files without excessive RAM usage
 - **Parallel Processing**: Uses goroutines with controlled concurrency (2 concurrent copies) for efficient throughput
-- **Checksum-Verified**: All copies are verified using MD5 checksums stored in `.medorg.xml` files
+- **Checksum-Verified**: All copies are verified using MD5 checksums stored in `.mdcfg.xml` files
 
 For very large collections (e.g., 1TB+ with millions of files), the streaming approach ensures bounded memory usage throughout the backup process.
 

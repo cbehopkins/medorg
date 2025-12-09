@@ -69,21 +69,22 @@ func LoadOrCreateMdConfig() (*MdConfig, error) {
 }
 
 // LoadOrCreateMdConfigWithPath loads the config from the specified path or default location
-// If configPath is empty, uses default behavior (XmConfig or ~/.medorg.xml)
+// If configPath is empty, uses default behavior (XmConfig or ~/.mdcfg.xml)
 // If configPath is provided, uses that path directly
 func LoadOrCreateMdConfigWithPath(configPath string) (*MdConfig, error) {
 	// If a specific path is provided, use it
 	if configPath != "" {
+		fmt.Println("Loading from:", configPath)
 		return NewMdConfig(configPath)
 	}
 
-	// First check if XmConfig returns a location (looks for existing .medorg.xml)
+	// First check if XmConfig returns a location (looks for existing .mdcfg.xml)
 	if xmcf := XmConfig(); xmcf != "" {
 		return NewMdConfig(string(xmcf))
 	}
 
-	// If not found, use default location: ~/.medorg.xml
-	fn := ConfigPath(".medorg.xml")
+	// If not found, use default location: ~/.mdcfg.xml
+	fn := ConfigPath(ConfigFileName)
 	return NewMdConfig(fn)
 }
 

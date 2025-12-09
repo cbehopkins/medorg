@@ -127,7 +127,7 @@ func TestIntegration_BasicBackup_NoFiles(t *testing.T) {
 	defer os.RemoveAll(dstDir)
 
 	// Create XML config
-	configFile := filepath.Join(srcDir, ".medorg.xml")
+	configFile := filepath.Join(srcDir, core.ConfigFileName)
 	xc, err := core.NewMdConfig(configFile)
 	if err != nil {
 		t.Fatalf("Failed to create XML config: %v", err)

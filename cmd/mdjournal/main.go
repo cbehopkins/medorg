@@ -36,7 +36,7 @@ func main() {
 
 	cfg := Config{
 		Directories:  directories,
-		JournalPath:  string(core.ConfigPath(".mdjournal.xml")),
+		JournalPath:  string(core.ConfigPath(core.JournalPathName)),
 		ScanOnly:     *scanflg,
 		ReadExisting: true,
 		GetAlias:     getAlias,

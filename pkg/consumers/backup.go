@@ -381,9 +381,13 @@ func extractCopyFiles(srcDir string, dt *core.DirTracker, volumeName string, reg
 	remainingFiles := fpathListList{}
 	visitFunc := func(dm core.DirectoryEntryInterface, dir, fn string, fileStruct core.FileStruct) error {
 		// Skip metadata files - these should never be backed up
-		if fn == core.Md5FileName || fn == ".mdjournal.xml" || fn == ".mdbackup.xml" {
+		if core.IsMetadataFile(fn) {
 			return nil
 		}
+		// FIXME I'd like to add to the source definition skip paths
+		// Such that a backup source could specify paths not to back up
+		// e.g. Recycle Bin, Thumbs.db, .DS_Store, etc.
+		// Hidden files could be one such option
 
 		if fileStruct.HasTag(volumeName) {
 			return nil
@@ -421,7 +425,7 @@ func streamingExtractAndCopy(
 
 	visitFunc := func(dm core.DirectoryEntryInterface, dir, fn string, fileStruct core.FileStruct) error {
 		// Skip metadata files - these should never be backed up
-		if fn == core.Md5FileName || fn == ".mdjournal.xml" || fn == ".mdbackup.xml" {
+		if core.IsMetadataFile(fn) {
 			return nil
 		}
 

@@ -9,7 +9,7 @@ import (
 // TestNewMdConfig tests loading and creating config from file
 func TestNewMdConfig(t *testing.T) {
 	tmpDir := t.TempDir()
-	configPath := filepath.Join(tmpDir, ".medorg.xml")
+	configPath := filepath.Join(tmpDir, ConfigFileName)
 
 	// Test creating new config (file doesn't exist)
 	cfg, err := NewMdConfig(configPath)
@@ -430,7 +430,7 @@ func TestMdConfigPathCleaning(t *testing.T) {
 // TestMdConfigComplexWorkflow tests a realistic workflow
 func TestMdConfigComplexWorkflow(t *testing.T) {
 	tmpDir := t.TempDir()
-	configPath := filepath.Join(tmpDir, ".medorg.xml")
+	configPath := filepath.Join(tmpDir, ConfigFileName)
 
 	// Create and configure
 	cfg, _ := NewMdConfig(configPath)

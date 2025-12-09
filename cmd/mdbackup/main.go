@@ -138,7 +138,7 @@ func main() {
 	retcode := 0
 	defer func() { os.Exit(retcode) }()
 
-	configPath := flag.String("config", "", "Path to config file (optional, defaults to ~/.medorg.xml)")
+	configPath := flag.String("config", "", "Path to config file (optional, defaults to ~/.mdcfg.xml)")
 	flag.Parse()
 
 	///////////////////////////////////

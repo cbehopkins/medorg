@@ -19,7 +19,16 @@ var Debug bool
 type DirectoryMapMod func(DirectoryMap, string)
 
 // Md5FileName is the filename we use to save the data in
-const Md5FileName = ".medorg.xml"
+const (
+	Md5FileName      = ".medorg.xml"
+	ConfigFileName   = ".mdcfg.xml"
+	AfConfigFileName = ".autofix"
+	JournalPathName  = ".mdjournal.xml"
+)
+
+func IsMetadataFile(fn string) bool {
+	return fn == Md5FileName || fn == ConfigFileName || fn == AfConfigFileName || fn == JournalPathName
+}
 
 // ErrSkipCheck Reports a checksum that we have skipped producing
 var ErrSkipCheck = errors.New("skipping Checksum")
