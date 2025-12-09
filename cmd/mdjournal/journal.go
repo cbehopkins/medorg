@@ -29,6 +29,8 @@ func Run(cfg Config) (int, error) {
 	}
 
 	if cfg.ScanOnly {
+		// FIXME this flag does nothing
+		// It should not write to the journal file, but currently it does
 		fmt.Fprintln(cfg.Stdout, "You've asked us to scan:", cfg.Directories)
 	}
 
@@ -62,6 +64,7 @@ func Run(cfg Config) (int, error) {
 			fmt.Fprintln(cfg.Stdout, "Error opening journal:", err)
 		}
 	}
+	fmt.Println("Using Journal Path:", cfg.JournalPath)
 
 	// Step 2: Read .medorg.xml files and populate journal
 	// No checksum calculation needed - just read the existing data
@@ -76,14 +79,13 @@ func Run(cfg Config) (int, error) {
 		if cfg.GetAlias != nil {
 			alias = cfg.GetAlias(dir)
 		}
-
-		// Add the directory map to the journal with alias information
-		if alias != "" {
-			err = journal.AppendJournalFromDmWithAlias(&dm, dir, alias)
-		} else {
-			err = journal.AppendJournalFromDm(&dm, dir)
+		if alias == "" {
+			// Alias is required for journal entries
+			return cli.ExitAliasNotFound, fmt.Errorf("alias not provided for journal: %s", dir)
 		}
 
+		// Add the directory map to the journal with alias information
+		err = journal.AppendJournalFromDmWithAlias(&dm, dir, alias)
 		if err != nil {
 			// ErrFileExistsInJournal is not a real error, just informational
 			if err != consumers.ErrFileExistsInJournal {
@@ -102,6 +104,7 @@ func Run(cfg Config) (int, error) {
 	if err := journal.ToWriter(fh); err != nil {
 		return cli.ExitJournalWriteError, fmt.Errorf("error writing journal: %w", err)
 	}
+	fmt.Fprintln(cfg.Stdout, "Journal written to", cfg.JournalPath)
 
 	return cli.ExitOk, nil
 }

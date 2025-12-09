@@ -190,6 +190,7 @@ func (jo *Journal) appendItem(de core.DirectoryEntryJournalableInterface, dir, a
 // AppendJournalFromDm adds changed dms to the journal
 // It's important to note that (for now) we journal the full directory contents.
 // Therefore to delete a directory in the journal, make it empty
+// FIXME This should not be needed???
 func (jo *Journal) AppendJournalFromDm(dm core.DirectoryEntryJournalableInterface, dir string) error {
 	err := jo.selfCheck()
 	if err != nil {
@@ -224,6 +225,7 @@ func (jo *Journal) AppendJournalFromDm(dm core.DirectoryEntryJournalableInterfac
 // AppendJournalFromDmWithAlias adds changed dms to the journal with alias information
 // The alias is stored in the journal for restore operations
 func (jo *Journal) AppendJournalFromDmWithAlias(dm core.DirectoryEntryJournalableInterface, dir, alias string) error {
+	// FIXME I don't think we should self check every single append!
 	err := jo.selfCheck()
 	if err != nil {
 		return err
