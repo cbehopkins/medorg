@@ -149,9 +149,9 @@ func DirectoryMapFromDir(directory string) (dm DirectoryMap, err error) {
 	if dm.mp == nil {
 		return dm, errors.New("initialize malfunction")
 	}
-	fn := filepath.Join(directory, Md5FileName)
+	mdFilePath := filepath.Join(directory, Md5FileName)
 	var f *os.File
-	_, err = os.Stat(fn)
+	_, err = os.Stat(mdFilePath)
 
 	if errors.Is(err, os.ErrNotExist) {
 		// The MD5 file not existing is not an error,
@@ -159,9 +159,9 @@ func DirectoryMapFromDir(directory string) (dm DirectoryMap, err error) {
 		// or it is the first time we've gone into it
 		return dm, nil
 	}
-	f, err = os.Open(fn)
+	f, err = os.Open(mdFilePath)
 	if err != nil {
-		return dm, fmt.Errorf("%w error opening directory map file, %s/%s", err, directory, fn)
+		return dm, fmt.Errorf("%w error opening directory map file, %s/%s", err, directory, mdFilePath)
 	}
 	byteValue, err := io.ReadAll(f)
 	if err != nil {
@@ -222,102 +222,11 @@ func (dm DirectoryMap) AddMetadata(fm FileMetadata) {
 	dm.Add(fs)
 }
 
-// ForEachFile iterates over all files in the directory map
-// The callback receives the filename and file metadata
-// This is a read only operation
-func (dm DirectoryMap) ForEachFile(fn func(filename string, fm FileMetadata) error) error {
-	dm.lock.RLock()
-	defer dm.lock.RUnlock()
-
-	for name, fs := range dm.mp {
-		fsCopy := fs // Create a copy to avoid pointer issues
-		if err := fn(name, &fsCopy); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// ForEachFileMod iterates over all files in the directory map allowing modification, deletion, or rename.
-// The callback returns a new filename and a (possibly modified) FileMetadata.
-// If the returned FileMetadata is nil, the file entry is deleted (new filename is ignored).
-// If a non-nil FileMetadata is returned and the filename differs, the entry is renamed to the new filename.
-// If the filename is unchanged, the entry is updated in-place. Any error aborts the iteration.
-func (dm DirectoryMap) ForEachFileMod(fn func(filename string, fm FileMetadata) (string, FileMetadata, error)) error {
-	dm.lock.Lock()
-	defer dm.lock.Unlock()
-
-	deleteList := make([]string, 0)
-	updates := make(map[string]FileStruct)
-	adds := make(map[string]FileStruct)
-
-	for name, fs := range dm.mp {
-		fsCopy := fs
-		newName, newFM, err := fn(name, &fsCopy)
-		if err != nil {
-			return err
-		}
-		// If nil is returned, delete this entry
-		if newFM == nil {
-			deleteList = append(deleteList, name)
-			continue
-		}
-
-		// If the returned metadata is (or can be) a FileStruct, use it directly
-		switch v := newFM.(type) {
-		case *FileStruct:
-			// Ensure the struct's Name matches the newName we are targeting
-			if newName != "" {
-				v.Name = newName
-			} else {
-				newName = v.Name
-			}
-			if newName == name {
-				updates[name] = *v
-			} else {
-				deleteList = append(deleteList, name)
-				adds[newName] = *v
-			}
-		default:
-			// Otherwise, adapt from the FileMetadata interface
-			adapted := FileStruct{
-				directory:  newFM.Directory(),
-				Name:       newName,
-				Checksum:   newFM.GetChecksum(),
-				Mtime:      0, // Not provided by FileMetadata; leave unchanged/default
-				Size:       newFM.GetSize(),
-				Tags:       newFM.GetTags(),
-				BackupDest: newFM.BackupDestinations(),
-			}
-			// If callback didn't supply a new name, fall back to the metadata's name
-			if adapted.Name == "" {
-				adapted.Name = newFM.GetName()
-			}
-			target := adapted.Name
-			if target == name {
-				updates[name] = adapted
-			} else {
-				deleteList = append(deleteList, name)
-				adds[target] = adapted
-			}
-		}
-	}
-
-	if len(deleteList) > 0 || len(updates) > 0 || len(adds) > 0 {
-		*dm.stale = true
-	}
-	for _, k := range deleteList {
-		delete(dm.mp, k)
-	}
-	maps.Copy(dm.mp, updates)
-	maps.Copy(dm.mp, adds)
-	return nil
-}
-
 // DirectoryStorage interface implementation
 
 // Load reads metadata from storage (implements DirectoryStorage.Load)
 func (dm *DirectoryMap) Load(directory string) error {
+	panic("I think this should be unused")
 	loadedDm, err := DirectoryMapFromDir(directory)
 	if err != nil {
 		return err
@@ -328,11 +237,13 @@ func (dm *DirectoryMap) Load(directory string) error {
 
 // Save writes metadata to storage (implements DirectoryStorage.Save)
 func (dm DirectoryMap) Save(directory string) error {
+	panic("I think this should be unused")
 	return dm.Persist(directory)
 }
 
 // GetFile retrieves metadata for a specific file (implements DirectoryStorage.GetFile)
 func (dm DirectoryMap) GetFile(filename string) (FileMetadata, error) {
+	panic("I think this should be unused")
 	fm, ok := dm.GetMetadata(filename)
 	if !ok {
 		return nil, fmt.Errorf("file %s not found in directory map", filename)
@@ -367,29 +278,31 @@ func (dm DirectoryMap) ListFiles() []FileMetadata {
 	return result
 }
 
+// ForEachFile iterates over all files in the directory map
+// The callback receives the filename and file metadata
+// This is a read only operation
+func (dm DirectoryMap) ForEachFile(fn func(string, FileMetadata) error) error {
+	dm.lock.RLock()
+	defer dm.lock.RUnlock()
+
+	for name, fs := range dm.mp {
+		fsCopy := fs // Create a copy to avoid pointer issues
+		if err := fn(name, &fsCopy); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // selfCheck the directory map for obvious errors
 func (dm DirectoryMap) selfCheck(directory string) error {
-	fc := func(fn string, fs FileStruct) error {
+	fc := func(fn string, fs FileMetadata) error {
 		if fs.Directory() != directory {
 			return fmt.Errorf("%w FS has directory of %s for %s/%s", errSelfCheckProblem, fs.Directory(), directory, fn)
 		}
 		return nil
 	}
-	return dm.rangeMap(fc)
-}
-
-// rangeMap do a map over the map
-// Note, you may not edit the dm itself
-func (dm DirectoryMap) rangeMap(fc func(string, FileStruct) error) error {
-	dm.lock.RLock()
-	defer dm.lock.RUnlock()
-	for fn, v := range dm.mp {
-		err := fc(fn, v)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
+	return dm.ForEachFile(fc)
 }
 
 var (

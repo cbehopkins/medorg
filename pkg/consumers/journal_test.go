@@ -4,15 +4,21 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
 // TestNewJournal tests basic journal creation and population
 func TestNewJournal(t *testing.T) {
-	journal := NewJournal()
+	journal, err := NewJournal()
+	if err != nil {
+		t.Fatalf("NewJournal failed: %v", err)
+	}
 	if journal == nil {
 		t.Error("NewJournal should create a journal")
 	}
+	defer journal.Cleanup()
+
 	if len(journal.String()) == 0 {
 		t.Log("Empty journal is empty string - expected")
 	}
@@ -49,9 +55,19 @@ func TestJournalXMLRoundTrip(t *testing.T) {
 	}
 
 	// Create and populate journal
-	journal := NewJournal()
+	journal, err := NewJournal()
+	if err != nil {
+		t.Fatalf("NewJournal failed: %v", err)
+	}
+	defer journal.Cleanup()
+
 	if err := journal.PopulateFromDirectories(testDir, "test-alias"); err != nil {
 		t.Fatalf("Failed to populate journal: %v", err)
+	}
+
+	// Close the journal to ensure files are synced before reading
+	if err := journal.Close(); err != nil {
+		t.Fatalf("Failed to close journal: %v", err)
 	}
 
 	// Write to buffer
@@ -68,9 +84,19 @@ func TestJournalXMLRoundTrip(t *testing.T) {
 	}
 
 	// Read back
-	journalRead := NewJournal()
+	journalRead, err := NewJournal()
+	if err != nil {
+		t.Fatalf("NewJournal failed: %v", err)
+	}
+	defer journalRead.Cleanup()
+
 	if err := journalRead.FromReader(bytes.NewReader(buf.Bytes())); err != nil {
 		t.Fatalf("Failed to read journal: %v", err)
+	}
+
+	// Close to sync files
+	if err := journalRead.Close(); err != nil {
+		t.Fatalf("Failed to close journal: %v", err)
 	}
 
 	// Verify both journals have content
@@ -90,9 +116,19 @@ func TestJournalFromReaderParsesAlias(t *testing.T) {
   </dr>
 </mdj>`
 
-	journal := NewJournal()
+	journal, err := NewJournal()
+	if err != nil {
+		t.Fatalf("NewJournal failed: %v", err)
+	}
+	defer journal.Cleanup()
+
 	if err := journal.FromReader(bytes.NewReader([]byte(xmlData))); err != nil {
 		t.Fatalf("Failed to read journal: %v", err)
+	}
+
+	// Close to sync files
+	if err := journal.Close(); err != nil {
+		t.Fatalf("Failed to close journal: %v", err)
 	}
 
 	journalStr := journal.String()
@@ -125,7 +161,11 @@ func TestJournalAliasRequiredInPopulate(t *testing.T) {
 		t.Fatalf("Failed to run CheckCalc: %v", err)
 	}
 
-	journal := NewJournal()
+	journal, err := NewJournal()
+	if err != nil {
+		t.Fatalf("NewJournal failed: %v", err)
+	}
+	defer journal.Cleanup()
 
 	// Should fail with empty alias
 	if err := journal.PopulateFromDirectories(tempDir, ""); err != ErrAliasRequired {
@@ -146,8 +186,70 @@ func TestJournalAliasRequiredInFromReader(t *testing.T) {
   </dr>
 </mdj>`
 
-	journal := NewJournal()
+	journal, err := NewJournal()
+	if err != nil {
+		t.Fatalf("NewJournal failed: %v", err)
+	}
+	defer journal.Cleanup()
+
 	if err := journal.FromReader(bytes.NewReader([]byte(xmlData))); err != ErrAliasRequired {
 		t.Errorf("Expected ErrAliasRequired for empty alias in XML, got %v", err)
+	}
+}
+
+// TestJournalAddIgnorePattern verifies that ignore patterns skip matching paths
+func TestJournalAddIgnorePattern(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "journal-ignore-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	// Create files: one to keep, one under "Recycle Bin" to ignore
+	keepFile := filepath.Join(tempDir, "keep.txt")
+	ignoreDir := filepath.Join(tempDir, "Recycle Bin", "bob")
+	ignoreFile := filepath.Join(ignoreDir, "my.txt")
+
+	if err := os.MkdirAll(ignoreDir, 0o755); err != nil {
+		t.Fatalf("Failed to create ignore dir: %v", err)
+	}
+	if err := os.WriteFile(keepFile, []byte("keep"), 0o644); err != nil {
+		t.Fatalf("Failed to write keep file: %v", err)
+	}
+	if err := os.WriteFile(ignoreFile, []byte("ignore"), 0o644); err != nil {
+		t.Fatalf("Failed to write ignore file: %v", err)
+	}
+
+	// Generate .medorg.xml metadata
+	checkCalcOpts := CheckCalcOptions{CalcCount: 1, Recalc: false, Validate: false, Scrub: false, AutoFix: nil}
+	if err := RunCheckCalc([]string{tempDir}, checkCalcOpts); err != nil {
+		t.Fatalf("Failed to run CheckCalc: %v", err)
+	}
+
+	journal, err := NewJournal()
+	if err != nil {
+		t.Fatalf("NewJournal failed: %v", err)
+	}
+	defer journal.Cleanup()
+
+	if err := journal.AddIgnorePattern("Recycle Bin"); err != nil {
+		t.Fatalf("Failed to add ignore pattern: %v", err)
+	}
+
+	if err := journal.PopulateFromDirectories(tempDir, "alias"); err != nil {
+		t.Fatalf("Failed to populate journal: %v", err)
+	}
+
+	var buf bytes.Buffer
+	if err := journal.ToWriter(&buf); err != nil {
+		t.Fatalf("Failed to write journal: %v", err)
+	}
+
+	xmlOut := buf.String()
+	if strings.Contains(xmlOut, "Recycle Bin") {
+		t.Errorf("Expected files under 'Recycle Bin' to be ignored, but found entry: %s", xmlOut)
+	}
+	if !strings.Contains(xmlOut, "keep.txt") {
+		t.Errorf("Expected keep.txt to be present in journal output")
 	}
 }

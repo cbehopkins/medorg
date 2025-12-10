@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -26,6 +27,32 @@ type VolumeCfg struct {
 	fn      string
 }
 
+// VolumeLabelProvider abstracts label resolution for a destination path
+type VolumeLabelProvider interface {
+	EnsureLabel(destPath string) (string, error)
+}
+
+// mdVolumeLabelProvider is an adapter using MdConfig to manage label registry
+type mdVolumeLabelProvider struct {
+	cfg *MdConfig
+}
+
+// NewVolumeLabelProvider returns a provider that manages labels via MdConfig
+func NewVolumeLabelProvider(cfg *MdConfig) VolumeLabelProvider {
+	return &mdVolumeLabelProvider{cfg: cfg}
+}
+
+func (m *mdVolumeLabelProvider) EnsureLabel(destPath string) (string, error) {
+	if m == nil || m.cfg == nil {
+		return "", errors.New("nil volume label provider")
+	}
+	vc, err := m.cfg.VolumeCfgFromDir(destPath)
+	if err != nil {
+		return "", err
+	}
+	return vc.Label, nil
+}
+
 // NewVolumeCfg reads the config from an xml file
 func NewVolumeCfg(xc *MdConfig, fn string) (*VolumeCfg, error) {
 	itm := new(VolumeCfg)
@@ -34,11 +61,13 @@ func NewVolumeCfg(xc *MdConfig, fn string) (*VolumeCfg, error) {
 	itm.fn = fn
 
 	if os.IsNotExist(err) {
+		log.Println("Generating new volume label for", fn)
 		err := itm.GenerateNewVolumeLabel(xc)
 		if err != nil {
 			return nil, err
 		}
 	} else {
+		log.Println("Loading existing volume label from", fn)
 		f, err = os.Open(fn)
 		if err != nil {
 			return nil, fmt.Errorf("error opening NewVolumeCfg file:%s::%w", fn, err)
@@ -55,7 +84,7 @@ func NewVolumeCfg(xc *MdConfig, fn string) (*VolumeCfg, error) {
 		}
 	}
 	// We don't care if the label is there already or not
-	_ = xc.AddLabel(itm.Label)
+	_ = xc.ReserveLabel(itm.Label)
 	return itm, nil
 }
 
@@ -129,14 +158,14 @@ func (vc VolumeCfg) Persist() error {
 func (vc *VolumeCfg) GenerateNewVolumeLabel(xc *MdConfig) error {
 	for {
 		vc.Label = RandStringBytesMaskImprSrcSB(8)
-		if xc.AddLabel(vc.Label) {
+		if xc.ReserveLabel(vc.Label) {
 			return vc.Persist()
 		}
 	}
 }
 
 func formVolumeName(dir string) string {
-	return filepath.Join(dir, ".mdbackup.xml")
+	return filepath.Join(dir, VolumePathName)
 }
 
 func findVolumeConfig(dir string) string {
@@ -193,4 +222,9 @@ func (xc *MdConfig) GetVolumeLabel(destDir string) (string, error) {
 		return "", err
 	}
 	return vc.Label, err
+}
+
+// EnsureLabel satisfies VolumeLabelProvider by returning or creating a label for the destination
+func (xc *MdConfig) EnsureLabel(destDir string) (string, error) {
+	return xc.GetVolumeLabel(destDir)
 }

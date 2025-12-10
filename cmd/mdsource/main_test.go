@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/cbehopkins/medorg/pkg/cli"
@@ -68,5 +69,37 @@ func TestMdsource_InvalidAliasAndPath(t *testing.T) {
 	os.Args = []string{"mdsource", "add", "--path", "Z:/does/not/exist", "--alias", "bad", "--config", cfgPath}
 	if code := run(&out); code != cli.ExitPathNotExist {
 		t.Fatalf("expected ExitPathNotExist got %d output=%s", code, out.String())
+	}
+}
+
+func TestMdsource_IgnoreAddAndTest(t *testing.T) {
+	cfgPath := tempConfig(t)
+
+	var out bytes.Buffer
+
+	// add ignore pattern
+	os.Args = []string{"mdsource", "ignore-add", "--pattern", "Recycle Bin", "--config", cfgPath}
+	if code := run(&out); code != cli.ExitOk {
+		t.Fatalf("ignore-add exit code=%d output=%s", code, out.String())
+	}
+
+	// test ignored path
+	out.Reset()
+	os.Args = []string{"mdsource", "ignore-test", "--path", "home/Recycle Bin/bob/my.txt", "--config", cfgPath}
+	if code := run(&out); code != cli.ExitOk {
+		t.Fatalf("ignore-test exit code=%d output=%s", code, out.String())
+	}
+	if !strings.Contains(out.String(), "IGNORED") {
+		t.Fatalf("expected path to be ignored, output=%s", out.String())
+	}
+
+	// test non-ignored path
+	out.Reset()
+	os.Args = []string{"mdsource", "ignore-test", "--path", "home/keep.txt", "--config", cfgPath}
+	if code := run(&out); code != cli.ExitOk {
+		t.Fatalf("ignore-test exit code=%d output=%s", code, out.String())
+	}
+	if !strings.Contains(out.String(), "NOT IGNORED") {
+		t.Fatalf("expected path not to be ignored, output=%s", out.String())
 	}
 }

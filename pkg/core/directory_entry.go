@@ -43,7 +43,6 @@ type EntryMaker func(string) (DirectoryEntryInterface, error)
 // We are also able to send it files to work
 type DirectoryEntry struct {
 	workItems   chan workItem
-	closeChan   chan struct{}
 	Dir         string
 	errorChan   chan error // now buffered
 	Dm          DirectoryEntryInterface
@@ -64,7 +63,6 @@ func NewDirectoryEntry(path string, mkF EntryMaker) (DirectoryEntry, error) {
 	}
 
 	itm.workItems = make(chan workItem)
-	itm.closeChan = make(chan struct{})
 	itm.errorChan = make(chan error, 4) // buffered to avoid blocking
 	itm.activeFiles = new(sync.WaitGroup)
 	itm.closed = &atomic.Bool{}
@@ -81,10 +79,10 @@ func (de DirectoryEntry) ErrChan() <-chan error {
 func (de DirectoryEntry) Close() {
 	// Use atomic CAS to ensure we only close once
 	if !de.closed.CompareAndSwap(false, true) {
+		panic("DirectoryEntry Close called multiple times")
 		return // Already closed
 	}
-	close(de.closeChan)
-	close(de.workItems) // Safe: atomic.Bool ensures only one Close() runs
+	close(de.workItems)
 }
 
 // VisitFile satisfy the DirectoryTrackerInterface
@@ -97,61 +95,23 @@ func (de DirectoryEntry) VisitFile(dir, file string, d fs.DirEntry, callback fun
 
 // Start and run the worker
 func (de DirectoryEntry) Start() error {
-	de.worker()
+	go de.worker()
 	return nil
 }
 
 func (de DirectoryEntry) worker() {
-	defer close(de.errorChan)
-
 	// allow file paths to be sent to us for processing
-	for {
-		select {
-		case wi, ok := <-de.workItems:
-			if !ok {
-				// workItems closed (by Close()), finish up
-				de.activeFiles.Wait()
-				select {
-				case de.errorChan <- de.Dm.Persist(de.Dir):
-				default:
-				}
-				return
-			}
-			go func(dir, file string, d fs.DirEntry) {
-				err := de.Dm.Visitor(dir, file, d)
-				// Non-blocking send - if channel full, error is dropped
-				// This prevents deadlock if errorChan gets backed up
-				select {
-				case de.errorChan <- err:
-				default:
-				}
-				wi.callback()
-				de.activeFiles.Done()
-			}(wi.dir, wi.file, wi.d)
-		case <-de.closeChan:
-			// closeChan signals us to finish, but Close() already closed workItems
-			// so the next iteration will hit the !ok case and exit
-			// Just drain any remaining items that were sent before workItems closed
-			for wi := range de.workItems {
-				go func(dir, file string, d fs.DirEntry, callback func()) {
-					err := de.Dm.Visitor(dir, file, d)
-					// Non-blocking send - prevent deadlock if channel full
-					select {
-					case de.errorChan <- err:
-					default:
-					}
-					callback()
-					de.activeFiles.Done()
-				}(wi.dir, wi.file, wi.d, wi.callback)
-			}
-			de.activeFiles.Wait()
-			select {
-			case de.errorChan <- de.Dm.Persist(de.Dir):
-			default:
-			}
-			return
-		}
+	for wi := range de.workItems {
+		go func(dir, file string, d fs.DirEntry) {
+			err := de.Dm.Visitor(dir, file, d)
+			de.errorChan <- err
+			wi.callback()
+			de.activeFiles.Done()
+		}(wi.dir, wi.file, wi.d)
 	}
+	de.activeFiles.Wait()
+	de.errorChan <- de.Dm.Persist(de.Dir)
+	close(de.errorChan)
 }
 
 func (de DirectoryEntry) Revisit(dir string, visitor func(dm DirectoryEntryInterface, directory string, file string, fileStruct FileStruct) error) error {

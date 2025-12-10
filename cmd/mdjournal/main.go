@@ -30,16 +30,19 @@ func main() {
 
 	// Create alias lookup function if config available
 	var getAlias func(string) string
+	var ignorePatterns []string
 	if xc != nil {
 		getAlias = xc.GetAliasForPath
+		ignorePatterns = xc.IgnorePatterns
 	}
 
 	cfg := Config{
-		Directories:  directories,
-		JournalPath:  string(core.ConfigPath(core.JournalPathName)),
-		ScanOnly:     *scanflg,
-		ReadExisting: true,
-		GetAlias:     getAlias,
+		Directories:    directories,
+		JournalPath:    string(core.ConfigPath(core.JournalPathName)),
+		ScanOnly:       *scanflg,
+		ReadExisting:   false, // Always start fresh
+		IgnorePatterns: ignorePatterns,
+		GetAlias:       getAlias,
 	}
 
 	cli.ExitFromRun(Run(cfg))

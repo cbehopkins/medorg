@@ -24,7 +24,7 @@ func TestNewMdConfig(t *testing.T) {
 	}
 
 	// Add some data and save
-	cfg.AddLabel("test-volume")
+	cfg.ReserveLabel("test-volume")
 	if err := cfg.WriteXmlCfg(); err != nil {
 		t.Fatalf("WriteXmlCfg failed: %v", err)
 	}
@@ -44,16 +44,16 @@ func TestMdConfigVolumeLabels(t *testing.T) {
 	cfg := &MdConfig{}
 
 	// Test adding labels
-	if !cfg.AddLabel("volume1") {
-		t.Error("AddLabel should return true for new label")
+	if !cfg.ReserveLabel("volume1") {
+		t.Error("ReserveLabel should return true for new label")
 	}
-	if !cfg.AddLabel("volume2") {
-		t.Error("AddLabel should return true for new label")
+	if !cfg.ReserveLabel("volume2") {
+		t.Error("ReserveLabel should return true for new label")
 	}
 
 	// Test adding duplicate
-	if cfg.AddLabel("volume1") {
-		t.Error("AddLabel should return false for duplicate label")
+	if cfg.ReserveLabel("volume1") {
+		t.Error("ReserveLabel should return false for duplicate label")
 	}
 
 	// Test HasLabel
@@ -271,8 +271,8 @@ func TestMdConfigXMLSerialization(t *testing.T) {
 
 	// Create config with data
 	cfg := &MdConfig{fn: configPath}
-	cfg.AddLabel("volume1")
-	cfg.AddLabel("volume2")
+	cfg.ReserveLabel("volume1")
+	cfg.ReserveLabel("volume2")
 	cfg.AddSourceDirectory("/src/docs", "docs")
 	cfg.AddSourceDirectory("/src/photos", "photos")
 	cfg.SetRestoreDestination("docs", "/restore/docs")
@@ -383,7 +383,7 @@ func TestLoadOrCreateMdConfigWithPath(t *testing.T) {
 	}
 
 	// Add data and save
-	cfg.AddLabel("test-label")
+	cfg.ReserveLabel("test-label")
 	if err := cfg.WriteXmlCfg(); err != nil {
 		t.Fatalf("WriteXmlCfg failed: %v", err)
 	}
@@ -436,8 +436,8 @@ func TestMdConfigComplexWorkflow(t *testing.T) {
 	cfg, _ := NewMdConfig(configPath)
 
 	// Add backup volumes
-	cfg.AddLabel("backup-vol-1")
-	cfg.AddLabel("backup-vol-2")
+	cfg.ReserveLabel("backup-vol-1")
+	cfg.ReserveLabel("backup-vol-2")
 
 	// Configure source directories
 	cfg.AddSourceDirectory("/home/user/documents", "docs")
@@ -475,7 +475,7 @@ func TestMdConfigComplexWorkflow(t *testing.T) {
 	cfg2.RemoveSourceDirectory("vids")
 
 	// Add new volume
-	cfg2.AddLabel("backup-vol-3")
+	cfg2.ReserveLabel("backup-vol-3")
 
 	// Save again
 	cfg2.WriteXmlCfg()

@@ -31,6 +31,29 @@ type VolumeLabeler interface {
 	GetVolumeLabel(destDir string) (string, error)
 }
 
+// directoryLocks provides per-directory mutex locks to prevent concurrent
+// DirectoryMap updates from creating race conditions
+type directoryLocks struct {
+	mu    sync.Mutex
+	locks map[string]*sync.Mutex
+}
+
+// globalDirLocks is the global directory lock manager
+var globalDirLocks = &directoryLocks{
+	locks: make(map[string]*sync.Mutex),
+}
+
+// getLock returns a mutex for the given directory path
+func (dl *directoryLocks) getLock(dir string) *sync.Mutex {
+	dl.mu.Lock()
+	defer dl.mu.Unlock()
+
+	if dl.locks[dir] == nil {
+		dl.locks[dir] = &sync.Mutex{}
+	}
+	return dl.locks[dir]
+}
+
 type backupKey struct {
 	size     int64
 	checksum string
@@ -156,13 +179,13 @@ func (fpll *fpathListList) Add(index int, fp core.Fpath) {
 // streamingFileProcessor processes files in batches to avoid memory buildup
 // It maintains priority ordering by processing files with fewer existing backups first
 type streamingFileProcessor struct {
-	srcDir          string
-	destDir         string
-	backupLabelName string
-	fc              FileCopier
-	maxNumBackups   int
-	logFunc         func(msg string)
-	shutdownChan    chan struct{}
+	srcDir           string
+	destDir          string
+	backupLabelName  string
+	fileCopyCallback FileCopier
+	maxNumBackups    int
+	logFunc          func(msg string)
+	shutdownChan     chan struct{}
 
 	// Batching state
 	batches    fpathListList
@@ -175,23 +198,23 @@ type streamingFileProcessor struct {
 
 func newStreamingFileProcessor(
 	srcDir, destDir, backupLabelName string,
-	fc FileCopier,
+	fileCopyCallback FileCopier,
 	maxNumBackups int,
 	logFunc func(msg string),
 	shutdownChan chan struct{},
 ) *streamingFileProcessor {
 	return &streamingFileProcessor{
-		srcDir:          srcDir,
-		destDir:         destDir,
-		backupLabelName: backupLabelName,
-		fc:              fc,
-		maxNumBackups:   maxNumBackups,
-		logFunc:         logFunc,
-		shutdownChan:    shutdownChan,
-		batches:         fpathListList{},
-		batchSize:       1000, // Process files in chunks of 1000
-		copyTokens:      core.MakeTokenChan(2),
-		errChan:         make(chan error),
+		srcDir:           srcDir,
+		destDir:          destDir,
+		backupLabelName:  backupLabelName,
+		fileCopyCallback: fileCopyCallback,
+		maxNumBackups:    maxNumBackups,
+		logFunc:          logFunc,
+		shutdownChan:     shutdownChan,
+		batches:          fpathListList{},
+		batchSize:        1000, // Process files in chunks of 1000
+		copyTokens:       core.MakeTokenChan(2),
+		errChan:          make(chan error),
 	}
 }
 
@@ -253,7 +276,7 @@ func (sfp *streamingFileProcessor) processBatch() error {
 		go func(file core.Fpath) {
 			defer sfp.wg.Done()
 			defer func() { sfp.copyTokens <- struct{}{} }()
-			err := doACopy(sfp.srcDir, sfp.destDir, sfp.backupLabelName, file, sfp.fc)
+			err := doACopy(sfp.srcDir, sfp.destDir, sfp.backupLabelName, file, sfp.fileCopyCallback)
 			if err != nil {
 				select {
 				case sfp.errChan <- err:
@@ -413,37 +436,40 @@ func streamingExtractAndCopy(
 	srcDir, destDir, volumeName string,
 	dt *core.DirTracker,
 	registerFunc func(*core.DirTracker),
-	fc FileCopier,
+	fileCopyCallback FileCopier,
 	maxNumBackups int,
 	logFunc func(msg string),
 	shutdownChan chan struct{},
 ) error {
 	processor := newStreamingFileProcessor(
 		srcDir, destDir, volumeName,
-		fc, maxNumBackups,
+		fileCopyCallback, maxNumBackups,
 		logFunc, shutdownChan,
 	)
 
 	visitFunc := func(dm core.DirectoryEntryInterface, dir, fn string, fileStruct core.FileStruct) error {
+		fmt.Println("Visiting", fn)
 		// Skip metadata files - these should never be backed up
 		if core.IsMetadataFile(fn) {
 			return nil
 		}
 
 		if fileStruct.HasTag(volumeName) {
+			fmt.Println("Skipping ", fn, " as already has volume label", volumeName)
 			return nil
 		}
-		fp := core.NewFpath(dir, fn)
 		lenArchive := len(fileStruct.BackupDest)
 		if lenArchive > maxNumBackups {
 			return nil
 		}
-
+		fmt.Println("We should copy ", fn)
+		fp := core.NewFpath(dir, fn)
 		// Add to processor, which handles batching automatically
 		return processor.addFile(lenArchive, fp)
 	}
-
+	fmt.Println("Kick off revisit")
 	dt.RevisitAll(srcDir, registerFunc, visitFunc, nil)
+	fmt.Println("Finished Revisit")
 
 	// Flush any remaining files
 	return processor.flush()
@@ -485,22 +511,39 @@ func doACopy(
 	if err != nil {
 		return err
 	}
+
+	// Acquire lock for source directory to prevent concurrent DirectoryMap updates
+	srcLock := globalDirLocks.getLock(sd)
+	srcLock.Lock()
+
 	dmSrc, err := core.DirectoryMapFromDir(sd)
 	if err != nil {
+		srcLock.Unlock()
 		return err
 	}
 	src, ok := dmSrc.Get(basename)
 	if !ok {
+		srcLock.Unlock()
 		return fmt.Errorf("%w: %s, \"%s\" \"%s\"", ErrMissingEntry, file, sd, basename)
 	}
 	_ = src.AddTag(backupLabelName)
 	dmSrc.Add(src)
 	if err := dmSrc.Persist(sd); err != nil {
+		srcLock.Unlock()
 		return err
 	}
+	srcLock.Unlock()
+
 	_ = src.RemoveTag(backupLabelName)
 	// Update the destDir with the checksum from the srcDir
-	dmDst, err := core.DirectoryMapFromDir(destDir)
+
+	// Acquire lock for destination directory
+	destDirForLock := filepath.Join(destDir, filepath.Dir(rel))
+	dstLock := globalDirLocks.getLock(destDirForLock)
+	dstLock.Lock()
+	defer dstLock.Unlock()
+
+	dmDst, err := core.DirectoryMapFromDir(destDirForLock)
 	if err != nil {
 		return err
 	}
@@ -508,83 +551,19 @@ func doACopy(
 	if err != nil {
 		return err
 	}
-	src.SetDirectory(destDir)
+	src.SetDirectory(destDirForLock)
 	src.Mtime = fs.ModTime().Unix()
 	dmDst.Add(src)
-	return dmDst.Persist(destDir)
-}
-
-// doCopies processes a pre-collected list of files to copy
-//
-// NOTE: This function is kept for testing purposes.
-// Production code uses streamingExtractAndCopy for memory-efficient streaming.
-func doCopies(
-	srcDir, destDir string,
-	backupLabelName string,
-	fc FileCopier,
-	copyFilesArray fpathListList, maxNumBackups int,
-	logFunc func(msg string), shutdownChan chan struct{},
-) error {
-	// I don't like this pattern as it's not a clean pipeline - but the alternatives feel worse
-	copyTokens := core.MakeTokenChan(2)
-	copyErrChan := make(chan error, 2) // Buffer with capacity = number of concurrent goroutines (matches token limit)
-	var cwg sync.WaitGroup
-	go func() {
-		defer func() {
-			cwg.Wait()
-			close(copyErrChan)
-		}()
-		// Now do the copy, updating srcDir's labels as we go
-		for numBackups, copyFiles := range copyFilesArray {
-			if numBackups >= maxNumBackups {
-				logFunc(fmt.Sprint("Not backing up to more than", maxNumBackups, "places"))
-				return
-			}
-			for _, file := range copyFiles {
-				select {
-				case <-shutdownChan:
-					logFunc("Seen shutdown request")
-					return
-
-				case _, ok := <-copyTokens:
-					if !ok {
-						return
-					}
-				}
-
-				cwg.Add(1)
-				go func(file core.Fpath) {
-					copyErrChan <- doACopy(srcDir, destDir, backupLabelName, file, fc)
-					cwg.Done()
-				}(file)
-			}
-		}
-	}()
-	defer func() { close(copyTokens) }()
-	for err := range copyErrChan {
-		if errors.Is(err, ErrNoSpace) {
-			// FIXME in the ideal world, we'd look at how much space there is left on the volume
-			// and look for a file with a size smaller than that
-			// and copy that.
-			// For now, that optimization is not too bad.
-			logFunc("Destination full")
-			return nil
-		}
-		if err != nil {
-			return fmt.Errorf("copy failed, %w::%s, %s, %s", err, srcDir, destDir, backupLabelName)
-		}
-		copyTokens <- struct{}{}
-	}
-	return nil
+	return dmDst.Persist(destDirForLock)
 }
 
 // BackupRunnerMultiSource handles backup from multiple source directories to a single destination
 // with proper orphan detection across all sources. This should be used when len(srcDirs) > 1 and
 // orphan detection is enabled.
 func BackupRunnerMultiSource(
-	xc VolumeLabeler,
+	volumeLabel VolumeLabeler,
 	maxNumBackups int,
-	fc FileCopier,
+	fileCopyCallback FileCopier,
 	srcDirs []string,
 	destDir string,
 	orphanFunc func(path string) error,
@@ -597,7 +576,7 @@ func BackupRunnerMultiSource(
 			log.Println(msg)
 		}
 	}
-	backupLabelName, err := xc.GetVolumeLabel(destDir)
+	backupLabelName, err := volumeLabel.GetVolumeLabel(destDir)
 	if err != nil {
 		return err
 	}
@@ -681,7 +660,7 @@ func BackupRunnerMultiSource(
 	}
 
 	// If scan-only mode, we're done
-	if fc == nil {
+	if fileCopyCallback == nil {
 		logFunc("Scan only. Going no further")
 		return nil
 	}
@@ -694,7 +673,7 @@ func BackupRunnerMultiSource(
 			srcDir, destDir, backupLabelName,
 			dta[i+1],
 			registerFunc,
-			fc,
+			fileCopyCallback,
 			maxNumBackups,
 			logFunc,
 			shutdownChan,
@@ -710,9 +689,9 @@ func BackupRunnerMultiSource(
 }
 
 func BackupRunner(
-	xc VolumeLabeler,
+	volumeLabel VolumeLabeler,
 	maxNumBackups int,
-	fc FileCopier,
+	fileCopyCallback FileCopier,
 	srcDir, destDir string,
 	orphanFunc func(path string) error,
 	logFunc func(msg string),
@@ -724,7 +703,7 @@ func BackupRunner(
 			log.Println(msg)
 		}
 	}
-	backupLabelName, err := xc.GetVolumeLabel(destDir)
+	backupLabelName, err := volumeLabel.GetVolumeLabel(destDir)
 	if err != nil {
 		return err
 	}
@@ -739,7 +718,7 @@ func BackupRunner(
 		Scrub:     false,
 		AutoFix:   nil,
 	}
-	logFunc("Running mdcalc on source and destination")
+	logFunc(fmt.Sprintf("Running mdcalc on %s and destination %s", srcDir, destDir))
 	if err := RunCheckCalc([]string{srcDir, destDir}, checkCalcOpts); err != nil {
 		return fmt.Errorf("error running mdcalc: %w", err)
 	}
@@ -754,7 +733,7 @@ func BackupRunner(
 	if err != nil {
 		return err
 	}
-	if fc == nil {
+	if fileCopyCallback == nil {
 		logFunc("Scan only. Going no further")
 		// If we've not supplied a copier, when we clearly don't want to run the copy
 		return nil
@@ -765,7 +744,7 @@ func BackupRunner(
 		srcDir, destDir, backupLabelName,
 		dt[1],
 		registerFunc,
-		fc,
+		fileCopyCallback,
 		maxNumBackups,
 		logFunc,
 		shutdownChan,

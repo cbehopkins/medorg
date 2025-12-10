@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 )
 
 // SourceDirectory represents a configured source directory with its alias
@@ -32,6 +33,8 @@ type MdConfig struct {
 	SourceDirectories []SourceDirectory `xml:"src"`
 	// Restore destinations mapping aliases to restore paths
 	RestoreDestinations []RestoreDestination `xml:"restore"`
+	// IgnorePatterns is a list of regex patterns to skip paths
+	IgnorePatterns []string `xml:"ignore"`
 
 	fn string
 }
@@ -120,9 +123,9 @@ func (xc *MdConfig) HasLabel(label string) bool {
 	return false
 }
 
-// Add a volume label
+// ReserveLabel records a label if it does not already exist
 // returns false if the label already exists
-func (xc *MdConfig) AddLabel(label string) bool {
+func (xc *MdConfig) ReserveLabel(label string) bool {
 	if xc.HasLabel(label) {
 		return false
 	}
@@ -245,6 +248,33 @@ func (xc *MdConfig) RemoveRestoreDestination(alias string) bool {
 	for i, rd := range xc.RestoreDestinations {
 		if rd.Alias == alias {
 			xc.RestoreDestinations = append(xc.RestoreDestinations[:i], xc.RestoreDestinations[i+1:]...)
+			return true
+		}
+	}
+	return false
+}
+
+// AddIgnorePattern adds a new regex pattern to the ignore list
+// Returns false if the pattern already exists
+func (xc *MdConfig) AddIgnorePattern(pattern string) bool {
+	for _, p := range xc.IgnorePatterns {
+		if p == pattern {
+			return false
+		}
+	}
+	xc.IgnorePatterns = append(xc.IgnorePatterns, pattern)
+	return true
+}
+
+// ShouldIgnore returns true if the path matches any ignore pattern
+// Invalid regex patterns are skipped silently
+func (xc *MdConfig) ShouldIgnore(path string) bool {
+	for _, pattern := range xc.IgnorePatterns {
+		re, err := regexp.Compile(pattern)
+		if err != nil {
+			continue
+		}
+		if re.MatchString(path) {
 			return true
 		}
 	}

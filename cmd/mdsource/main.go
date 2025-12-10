@@ -38,6 +38,14 @@ func run(stdout io.Writer) int {
 	restoreAlias := restoreCmd.String("alias", "", "Alias to configure restore destination for")
 	restorePath := restoreCmd.String("path", "", "Restore destination path (optional, defaults to source path)")
 
+	ignoreAddCmd := flag.NewFlagSet("ignore-add", flag.ExitOnError)
+	ignoreAddCmd.StringVar(&configPath, "config", "", "Path to config file")
+	ignoreAddPattern := ignoreAddCmd.String("pattern", "", "Regex pattern to ignore (matched against full path)")
+
+	ignoreTestCmd := flag.NewFlagSet("ignore-test", flag.ExitOnError)
+	ignoreTestCmd.StringVar(&configPath, "config", "", "Path to config file")
+	ignoreTestPath := ignoreTestCmd.String("path", "", "Path to test against ignore patterns")
+
 	if len(os.Args) < 2 {
 		printUsageTo(stdout)
 		return cli.ExitInvalidArgs
@@ -63,6 +71,16 @@ func run(stdout io.Writer) int {
 	case "restore":
 		if err := restoreCmd.Parse(os.Args[2:]); err != nil {
 			fmt.Fprintln(stdout, "Error parsing restore command:", err)
+			return cli.ExitInvalidArgs
+		}
+	case "ignore-add":
+		if err := ignoreAddCmd.Parse(os.Args[2:]); err != nil {
+			fmt.Fprintln(stdout, "Error parsing ignore-add command:", err)
+			return cli.ExitInvalidArgs
+		}
+	case "ignore-test":
+		if err := ignoreTestCmd.Parse(os.Args[2:]); err != nil {
+			fmt.Fprintln(stdout, "Error parsing ignore-test command:", err)
 			return cli.ExitInvalidArgs
 		}
 	default:
@@ -160,6 +178,34 @@ func run(stdout io.Writer) int {
 		}
 		return writeCfg()
 
+	case "ignore-add":
+		if *ignoreAddPattern == "" {
+			fmt.Fprintln(stdout, "Error: -pattern is required")
+			ignoreAddCmd.PrintDefaults()
+			return cli.ExitInvalidArgs
+		}
+
+		if !xc.AddIgnorePattern(*ignoreAddPattern) {
+			fmt.Fprintf(stdout, "Pattern already exists: %s\n", *ignoreAddPattern)
+			return cli.ExitOk
+		}
+
+		fmt.Fprintf(stdout, "Added ignore pattern: %s\n", *ignoreAddPattern)
+		return writeCfg()
+
+	case "ignore-test":
+		if *ignoreTestPath == "" {
+			fmt.Fprintln(stdout, "Error: -path is required")
+			ignoreTestCmd.PrintDefaults()
+			return cli.ExitInvalidArgs
+		}
+		if xc.ShouldIgnore(*ignoreTestPath) {
+			fmt.Fprintf(stdout, "IGNORED: %s\n", *ignoreTestPath)
+		} else {
+			fmt.Fprintf(stdout, "NOT IGNORED: %s\n", *ignoreTestPath)
+		}
+		return cli.ExitOk
+
 	default:
 		printUsageTo(stdout)
 		return cli.ExitInvalidArgs
@@ -174,6 +220,8 @@ func printUsageTo(w io.Writer) {
 	fmt.Fprintln(w, "  mdsource remove -alias <shortcode>")
 	fmt.Fprintln(w, "  mdsource list")
 	fmt.Fprintln(w, "  mdsource restore -alias <shortcode> [-path <destination>]")
+	fmt.Fprintln(w, "  mdsource ignore-add -pattern <regex>")
+	fmt.Fprintln(w, "  mdsource ignore-test -path <file_or_dir>")
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "Examples:")
 	fmt.Fprintln(w, "  mdsource add -path /mnt/hda1/media -alias media")
@@ -181,4 +229,6 @@ func printUsageTo(w io.Writer) {
 	fmt.Fprintln(w, "  mdsource list")
 	fmt.Fprintln(w, "  mdsource restore -alias media -path /new/media/location")
 	fmt.Fprintln(w, "  mdsource restore -alias media  # uses source path as default")
+	fmt.Fprintln(w, "  mdsource ignore-add -pattern 'Recycle Bin'")
+	fmt.Fprintln(w, "  mdsource ignore-test -path '/home/Recycle Bin/file.txt'")
 }

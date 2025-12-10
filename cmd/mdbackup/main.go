@@ -137,10 +137,16 @@ var LOGFILENAME = "mdbackup.log"
 func main() {
 	retcode := 0
 	defer func() { os.Exit(retcode) }()
+	var xc *core.MdConfig
 
 	configPath := flag.String("config", "", "Path to config file (optional, defaults to ~/.mdcfg.xml)")
-	flag.Parse()
+	// FIXME add help flag
+	scanflg := flag.Bool("scan", false, "Only scan files in src & dst updating labels, don't run the backup")
+	dummyflg := flag.Bool("dummy", false, "Don't copy, just tell me what you'd do")
+	delflg := flag.Bool("delete", false, "Delete duplicated Files")
+	statsflg := flag.Bool("stats", false, "Generate backup statistics")
 
+	flag.Parse()
 	///////////////////////////////////
 	// Logging setup
 	f, exitCode := cli.SetupLogFile(LOGFILENAME)
@@ -154,11 +160,10 @@ func main() {
 	log.SetOutput(f)
 	log.Println("This is a test log entry")
 
-	var directories []string
 	///////////////////////////////////
 	// Read in top level config
 	loader := cli.NewConfigLoader(*configPath, os.Stderr)
-	xc, exitCode := loader.Load()
+	xc, exitCode = loader.Load()
 	if exitCode != cli.ExitOk {
 		retcode = exitCode
 		return
@@ -170,37 +175,20 @@ func main() {
 			fmt.Println("Error while saving config file", err)
 		}
 	}()
-
 	///////////////////////////////////
 	// Command line argument processing
-	// FIXME add help flag
-	scanflg := flag.Bool("scan", false, "Only scan files in src & dst updating labels, don't run the backup")
-	dummyflg := flag.Bool("dummy", false, "Don't copy, just tell me what you'd do")
-	delflg := flag.Bool("delete", false, "Delete duplicated Files")
-	statsflg := flag.Bool("stats", false, "Generate backup statistics")
-
-	flag.Parse()
+	var dest string
+	var sources []string
 	if flag.NArg() > 0 {
-		for _, fl := range flag.Args() {
-			if err := cli.ValidatePath(fl, true); err != nil {
-				fmt.Println(err)
-				retcode = cli.ExitSuppliedDirNotFound
-				return
-			}
-			directories = append(directories, fl)
-		}
+		dest = flag.Arg(0)
 	} else {
-		// If no directories provided, read from config
-		// First directory should be destination (current directory)
-		directories = []string{"."}
+		dest = "."
+	}
 
-		// Add source directories from config
-		if xc != nil {
-			sourcePaths := xc.GetSourcePaths()
-			if len(sourcePaths) > 0 {
-				directories = append(directories, sourcePaths...)
-			}
-		}
+	if flag.NArg() > 1 {
+		sources = flag.Args()[1:]
+	} else {
+		sources = xc.GetSourcePaths()
 	}
 
 	///////////////////////////////////
@@ -223,26 +211,19 @@ func main() {
 
 	///////////////////////////////////
 	// Create config and run
-	var dest string
-	var sources []string
-	if len(directories) > 0 {
-		dest = directories[0]
-		if len(directories) > 1 {
-			sources = directories[1:]
-		}
-	}
+
 	cfg := Config{
-		Destination:          dest,
-		Sources:              sources,
-		VolumeConfigProvider: xc,
-		ScanMode:             *scanflg,
-		DummyMode:            *dummyflg,
-		DeleteMode:           *delflg,
-		StatsMode:            *statsflg,
-		LogOutput:            f,
-		MessageWriter:        os.Stdout,
-		ShutdownChan:         shutdownChan,
-		UseProgressBar:       true,
+		ProjectConfig:  xc,
+		Destination:    dest,
+		Sources:        sources,
+		ScanMode:       *scanflg,
+		DummyMode:      *dummyflg,
+		DeleteMode:     *delflg,
+		StatsMode:      *statsflg,
+		LogOutput:      f,
+		MessageWriter:  os.Stdout,
+		ShutdownChan:   shutdownChan,
+		UseProgressBar: true,
 	}
 
 	cli.ExitFromRun(Run(cfg))

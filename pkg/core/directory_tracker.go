@@ -52,9 +52,9 @@ type DirTracker struct {
 	// We do not lock the dm map as we only access it in a single threaded manner
 	// i.e. only the directory walker or things it calls have access
 	dm              map[string]DirectoryTrackerInterface
-	newEntry        func(dir string) (DirectoryTrackerInterface, error)
+	trackerMaker    func(dir string) (DirectoryTrackerInterface, error)
 	lastPath        lastPath
-	tokenChan       chan struct{}
+	workTokens      chan struct{}
 	wg              *sync.WaitGroup
 	errChan         chan error
 	preserveStructs bool
@@ -80,43 +80,37 @@ const NumTrackerOutstanding = 4
 // That new entry will then have its visitor called for each file in that directory
 // At some later time, we will then close the directory
 // There are no guaranetees about when this will happen
-func NewDirTracker(preserveStructs bool, dir string, newEntry func(string) (DirectoryTrackerInterface, error)) *DirTracker {
+func NewDirTracker(preserveStructs bool, dir string, trackerMaker func(string) (DirectoryTrackerInterface, error)) *DirTracker {
 	var dt DirTracker
 	dt.dm = make(map[string]DirectoryTrackerInterface)
-	dt.newEntry = newEntry
-	dt.tokenChan = MakeTokenChan(NumTrackerOutstanding)
+	dt.trackerMaker = trackerMaker
+	dt.workTokens = MakeTokenChan(NumTrackerOutstanding)
 	dt.wg = new(sync.WaitGroup)
 	dt.errChan = make(chan error, 8) // buffered to avoid blocking
 	dt.finishedChan = make(chan struct{})
 	dt.wg.Add(1) // add one for populateDircount
 	dt.finished.Clear()
 	dt.preserveStructs = preserveStructs
-	go dt.populateDircount(dir)
+	// go dt.populateDircount(dir)
+	dt.populateDircount(dir) // Removed go for testing purposes
 	go func() {
 		err := filepath.WalkDir(dir, dt.directoryWalker)
 		if err != nil {
-			select {
-			case dt.errChan <- err:
-			default:
-			}
+			dt.errChan <- err
 		}
 		for _, val := range dt.dm {
+			// Why are we closing their channels?
 			val.Close()
 		}
 		dt.wg.Wait()
 		if dt.Total() != dt.Value() {
-			// Send a warning error if the file system changed during the walk
-			// This can happen when files are added/deleted while we're traversing
-			select {
-			case dt.errChan <- fmt.Errorf(
+			dt.errChan <- fmt.Errorf(
 				"directory walk incomplete: expected to visit %d directories but only visited %d (filesystem may have changed during walk)",
-				dt.Total(), dt.Value()):
-			default:
-			}
+				dt.Total(), dt.Value())
 		}
 		dt.finished.Set()
 		close(dt.errChan)
-		close(dt.tokenChan)
+		close(dt.workTokens)
 		close(dt.finishedChan)
 	}()
 
@@ -172,13 +166,14 @@ func (dt *DirTracker) serviceChild(de DirectoryTrackerInterface) {
 // getDirectoryEntry - get a directory entry
 // If it doesn't exist, create it
 func (dt *DirTracker) getDirectoryEntry(path string) (DirectoryTrackerInterface, error) {
+	path = filepath.Clean(path)
 	// Fast path - does it already exist? If so, use it!
 	de, ok := dt.dm[path]
 	if ok && de != nil {
 		return de, nil
 	}
 	// Call out to the external function to return a new entry
-	de, err := dt.newEntry(path)
+	de, err := dt.trackerMaker(path)
 	if err != nil {
 		return nil, err
 	}
@@ -213,6 +208,8 @@ func (dt *DirTracker) directoryWalkerPopulateDircount(path string, d fs.DirEntry
 		atomic.AddInt64(&dt.directoryCountTotal, 1)
 	}
 	_, file := filepath.Split(path)
+	// FIXME I think this logic is broken as this is the first thing it should look for
+	// Howevver it could have done a bunch of stuff before hitting this
 	if file == ".mdSkipDir" {
 		return filepath.SkipDir
 	}
@@ -269,16 +266,13 @@ func (dt *DirTracker) directoryWalker(path string, d fs.DirEntry, err error) err
 	if dir == "" {
 		dir = "."
 	} else {
-		// We would:
-		// dir = strings.TrimSuffix(dir, "/")
-		// but since we always have this suffix(Thanks filepath!), this is faster:
-		dir = dir[:len(dir)-1]
+		dir = filepath.Clean(dir)
 	}
 
 	// Grab an IO token
-	<-dt.tokenChan
+	<-dt.workTokens
 	returnToken := func() {
-		dt.tokenChan <- struct{}{}
+		dt.workTokens <- struct{}{}
 	}
 
 	de, err := dt.getDirectoryEntry(dir)

@@ -86,13 +86,13 @@ func TestIntegration_BasicBackup_NoFiles(t *testing.T) {
 
 	var logBuf, msgBuf bytes.Buffer
 	cfg := Config{
-		Destination:          dstDir,
-		Sources:              []string{srcDir},
-		VolumeConfigProvider: xc,
-		DummyMode:            true, // Don't actually copy in this test
-		LogOutput:            &logBuf,
-		MessageWriter:        &msgBuf,
-		UseProgressBar:       false,
+		Destination:    dstDir,
+		Sources:        []string{srcDir},
+		ProjectConfig:  xc,
+		DummyMode:      true, // Don't actually copy in this test
+		LogOutput:      &logBuf,
+		MessageWriter:  &msgBuf,
+		UseProgressBar: false,
 	}
 
 	exitCode, err := Run(cfg)
@@ -187,7 +187,7 @@ func TestIntegration_BackupCopyVariants(t *testing.T) {
 			setupVolumeConfigs(t, xc, append(srcPaths, dirs["dst"])...)
 
 			var logBuf, msgBuf bytes.Buffer
-			cfg := Config{Destination: dirs["dst"], Sources: srcPaths, VolumeConfigProvider: xc, LogOutput: &logBuf, MessageWriter: &msgBuf}
+			cfg := Config{Destination: dirs["dst"], Sources: srcPaths, ProjectConfig: xc, LogOutput: &logBuf, MessageWriter: &msgBuf}
 			exitCode, err := Run(cfg)
 			if exitCode != cli.ExitOk || err != nil {
 				t.Fatalf("Run failed: exit=%d err=%v", exitCode, err)
@@ -227,7 +227,7 @@ func TestIntegration_DeleteMode(t *testing.T) {
 		setupVolumeConfigs(t, xc, dirs["src"], dirs["dst"])
 
 		var logBuf, msgBuf bytes.Buffer
-		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src"]}, VolumeConfigProvider: xc, DeleteMode: true, LogOutput: &logBuf, MessageWriter: &msgBuf}
+		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src"]}, ProjectConfig: xc, DeleteMode: true, LogOutput: &logBuf, MessageWriter: &msgBuf}
 		exitCode, err := Run(cfg)
 		if exitCode != cli.ExitOk || err != nil {
 			t.Fatalf("Run failed: exit=%d err=%v", exitCode, err)
@@ -263,7 +263,7 @@ func TestIntegration_DeleteMode(t *testing.T) {
 
 		// initial backup
 		var lb1, mb1 bytes.Buffer
-		cfg1 := Config{Destination: dirs["dst"], Sources: []string{dirs["src1"], dirs["src2"]}, VolumeConfigProvider: xc, LogOutput: &lb1, MessageWriter: &mb1}
+		cfg1 := Config{Destination: dirs["dst"], Sources: []string{dirs["src1"], dirs["src2"]}, ProjectConfig: xc, LogOutput: &lb1, MessageWriter: &mb1}
 		if exitCode, err := Run(cfg1); exitCode != cli.ExitOk || err != nil {
 			t.Fatalf("initial backup failed: exit=%d err=%v", exitCode, err)
 		}
@@ -280,7 +280,7 @@ func TestIntegration_DeleteMode(t *testing.T) {
 
 		// delete mode
 		var lb2, mb2 bytes.Buffer
-		cfg2 := Config{Destination: dirs["dst"], Sources: []string{dirs["src1"], dirs["src2"]}, VolumeConfigProvider: xc, DeleteMode: true, LogOutput: &lb2, MessageWriter: &mb2}
+		cfg2 := Config{Destination: dirs["dst"], Sources: []string{dirs["src1"], dirs["src2"]}, ProjectConfig: xc, DeleteMode: true, LogOutput: &lb2, MessageWriter: &mb2}
 		if exitCode, err := Run(cfg2); exitCode != cli.ExitOk || err != nil {
 			t.Fatalf("delete mode failed: exit=%d err=%v\nLog:\n%s", exitCode, err, lb2.String())
 		}
@@ -318,13 +318,13 @@ func TestIntegration_ScanMode(t *testing.T) {
 
 	var logBuf, msgBuf bytes.Buffer
 	cfg := Config{
-		Destination:          dstDir,
-		Sources:              []string{srcDir},
-		VolumeConfigProvider: xc,
-		ScanMode:             true, // Scan only, don't copy
-		LogOutput:            &logBuf,
-		MessageWriter:        &msgBuf,
-		UseProgressBar:       false,
+		Destination:    dstDir,
+		Sources:        []string{srcDir},
+		ProjectConfig:  xc,
+		ScanMode:       true, // Scan only, don't copy
+		LogOutput:      &logBuf,
+		MessageWriter:  &msgBuf,
+		UseProgressBar: false,
 	}
 
 	exitCode, err := Run(cfg)
@@ -348,7 +348,7 @@ func TestIntegration_ErrorCases(t *testing.T) {
 		defer cleanup()
 		xc := newXMLCfgAt(t, dirs["base"])
 		var logBuf, msgBuf bytes.Buffer
-		cfg := Config{Destination: dirs["base"], VolumeConfigProvider: xc, LogOutput: &logBuf, MessageWriter: &msgBuf}
+		cfg := Config{Destination: dirs["base"], ProjectConfig: xc, LogOutput: &logBuf, MessageWriter: &msgBuf}
 		exitCode, err := Run(cfg)
 		if exitCode != cli.ExitTwoDirectoriesOnly {
 			t.Errorf("want exit %d got %d", cli.ExitTwoDirectoriesOnly, exitCode)
@@ -362,7 +362,7 @@ func TestIntegration_ErrorCases(t *testing.T) {
 		dirs, cleanup := makeTempDirs(t, "src", "dst")
 		defer cleanup()
 		var logBuf, msgBuf bytes.Buffer
-		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src"]}, VolumeConfigProvider: nil, LogOutput: &logBuf, MessageWriter: &msgBuf}
+		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src"]}, ProjectConfig: nil, LogOutput: &logBuf, MessageWriter: &msgBuf}
 		exitCode, err := Run(cfg)
 		if exitCode != cli.ExitNoConfig {
 			t.Errorf("want exit %d got %d", cli.ExitNoConfig, exitCode)
@@ -390,7 +390,7 @@ func TestIntegration_EdgeCases(t *testing.T) {
 		setupVolumeConfigs(t, xc, dirs["src"], dirs["dst"])
 
 		var logBuf, msgBuf bytes.Buffer
-		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src"]}, VolumeConfigProvider: xc, LogOutput: &logBuf, MessageWriter: &msgBuf}
+		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src"]}, ProjectConfig: xc, LogOutput: &logBuf, MessageWriter: &msgBuf}
 		exitCode, err := Run(cfg)
 		if exitCode != cli.ExitOk || err != nil {
 			t.Fatalf("Run failed: exit=%d err=%v", exitCode, err)
@@ -426,7 +426,7 @@ func TestIntegration_EdgeCases(t *testing.T) {
 		setupVolumeConfigs(t, xc, dirs["src"], dirs["dst"])
 
 		var logBuf, msgBuf bytes.Buffer
-		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src"]}, VolumeConfigProvider: xc, LogOutput: &logBuf, MessageWriter: &msgBuf}
+		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src"]}, ProjectConfig: xc, LogOutput: &logBuf, MessageWriter: &msgBuf}
 		exitCode, err := Run(cfg)
 		if exitCode != cli.ExitOk || err != nil {
 			t.Fatalf("Run failed: exit=%d err=%v", exitCode, err)
@@ -475,7 +475,7 @@ func TestIntegration_EdgeCases(t *testing.T) {
 		setupVolumeConfigs(t, xc, dirs["src"], dirs["dst"])
 
 		var logBuf, msgBuf bytes.Buffer
-		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src"]}, VolumeConfigProvider: xc, LogOutput: &logBuf, MessageWriter: &msgBuf}
+		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src"]}, ProjectConfig: xc, LogOutput: &logBuf, MessageWriter: &msgBuf}
 		exitCode, err := Run(cfg)
 		if exitCode != cli.ExitOk || err != nil {
 			t.Fatalf("Run failed: exit=%d err=%v", exitCode, err)
@@ -507,7 +507,7 @@ func TestIntegration_EdgeCases(t *testing.T) {
 		setupVolumeConfigs(t, xc, dirs["src"], dirs["dst"])
 
 		var logBuf, msgBuf bytes.Buffer
-		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src"]}, VolumeConfigProvider: xc, LogOutput: &logBuf, MessageWriter: &msgBuf}
+		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src"]}, ProjectConfig: xc, LogOutput: &logBuf, MessageWriter: &msgBuf}
 		exitCode, err := Run(cfg)
 		if exitCode != cli.ExitOk || err != nil {
 			t.Fatalf("Run failed: exit=%d err=%v", exitCode, err)
@@ -542,7 +542,7 @@ func TestIntegration_EdgeCases(t *testing.T) {
 		setupVolumeConfigs(t, xc, dirs["src1"], dirs["src2"], dirs["dst"])
 
 		var logBuf, msgBuf bytes.Buffer
-		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src1"], dirs["src2"]}, VolumeConfigProvider: xc, LogOutput: &logBuf, MessageWriter: &msgBuf}
+		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src1"], dirs["src2"]}, ProjectConfig: xc, LogOutput: &logBuf, MessageWriter: &msgBuf}
 		exitCode, err := Run(cfg)
 		if exitCode != cli.ExitOk || err != nil {
 			t.Fatalf("Run failed: exit=%d err=%v", exitCode, err)
@@ -585,7 +585,7 @@ func TestIntegration_EdgeCases(t *testing.T) {
 		setupVolumeConfigs(t, xc, dirs["src"], dirs["dst"])
 
 		var logBuf, msgBuf bytes.Buffer
-		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src"]}, VolumeConfigProvider: xc, LogOutput: &logBuf, MessageWriter: &msgBuf}
+		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src"]}, ProjectConfig: xc, LogOutput: &logBuf, MessageWriter: &msgBuf}
 		exitCode, err := Run(cfg)
 		if exitCode != cli.ExitOk || err != nil {
 			t.Fatalf("Run failed: exit=%d err=%v", exitCode, err)
@@ -619,7 +619,7 @@ func TestIntegration_EdgeCases(t *testing.T) {
 		setupVolumeConfigs(t, xc, dirs["src"], dirs["dst"])
 
 		var logBuf, msgBuf bytes.Buffer
-		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src"]}, VolumeConfigProvider: xc, DummyMode: true, LogOutput: &logBuf, MessageWriter: &msgBuf}
+		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src"]}, ProjectConfig: xc, DummyMode: true, LogOutput: &logBuf, MessageWriter: &msgBuf}
 		exitCode, err := Run(cfg)
 		if exitCode != cli.ExitOk || err != nil {
 			t.Fatalf("Run failed: exit=%d err=%v", exitCode, err)
@@ -652,7 +652,7 @@ func TestIntegration_EdgeCases(t *testing.T) {
 		setupVolumeConfigs(t, xc, dirs["src"], dirs["dst"])
 
 		var logBuf, msgBuf bytes.Buffer
-		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src"]}, VolumeConfigProvider: xc, LogOutput: &logBuf, MessageWriter: &msgBuf}
+		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src"]}, ProjectConfig: xc, LogOutput: &logBuf, MessageWriter: &msgBuf}
 		exitCode, err := Run(cfg)
 		if exitCode != cli.ExitOk || err != nil {
 			t.Fatalf("Run failed: exit=%d err=%v", exitCode, err)
@@ -685,7 +685,7 @@ func TestIntegration_EdgeCases(t *testing.T) {
 		setupVolumeConfigs(t, xc, dirs["src"], dirs["dst"])
 
 		var logBuf, msgBuf bytes.Buffer
-		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src"]}, VolumeConfigProvider: xc, LogOutput: &logBuf, MessageWriter: &msgBuf}
+		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src"]}, ProjectConfig: xc, LogOutput: &logBuf, MessageWriter: &msgBuf}
 		exitCode, err := Run(cfg)
 		if exitCode != cli.ExitOk || err != nil {
 			t.Fatalf("Run failed: exit=%d err=%v", exitCode, err)
@@ -700,4 +700,393 @@ func TestIntegration_EdgeCases(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestIntegration_BackupTagsInMedorgXML(t *testing.T) {
+	// This test verifies that:
+	// 1. Files that are copied have a bd (BackupDest) tag added to them
+	// 2. The bd tag makes its way into the source directory's medorg.xml file
+	// 3. The destination directory's medorg.xml contains the copied files
+	//
+	// NOTE: Due to concurrent processing, this test uses a single file to avoid
+	// race conditions where multiple goroutines update the same DirectoryMap.
+
+	dirs, cleanup := makeTempDirs(t, "src", "dst")
+	defer cleanup()
+
+	// Create a single test file to avoid race conditions in concurrent DirectoryMap updates
+	testFile := "testfile.txt"
+	testContent := "test content for backup"
+
+	fullPath := filepath.Join(dirs["src"], testFile)
+	if err := os.WriteFile(fullPath, []byte(testContent), 0o644); err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+
+	// Setup config and volume labels
+	xc := newXMLCfgAt(t, dirs["dst"])
+	setupVolumeConfigs(t, xc, dirs["src"], dirs["dst"])
+
+	// Get the destination volume label to verify it appears in bd tags
+	dstVc, err := xc.VolumeCfgFromDir(dirs["dst"])
+	if err != nil {
+		t.Fatalf("Failed to get destination volume config: %v", err)
+	}
+	expectedLabel := dstVc.Label
+
+	// Run the backup
+	var logBuf, msgBuf bytes.Buffer
+	cfg := Config{
+		Destination:   dirs["dst"],
+		Sources:       []string{dirs["src"]},
+		ProjectConfig: xc,
+		LogOutput:     &logBuf,
+		MessageWriter: &msgBuf,
+	}
+	exitCode, err := Run(cfg)
+	if exitCode != cli.ExitOk || err != nil {
+		t.Fatalf("Run failed: exit=%d err=%v", exitCode, err)
+	}
+
+	// Verify file was copied to destination
+	dstPath := filepath.Join(dirs["dst"], testFile)
+	content, err := os.ReadFile(dstPath)
+	if err != nil {
+		t.Fatalf("File not copied to destination: %v", err)
+	}
+	if string(content) != testContent {
+		t.Errorf("File content mismatch: expected %q, got %q", testContent, string(content))
+	}
+
+	// THE MAIN TEST: Check source directory's medorg.xml for bd tag
+	srcRootDM, err := core.DirectoryMapFromDir(dirs["src"])
+	if err != nil {
+		t.Fatalf("Failed to load source root DirectoryMap: %v", err)
+	}
+
+	fs, ok := srcRootDM.Get(testFile)
+	if !ok {
+		t.Fatalf("File %s not found in source root DirectoryMap", testFile)
+	}
+
+	// Main assertion: verify bd tag is present
+	if !fs.HasTag(expectedLabel) {
+		t.Errorf("File %s in source does not have bd tag %q. BackupDest: %v",
+			testFile, expectedLabel, fs.BackupDest)
+	}
+
+	// Verify BackupDest field is populated with the expected label
+	if len(fs.BackupDest) == 0 {
+		t.Errorf("File %s has empty BackupDest array", testFile)
+	} else {
+		found := false
+		for _, tag := range fs.BackupDest {
+			if tag == expectedLabel {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("File %s BackupDest %v does not contain expected label %q",
+				testFile, fs.BackupDest, expectedLabel)
+		}
+	}
+
+	// Verify destination directory's medorg.xml contains the file
+	dstRootDM, err := core.DirectoryMapFromDir(dirs["dst"])
+	if err != nil {
+		t.Fatalf("Failed to load destination root DirectoryMap: %v", err)
+	}
+
+	dstFs, ok := dstRootDM.Get(testFile)
+	if !ok {
+		t.Errorf("File %s not found in destination root DirectoryMap", testFile)
+	} else {
+		// Verify the file has a checksum in the destination
+		if dstFs.Checksum == "" {
+			t.Errorf("File %s in destination has empty checksum", testFile)
+		}
+	}
+
+	// Verify the medorg.xml files were persisted to disk
+	srcXMLPath := filepath.Join(dirs["src"], core.Md5FileName)
+	if _, err := os.Stat(srcXMLPath); os.IsNotExist(err) {
+		t.Errorf("Source medorg.xml file does not exist at %s", srcXMLPath)
+	}
+
+	dstXMLPath := filepath.Join(dirs["dst"], core.Md5FileName)
+	if _, err := os.Stat(dstXMLPath); os.IsNotExist(err) {
+		t.Errorf("Destination medorg.xml file does not exist at %s", dstXMLPath)
+	}
+}
+
+func TestIntegration_BackupTagsRaceCondition(t *testing.T) {
+	// This test is designed to expose a race condition that existed in doACopy()
+	// where multiple files in the same directory being backed up concurrently
+	// could result in lost bd tags due to concurrent read-modify-write operations
+	// on the DirectoryMap.
+	//
+	// THE BUG (now fixed with directory locks):
+	// - Thread 1: Load DirectoryMap from disk (has file1, file2, file3 with no tags)
+	// - Thread 2: Load DirectoryMap from disk (has file1, file2, file3 with no tags)
+	// - Thread 1: Add tag to file1, write back (disk now has tag on file1)
+	// - Thread 2: Add tag to file2, write back (OVERWRITES! disk now has tag on file2 but NOT file1)
+	//
+	// THE FIX:
+	// doACopy() now uses globalDirLocks to serialize access to DirectoryMap files,
+	// preventing concurrent threads from overwriting each other's updates.
+	//
+	// This test uses 20 files to maximize the chance of concurrent processing.
+	// With the fix in place, all 20 files should get their bd tags reliably.
+	// Without the fix, some files would randomly be missing bd tags.
+
+	dirs, cleanup := makeTempDirs(t, "src", "dst")
+	defer cleanup()
+
+	// Create many files in the same directory to increase likelihood of concurrent processing
+	numFiles := 20
+	testFiles := make(map[string]string)
+	for i := 0; i < numFiles; i++ {
+		filename := fmt.Sprintf("file%02d.txt", i)
+		content := fmt.Sprintf("content for file %d", i)
+		testFiles[filename] = content
+
+		fullPath := filepath.Join(dirs["src"], filename)
+		if err := os.WriteFile(fullPath, []byte(content), 0o644); err != nil {
+			t.Fatalf("Failed to create test file %s: %v", filename, err)
+		}
+	}
+
+	// Setup config and volume labels
+	xc := newXMLCfgAt(t, dirs["dst"])
+	setupVolumeConfigs(t, xc, dirs["src"], dirs["dst"])
+
+	// Get the destination volume label
+	dstVc, err := xc.VolumeCfgFromDir(dirs["dst"])
+	if err != nil {
+		t.Fatalf("Failed to get destination volume config: %v", err)
+	}
+	expectedLabel := dstVc.Label
+
+	// Run the backup
+	var logBuf, msgBuf bytes.Buffer
+	cfg := Config{
+		Destination:   dirs["dst"],
+		Sources:       []string{dirs["src"]},
+		ProjectConfig: xc,
+		LogOutput:     &logBuf,
+		MessageWriter: &msgBuf,
+	}
+	exitCode, err := Run(cfg)
+	if exitCode != cli.ExitOk || err != nil {
+		t.Fatalf("Run failed: exit=%d err=%v", exitCode, err)
+	}
+
+	// Verify all files were copied
+	for filename, expectedContent := range testFiles {
+		dstPath := filepath.Join(dirs["dst"], filename)
+		content, err := os.ReadFile(dstPath)
+		if err != nil {
+			t.Errorf("File %s not copied to destination: %v", filename, err)
+			continue
+		}
+		if string(content) != expectedContent {
+			t.Errorf("File %s content mismatch", filename)
+		}
+	}
+
+	// Check source directory's medorg.xml for bd tags on ALL files
+	srcRootDM, err := core.DirectoryMapFromDir(dirs["src"])
+	if err != nil {
+		t.Fatalf("Failed to load source root DirectoryMap: %v", err)
+	}
+
+	// Count how many files have the bd tag vs how many don't
+	filesWithTag := 0
+	filesWithoutTag := 0
+	var missingTagFiles []string
+
+	for filename := range testFiles {
+		fs, ok := srcRootDM.Get(filename)
+		if !ok {
+			t.Errorf("File %s not found in source root DirectoryMap", filename)
+			continue
+		}
+
+		if fs.HasTag(expectedLabel) {
+			filesWithTag++
+		} else {
+			filesWithoutTag++
+			missingTagFiles = append(missingTagFiles, filename)
+		}
+	}
+
+	t.Logf("Files with bd tag: %d, Files without bd tag: %d", filesWithTag, filesWithoutTag)
+
+	// This assertion will FAIL if the race condition bug exists and gets triggered
+	if filesWithoutTag > 0 {
+		t.Errorf("RACE CONDITION DETECTED: %d out of %d files are missing bd tags",
+			filesWithoutTag, numFiles)
+		t.Logf("Files missing bd tags: %v", missingTagFiles)
+
+		// Read and display the actual XML to show the race condition
+		srcXMLPath := filepath.Join(dirs["src"], core.Md5FileName)
+		if xmlContent, readErr := os.ReadFile(srcXMLPath); readErr == nil {
+			t.Logf("Source medorg.xml content:\n%s", string(xmlContent))
+		}
+	}
+
+	// All files should have the bd tag if the race condition is fixed
+	if filesWithTag != numFiles {
+		t.Errorf("Expected all %d files to have bd tag, but only %d do", numFiles, filesWithTag)
+	}
+}
+
+func TestIntegration_BackupTagsWithSubdirectories(t *testing.T) {
+	// This test verifies bd tag behavior with files in subdirectories.
+	// Each subdirectory should have its own .medorg.xml file with bd tags.
+
+	dirs, cleanup := makeTempDirs(t, "src", "dst")
+	defer cleanup()
+
+	// Create files in root and subdirectories
+	testFiles := map[string]string{
+		"root1.txt":                                    "root content 1",
+		"root2.txt":                                    "root content 2",
+		filepath.Join("subdir1", "file1.txt"):          "subdir1 file1",
+		filepath.Join("subdir1", "file2.txt"):          "subdir1 file2",
+		filepath.Join("subdir2", "file1.txt"):          "subdir2 file1",
+		filepath.Join("subdir2", "file2.txt"):          "subdir2 file2",
+		filepath.Join("subdir1", "nested", "deep.txt"): "deeply nested",
+	}
+
+	for relPath, content := range testFiles {
+		fullPath := filepath.Join(dirs["src"], relPath)
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
+			t.Fatalf("Failed to create directory for %s: %v", relPath, err)
+		}
+		if err := os.WriteFile(fullPath, []byte(content), 0o644); err != nil {
+			t.Fatalf("Failed to create test file %s: %v", relPath, err)
+		}
+	}
+
+	// Setup config and volume labels
+	xc := newXMLCfgAt(t, dirs["dst"])
+	setupVolumeConfigs(t, xc, dirs["src"], dirs["dst"])
+
+	// Get the destination volume label
+	dstVc, err := xc.VolumeCfgFromDir(dirs["dst"])
+	if err != nil {
+		t.Fatalf("Failed to get destination volume config: %v", err)
+	}
+	expectedLabel := dstVc.Label
+
+	// Run the backup
+	var logBuf, msgBuf bytes.Buffer
+	cfg := Config{
+		Destination:   dirs["dst"],
+		Sources:       []string{dirs["src"]},
+		ProjectConfig: xc,
+		LogOutput:     &logBuf,
+		MessageWriter: &msgBuf,
+	}
+	exitCode, err := Run(cfg)
+	if exitCode != cli.ExitOk || err != nil {
+		t.Fatalf("Run failed: exit=%d err=%v", exitCode, err)
+	}
+
+	// Verify all files were copied to destination
+	for relPath, expectedContent := range testFiles {
+		dstPath := filepath.Join(dirs["dst"], relPath)
+		content, err := os.ReadFile(dstPath)
+		if err != nil {
+			t.Errorf("File %s not copied to destination: %v", relPath, err)
+			continue
+		}
+		if string(content) != expectedContent {
+			t.Errorf("File %s content mismatch", relPath)
+		}
+	}
+
+	// Test structure: directory -> list of files that should be in its DirectoryMap
+	dirsToCheck := map[string][]string{
+		dirs["src"]:                                     {"root1.txt", "root2.txt"},
+		filepath.Join(dirs["src"], "subdir1"):           {"file1.txt", "file2.txt"},
+		filepath.Join(dirs["src"], "subdir2"):           {"file1.txt", "file2.txt"},
+		filepath.Join(dirs["src"], "subdir1", "nested"): {"deep.txt"},
+	}
+
+	totalFiles := 0
+	filesWithTag := 0
+	filesWithoutTag := 0
+
+	for dir, files := range dirsToCheck {
+		dm, err := core.DirectoryMapFromDir(dir)
+		if err != nil {
+			t.Errorf("Failed to load DirectoryMap for %s: %v", dir, err)
+			continue
+		}
+
+		t.Logf("Checking directory: %s", dir)
+		for _, filename := range files {
+			totalFiles++
+			fs, ok := dm.Get(filename)
+			if !ok {
+				t.Errorf("File %s not found in DirectoryMap for %s", filename, dir)
+				continue
+			}
+
+			// Check for bd tag
+			if fs.HasTag(expectedLabel) {
+				filesWithTag++
+				t.Logf("  ✓ %s has bd tag", filename)
+			} else {
+				filesWithoutTag++
+				t.Errorf("  ✗ %s missing bd tag. BackupDest: %v", filename, fs.BackupDest)
+			}
+		}
+	}
+
+	t.Logf("Summary: %d/%d files have bd tags", filesWithTag, totalFiles)
+
+	// Report if race condition affected subdirectory files
+	if filesWithoutTag > 0 {
+		t.Errorf("RACE CONDITION DETECTED: %d out of %d files across all directories are missing bd tags",
+			filesWithoutTag, totalFiles)
+	}
+
+	// Verify the medorg.xml files exist in each directory
+	for dir := range dirsToCheck {
+		xmlPath := filepath.Join(dir, core.Md5FileName)
+		if _, err := os.Stat(xmlPath); os.IsNotExist(err) {
+			t.Errorf("medorg.xml file does not exist at %s", xmlPath)
+		}
+	}
+
+	// Also check that destination has corresponding structure
+	dstDirsToCheck := map[string][]string{
+		dirs["dst"]:                                     {"root1.txt", "root2.txt"},
+		filepath.Join(dirs["dst"], "subdir1"):           {"file1.txt", "file2.txt"},
+		filepath.Join(dirs["dst"], "subdir2"):           {"file1.txt", "file2.txt"},
+		filepath.Join(dirs["dst"], "subdir1", "nested"): {"deep.txt"},
+	}
+
+	for dir, files := range dstDirsToCheck {
+		dm, err := core.DirectoryMapFromDir(dir)
+		if err != nil {
+			t.Errorf("Failed to load destination DirectoryMap for %s: %v", dir, err)
+			continue
+		}
+
+		for _, filename := range files {
+			fs, ok := dm.Get(filename)
+			if !ok {
+				t.Errorf("File %s not found in destination DirectoryMap for %s", filename, dir)
+				continue
+			}
+			if fs.Checksum == "" {
+				t.Errorf("File %s in destination has empty checksum", filename)
+			}
+		}
+	}
 }

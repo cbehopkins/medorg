@@ -24,6 +24,7 @@ const (
 	ConfigFileName   = ".mdcfg.xml"
 	AfConfigFileName = ".autofix"
 	JournalPathName  = ".mdjournal.xml"
+	VolumePathName   = ".mdbackup.xml"
 )
 
 func IsMetadataFile(fn string) bool {

@@ -42,9 +42,19 @@ func TestJournalRoundTrip(t *testing.T) {
 	}
 
 	// Create journal and populate from directory
-	journal := consumers.NewJournal()
+	journal, err := consumers.NewJournal()
+	if err != nil {
+		t.Fatalf("NewJournal failed: %v", err)
+	}
+	defer journal.Cleanup()
+
 	if err := journal.PopulateFromDirectories(tempDir, "test-alias"); err != nil {
 		t.Fatalf("Failed to populate journal: %v", err)
+	}
+
+	// Close the journal to ensure files are synced
+	if err := journal.Close(); err != nil {
+		t.Fatalf("Failed to close journal: %v", err)
 	}
 
 	// Write to file and read back
@@ -66,9 +76,19 @@ func TestJournalRoundTrip(t *testing.T) {
 	}
 	defer fhRead.Close()
 
-	journalRead := consumers.NewJournal()
+	journalRead, err := consumers.NewJournal()
+	if err != nil {
+		t.Fatalf("NewJournal failed: %v", err)
+	}
+	defer journalRead.Cleanup()
+
 	if err := journalRead.FromReader(fhRead); err != nil {
 		t.Fatalf("Failed to read journal: %v", err)
+	}
+
+	// Close to sync files
+	if err := journalRead.Close(); err != nil {
+		t.Fatalf("Failed to close journal: %v", err)
 	}
 
 	// Verify the journal has the expected entries
@@ -119,9 +139,19 @@ func TestJournalFromDirRecursion(t *testing.T) {
 	}
 
 	// Populate journal
-	journal := consumers.NewJournal()
+	journal, err := consumers.NewJournal()
+	if err != nil {
+		t.Fatalf("NewJournal failed: %v", err)
+	}
+	defer journal.Cleanup()
+
 	if err := journal.PopulateFromDirectories(tempDir, "nested"); err != nil {
 		t.Fatalf("Failed to populate journal: %v", err)
+	}
+
+	// Close to sync files
+	if err := journal.Close(); err != nil {
+		t.Fatalf("Failed to close journal: %v", err)
 	}
 
 	// Verify that multiple directories were added to the journal
@@ -158,7 +188,12 @@ func TestJournalAliasRequired(t *testing.T) {
 	}
 
 	// Try to populate without alias - should fail
-	journal := consumers.NewJournal()
+	journal, err := consumers.NewJournal()
+	if err != nil {
+		t.Fatalf("NewJournal failed: %v", err)
+	}
+	defer journal.Cleanup()
+
 	err = journal.PopulateFromDirectories(tempDir, "")
 	if err != consumers.ErrAliasRequired {
 		t.Errorf("Expected ErrAliasRequired, got %v", err)

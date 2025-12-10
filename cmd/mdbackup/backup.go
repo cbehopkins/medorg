@@ -16,21 +16,28 @@ import (
 	bytesize "github.com/inhies/go-bytesize"
 )
 
-// VolumeConfigProvider provides volume configuration for directories
-type VolumeConfigProvider interface {
-	VolumeCfgFromDir(dir string) (*core.VolumeCfg, error)
-	GetVolumeLabel(destDir string) (string, error)
+// SimpleVolumeLabelProvider implements consumers.VolumeLabeler using MdConfig
+type SimpleVolumeLabelProvider struct {
+	cfg *core.MdConfig
+}
+
+func (s SimpleVolumeLabelProvider) GetVolumeLabel(destDir string) (string, error) {
+	vc, err := s.cfg.VolumeCfgFromDir(destDir)
+	if err != nil {
+		return "", err
+	}
+	return vc.Label, nil
 }
 
 // Config holds the configuration for mdbackup
 type Config struct {
+	// ProjectConfig holds project-level settings (ignore patterns etc.)
+	ProjectConfig *core.MdConfig
+
 	// Destination backup directory (target)
 	Destination string
 	// One or more source directories to back up into Destination
 	Sources []string
-
-	// VolumeConfigProvider provides volume configuration for directories
-	VolumeConfigProvider VolumeConfigProvider
 
 	// TagMode        bool
 	ScanMode       bool
@@ -61,8 +68,8 @@ func Run(cfg Config) (int, error) {
 	log.SetOutput(cfg.LogOutput)
 
 	// Validate config
-	if cfg.VolumeConfigProvider == nil {
-		return cli.ExitNoConfig, errors.New("no volume config provider")
+	if cfg.ProjectConfig == nil {
+		return cli.ExitNoConfig, errors.New("no project config")
 	}
 
 	// Setup progress bar or simple logging
@@ -104,19 +111,6 @@ func Run(cfg Config) (int, error) {
 		}
 	}
 
-	// Handle tag mode (configure destination only)
-	// if cfg.TagMode {
-	// 	if cfg.Destination == "" {
-	// 		return cli.ExitOneDirectoryOnly, errors.New("destination directory required when configuring tags")
-	// 	}
-	// 	vc, err := cfg.VolumeConfigProvider.VolumeCfgFromDir(cfg.Destination)
-	// 	if err != nil {
-	// 		return cli.ExitBadVc, fmt.Errorf("failed to get volume config: %w", err)
-	// 	}
-	// 	fmt.Fprintf(cfg.MessageWriter, "Config name is %s\n", vc.Label)
-	// 	return cli.ExitOk, nil
-	// }
-
 	// Handle stats mode (scan destination + sources)
 	if cfg.StatsMode {
 		dirs := make([]string, 0, 1+len(cfg.Sources))
@@ -137,13 +131,18 @@ func Run(cfg Config) (int, error) {
 		return cli.ExitTwoDirectoriesOnly, fmt.Errorf("expected destination + at least 1 source, got dest='%s' sources=%d", cfg.Destination, len(cfg.Sources))
 	}
 	fileSkipper := func(path core.Fpath) bool {
-		// log.Println("Skipping copy of:", path)
+		// Reuse ignore patterns defined in the project config if available
+		if cfg.ProjectConfig != nil && cfg.ProjectConfig.ShouldIgnore(string(path)) {
+			log.Println("Skipping (ignored):", path)
+			return true
+		}
 		return false
 	}
 
 	// Setup the copier function
 	var copyer func(src, dst core.Fpath) error
 	if cfg.DummyMode {
+		log.Println("Configuring for dummy copy mode")
 		copyer = func(src, dst core.Fpath) error {
 			if fileSkipper(src) {
 				return nil
@@ -152,6 +151,7 @@ func Run(cfg Config) (int, error) {
 			return consumers.ErrDummyCopy
 		}
 	} else if cfg.UseProgressBar {
+		log.Println("Using Progress bar style copy")
 		copyer = func(src, dst core.Fpath) error {
 			if fileSkipper(src) {
 				return nil
@@ -159,6 +159,7 @@ func Run(cfg Config) (int, error) {
 			return poolCopier(src, dst, pool, &wg)
 		}
 	} else {
+		log.Println("Configuring for default copy mode")
 		copyer = func(src, dst core.Fpath) error {
 			if fileSkipper(src) {
 				return nil
@@ -196,13 +197,15 @@ func Run(cfg Config) (int, error) {
 			topRegisterFunc(dt, pool, &wg)
 		}
 	}
+	fmt.Println("Finished configuring callbacks", len(cfg.Sources))
 
 	// Choose backup strategy based on source count and delete mode
 	// Use multi-source runner when we have multiple sources, as it handles orphan detection correctly
 	if len(cfg.Sources) > 1 {
 		setMessage("Starting Multi-Source Backup Run")
+		volumeLabel := SimpleVolumeLabelProvider{cfg.ProjectConfig}
 		err := consumers.BackupRunnerMultiSource(
-			cfg.VolumeConfigProvider,
+			volumeLabel,
 			2,
 			copyer,
 			cfg.Sources,
@@ -220,10 +223,11 @@ func Run(cfg Config) (int, error) {
 		}
 	} else {
 		// Single source - use original BackupRunner
+		volumeLabel := SimpleVolumeLabelProvider{cfg.ProjectConfig}
 		for _, src := range cfg.Sources {
-			setMessage("Starting Backup Run")
+			setMessage("Starting Backup Run on " + src)
 			err := consumers.BackupRunner(
-				cfg.VolumeConfigProvider,
+				volumeLabel,
 				2,
 				copyer,
 				src,

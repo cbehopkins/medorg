@@ -76,7 +76,11 @@ func TestIntegration_SingleFile(t *testing.T) {
 	// Read journal and verify it contains expected content
 	fh, _ := os.Open(journalPath)
 	defer fh.Close()
-	journal := consumers.NewJournal()
+	journal, err := consumers.NewJournal()
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	if err := journal.FromReader(fh); err != nil {
 		t.Fatalf("Failed to read journal: %v", err)
 	}
@@ -178,7 +182,10 @@ func TestIntegration_MultipleDirectories(t *testing.T) {
 	// Read journal and verify it has content
 	fh, _ := os.Open(journalPath)
 	defer fh.Close()
-	journal := consumers.NewJournal()
+	journal, err := consumers.NewJournal()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := journal.FromReader(fh); err != nil {
 		t.Fatalf("Failed to read journal: %v", err)
 	}

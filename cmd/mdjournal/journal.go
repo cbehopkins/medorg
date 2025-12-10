@@ -11,11 +11,12 @@ import (
 
 // Config holds the configuration for mdjournal
 type Config struct {
-	Directories  []string
-	JournalPath  string
-	ScanOnly     bool
-	Stdout       io.Writer
-	ReadExisting bool
+	Directories    []string
+	JournalPath    string
+	ScanOnly       bool
+	Stdout         io.Writer
+	ReadExisting   bool
+	IgnorePatterns []string
 	// GetAlias returns the alias for a given path, or empty string if not found
 	GetAlias func(path string) string
 }
@@ -46,7 +47,17 @@ func Run(cfg Config) (int, error) {
 		return cli.ExitWalkError, fmt.Errorf("error running check_calc: %w", err)
 	}
 
-	journal := consumers.NewJournal()
+	journal, err := consumers.NewJournal()
+	if err != nil {
+		return cli.ExitJournalWriteError, fmt.Errorf("error creating journal: %w", err)
+	}
+
+	// Apply ignore patterns from config
+	for _, pattern := range cfg.IgnorePatterns {
+		if err := journal.AddIgnorePattern(pattern); err != nil {
+			return cli.ExitJournalWriteError, fmt.Errorf("invalid ignore pattern '%s': %w", pattern, err)
+		}
+	}
 
 	// Read existing journal if requested and file exists
 	if cfg.ReadExisting {

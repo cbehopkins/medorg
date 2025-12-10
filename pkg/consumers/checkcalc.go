@@ -75,6 +75,7 @@ func RunCheckCalc(directories []string, opts CheckCalcOptions) error {
 				if len(fs.BackupDest) > 0 {
 					changed = true
 					fs.BackupDest = []string{}
+					fmt.Println("Scrubbed tags from:", file)
 				}
 			}
 
@@ -148,8 +149,8 @@ func RunCheckCalc(directories []string, opts CheckCalcOptions) error {
 	}
 
 	// Maker function - creates DirectoryEntry for each directory
-	makerFunc := func(dir string) (core.DirectoryTrackerInterface, error) {
-		mkFk := func(dir string) (core.DirectoryEntryInterface, error) {
+	directoryMaker := func(dir string) (core.DirectoryTrackerInterface, error) {
+		entryMaker := func(dir string) (core.DirectoryEntryInterface, error) {
 			// Load or create DirectoryMap for this directory
 			dm, err := core.DirectoryMapFromDir(dir)
 			if err != nil {
@@ -160,21 +161,21 @@ func RunCheckCalc(directories []string, opts CheckCalcOptions) error {
 			dm.SetVisitFunc(visitor)
 
 			// Remove entries for files that no longer exist
-			return dm, dm.DeleteMissingFiles()
+			err = dm.DeleteMissingFiles()
+			return dm, err
 		}
-		de, err := core.NewDirectoryEntry(dir, mkFk)
+		de, err := core.NewDirectoryEntry(dir, entryMaker)
 		return de, err
 	}
-
+	var retErr error
 	// Process each directory
 	for _, dir := range directories {
-		errChan := core.NewDirTracker(false, dir, makerFunc).ErrChan()
-
+		errChan := core.NewDirTracker(false, dir, directoryMaker).ErrChan()
 		// Check for errors during directory walk
 		for err := range errChan {
-			return fmt.Errorf("error walking directory %s: %w", dir, err)
+			retErr = err
 		}
 	}
 
-	return nil
+	return retErr
 }
