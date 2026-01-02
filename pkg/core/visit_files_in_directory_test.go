@@ -208,7 +208,9 @@ func TestVisitFilesInDirectory1(t *testing.T) {
 			}
 			directoryVisitor := func(dt *DirTracker) {}
 			for _, dt := range dta {
-				dt.RevisitAll(root, directoryVisitor, fileVisitFunc, nil)
+				if err := dt.RevisitAll(root, directoryVisitor, fileVisitFunc, nil); err != nil {
+					t.Fatalf("RevisitAll error: %v", err)
+				}
 			}
 
 			act = atomic.LoadUint32(&reVisitCount)

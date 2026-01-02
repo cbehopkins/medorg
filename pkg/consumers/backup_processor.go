@@ -1,6 +1,9 @@
 package consumers
 
 import (
+	"crypto/md5"
+	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -51,6 +54,33 @@ type BackupProcessor struct {
 	dstFileCollection *treap.PersistentPayloadTreap[treap.MD5Key, fileData]
 	session           *vault.VaultSession
 	filePath          string
+}
+
+// md5KeyFromHexString parses a hex-encoded MD5 digest into a treap.MD5Key.
+func md5KeyFromHexString(md5Key string) (treap.MD5Key, error) {
+	return treap.MD5KeyFromString(md5Key)
+}
+
+// md5KeyFromBase64String parses a base64 (no padding) MD5 digest into a treap.MD5Key.
+func md5KeyFromBase64String(md5Key string) (treap.MD5Key, error) {
+	decoded, err := base64.StdEncoding.WithPadding(base64.NoPadding).DecodeString(md5Key)
+	if err != nil {
+		return treap.MD5Key{}, fmt.Errorf("invalid base64 md5 key %q: %w", md5Key, err)
+	}
+	if len(decoded) != md5.Size {
+		return treap.MD5Key{}, fmt.Errorf("invalid base64 md5 key %q: expected %d bytes, got %d", md5Key, md5.Size, len(decoded))
+	}
+	return treap.MD5KeyFromString(hex.EncodeToString(decoded))
+}
+
+// md5KeyFromMedorgString converts a medorg checksum to a treap.MD5Key.
+// It tries hex first for forward compatibility, then base64 (current format).
+func md5KeyFromMedorgString(md5Key string) (treap.MD5Key, error) {
+	if key, err := md5KeyFromHexString(md5Key); err == nil {
+		return key, nil
+	}
+
+	return md5KeyFromBase64String(md5Key)
 }
 
 func NewBackupProcessor() (*BackupProcessor, error) {
@@ -105,10 +135,9 @@ func (bp *BackupProcessor) Close() error {
 // backupDest is where it's already backed up to
 // Then srcDir and srcFile are where we find it to back it up from
 func (bp *BackupProcessor) addSrcFile(md5Key string, size int64, backupDest []string, file core.Fpath) error {
-	// Convert hex string MD5 to MD5Key (16 bytes)
-	key, err := treap.MD5KeyFromString(md5Key)
+	key, err := md5KeyFromMedorgString(md5Key)
 	if err != nil {
-		return fmt.Errorf("invalid md5 key %q: %w", md5Key, err)
+		return err
 	}
 	payload := fileData{
 		Size:       size,
@@ -121,9 +150,9 @@ func (bp *BackupProcessor) addSrcFile(md5Key string, size int64, backupDest []st
 
 // Add files to the list of files we found in the backup destination
 func (bp *BackupProcessor) addDstFile(md5Key string, size int64, backupDest []string, file core.Fpath) error {
-	key, err := treap.MD5KeyFromString(md5Key)
+	key, err := md5KeyFromMedorgString(md5Key)
 	if err != nil {
-		return fmt.Errorf("invalid md5 key %q: %w", md5Key, err)
+		return err
 	}
 	payload := fileData{
 		Size:       size,
@@ -138,6 +167,7 @@ func (bp *BackupProcessor) addDstFile(md5Key string, size int64, backupDest []st
 func (bp *BackupProcessor) prioritizedSrcFiles() (func() (core.Fpath, bool), error) {
 	// Bucket files by how many destinations they are already backed up to, then within each
 	// bucket sort by descending size so larger files are attempted first.
+	// FIXME this should be in a temporary treap structure for efficiency with large datasets
 	buckets := make(map[int][]fileData)
 
 	onlyInSrc := func(node treap.TreapNodeInterface[treap.MD5Key]) error {
@@ -259,14 +289,8 @@ func (bp *inMemoryBackupProcessor) addLengthedFile(md5Key string, fileData *file
 	bp.filesByLength[file_length] = append(bp.filesByLength[file_length], fd)
 }
 
-// FIXME add test that this creates an array of filesByLength correctly
-func (bp *inMemoryBackupProcessor) prioritizeSrcFiles() {
-	for md5Key, srcFile := range bp.srcFiles {
-		bp.addLengthedFile(md5Key, srcFile)
-	}
-}
-
 // Return list of files to backup in a prioritized fashion
+// We sort by: fewest destinations first, then largest size first
 func (bp *inMemoryBackupProcessor) prioritizedSrcFiles() (func() (core.Fpath, bool), error) {
 	// Collect files present in src but not in dst.
 	entries := make([]fileData, 0, len(bp.srcFiles))

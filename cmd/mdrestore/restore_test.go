@@ -58,7 +58,7 @@ func TestMdrestoreBasic(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Create a simple journal entry in new format
+	// Create a simple journal entry
 	journalContent := `<mdj alias="test">
   <dr dir=".">
     <fr fname="testfile.txt" checksum="mock_checksum" mtime="1234567890" size="12">

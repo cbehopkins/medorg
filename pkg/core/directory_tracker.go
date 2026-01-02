@@ -292,7 +292,7 @@ func (dt *DirTracker) RevisitAll(
 	dirVisitor func(dt *DirTracker),
 	fileVisitor func(dm DirectoryEntryInterface, dir, fn string, fileStruct FileStruct) error,
 	closer <-chan struct{},
-) {
+) error {
 	dt.finished.Clear()
 	defer dt.finished.Set()
 	atomic.StoreInt64(&dt.directoryCountVisited, 0)
@@ -305,7 +305,7 @@ func (dt *DirTracker) RevisitAll(
 			case _, ok := <-closer:
 				if !ok {
 					log.Println("RevisitAll saw a closer")
-					return
+					return nil
 				}
 			default:
 			}
@@ -313,9 +313,12 @@ func (dt *DirTracker) RevisitAll(
 		atomic.AddInt64(&dt.directoryCountVisited, 1)
 		entry, ok := de.(DirectoryEntry)
 		if ok {
-			entry.Revisit(path, fileVisitor)
+			if err := entry.Revisit(path, fileVisitor); err != nil {
+				return fmt.Errorf("RevisitAll: revisit failed for %s: %w", path, err)
+			}
 		} else {
 			panic(fmt.Sprintf("RevisitAll: entry for path %s is not of type DirectoryEntry (type: %T) - this is a fundamental design error", path, de))
 		}
 	}
+	return nil
 }

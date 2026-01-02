@@ -375,9 +375,13 @@ func (bs backScanner) scanBackupDirectories(
 	var backupSource backupDupeMap
 
 	logFunc("Initial scan for anything that needs building")
-	dta[0].RevisitAll(destDir, registerFunc, backupDestination.AddVisit, shutdownChan)
+	if err := dta[0].RevisitAll(destDir, registerFunc, backupDestination.AddVisit, shutdownChan); err != nil {
+		return nil, err
+	}
 	logFunc("Scanning Source for Files already at destination")
-	dta[1].RevisitAll(srcDir, registerFunc, backupSource.NewSrcVisitor(bs.lookupFunc, &backupDestination, volumeName), shutdownChan)
+	if err := dta[1].RevisitAll(srcDir, registerFunc, backupSource.NewSrcVisitor(bs.lookupFunc, &backupDestination, volumeName), shutdownChan); err != nil {
+		return nil, err
+	}
 	logFunc("Dealing with duplicates")
 	if (bs.dupeFunc != nil) && (backupDestination.Len() > 0) {
 		// There's stuff on the backup that's not in the Source
@@ -424,12 +428,14 @@ func extractCopyFiles(srcDir string, dt *core.DirTracker, volumeName string, reg
 		lk.Unlock()
 		return nil
 	}
-	dt.RevisitAll(srcDir, registerFunc, visitFunc, nil)
+	if err := dt.RevisitAll(srcDir, registerFunc, visitFunc, nil); err != nil {
+		return nil, err
+	}
 	return remainingFiles, nil
 }
 
-// memoryExtractAndCopy performs backup using inMemoryBackupProcessor with prioritized iteration.
-func memoryExtractAndCopy(
+// extractAndCopy performs backup
+func extractAndCopy(
 	srcDir, destDir, volumeName string,
 	dt *core.DirTracker,
 	registerFunc func(*core.DirTracker),
@@ -442,7 +448,11 @@ func memoryExtractAndCopy(
 		fileCopyCallback = core.CopyFile
 	}
 
-	bp := NewInMemoryBackupProcessor()
+	bp, err := NewBackupProcessor()
+	if err != nil {
+		return err
+	}
+	defer bp.Close()
 
 	visitFunc := func(dm core.DirectoryEntryInterface, dir, fn string, fileStruct core.FileStruct) error {
 		if core.IsMetadataFile(fn) {
@@ -462,7 +472,9 @@ func memoryExtractAndCopy(
 	}
 
 	// Populate from source directory
-	dt.RevisitAll(srcDir, registerFunc, visitFunc, shutdownChan)
+	if err := dt.RevisitAll(srcDir, registerFunc, visitFunc, shutdownChan); err != nil {
+		return err
+	}
 
 	// Iterate prioritized files and copy until exhausted or destination fills
 	next, _ := bp.prioritizedSrcFiles()
@@ -635,7 +647,9 @@ func BackupRunnerMultiSource(
 	// Build destination file map
 	var backupDestination backupDupeMap
 	logFunc("Initial scan for anything that needs building")
-	dta[0].RevisitAll(destDir, registerFunc, backupDestination.AddVisit, shutdownChan)
+	if err := dta[0].RevisitAll(destDir, registerFunc, backupDestination.AddVisit, shutdownChan); err != nil {
+		return err
+	}
 
 	// Scan all sources and mark files found in destination
 	for i, srcDir := range srcDirs {
@@ -651,7 +665,9 @@ func BackupRunnerMultiSource(
 			}
 			return nil
 		}
-		dta[i+1].RevisitAll(srcDir, registerFunc, removeMatchingVisitor, shutdownChan)
+		if err := dta[i+1].RevisitAll(srcDir, registerFunc, removeMatchingVisitor, shutdownChan); err != nil {
+			return err
+		}
 	} // Now handle orphans - files in destination but not in ANY source
 	logFunc("Dealing with duplicates")
 	if (orphanFunc != nil) && (backupDestination.Len() > 0) {
@@ -672,7 +688,7 @@ func BackupRunnerMultiSource(
 	for i, srcDir := range srcDirs {
 		logFunc(fmt.Sprintf("Looking for files to copy from source %d", i+1))
 
-		err = memoryExtractAndCopy(
+		err = extractAndCopy(
 			srcDir, destDir, backupLabelName,
 			dta[i+1],
 			registerFunc,
@@ -743,7 +759,7 @@ func BackupRunner(
 	}
 	logFunc("Looking for files to  copy")
 
-	err = memoryExtractAndCopy(
+	err = extractAndCopy(
 		srcDir, destDir, backupLabelName,
 		dt[1],
 		registerFunc,

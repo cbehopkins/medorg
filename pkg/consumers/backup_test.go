@@ -676,10 +676,14 @@ func TestBackupChecksumMaintenance(t *testing.T) {
 	}
 
 	dt := core.AutoVisitFilesInDirectories([]string{srcDir}, nil)
-	dt[0].RevisitAll(srcDir, nil, srcVisitor, nil)
+	if err := dt[0].RevisitAll(srcDir, nil, srcVisitor, nil); err != nil {
+		t.Fatalf("RevisitAll src error: %v", err)
+	}
 
 	dtDest := core.AutoVisitFilesInDirectories([]string{destDir}, nil)
-	dtDest[0].RevisitAll(destDir, nil, destVisitor, nil)
+	if err := dtDest[0].RevisitAll(destDir, nil, destVisitor, nil); err != nil {
+		t.Fatalf("RevisitAll dest error: %v", err)
+	}
 }
 
 // TestBackupOrphanDetection verifies that orphan files (in dest but not in src) are properly detected
@@ -721,7 +725,9 @@ func TestBackupOrphanDetection(t *testing.T) {
 		return nil
 	}
 	dtDest := core.AutoVisitFilesInDirectories([]string{destDir}, nil)
-	dtDest[0].RevisitAll(destDir, nil, collectFilesVisitor, nil)
+	if err := dtDest[0].RevisitAll(destDir, nil, collectFilesVisitor, nil); err != nil {
+		t.Fatalf("RevisitAll dest collect error: %v", err)
+	}
 
 	if len(destFilesAfterBackup) == 0 {
 		t.Logf("Initial backup resulted in 0 files in destination (may indicate issue with test setup)")
@@ -859,7 +865,9 @@ func TestStaleTagRemoval(t *testing.T) {
 
 	// Use RevisitAll on the DirTracker that was returned from scanBackupDirectories
 	// dta[1] is the source directory
-	dta[1].RevisitAll(srcDir, nil, checkStaleTagsVisitor, nil)
+	if err := dta[1].RevisitAll(srcDir, nil, checkStaleTagsVisitor, nil); err != nil {
+		t.Fatalf("RevisitAll stale-tag check error: %v", err)
+	}
 
 	if filesWithTag != 0 {
 		t.Errorf("Expected 0 files with stale tags, got %d", filesWithTag)
@@ -954,7 +962,9 @@ func TestPartialStaleTagRemoval(t *testing.T) {
 	}
 
 	// Check the in-memory state from the DirTracker
-	dta[1].RevisitAll(srcDir, nil, checkPartialVisitor, nil)
+	if err := dta[1].RevisitAll(srcDir, nil, checkPartialVisitor, nil); err != nil {
+		t.Fatalf("RevisitAll partial check error: %v", err)
+	}
 
 	// Should have tags only for the files actually in destination
 	if filesWithTag != targetCopied {
@@ -1201,7 +1211,9 @@ func TestNewSrcVisitorTagCorrection(t *testing.T) {
 	}
 
 	// Use the DirTracker returned from scanBackupDirectories
-	dta[1].RevisitAll(srcDir, nil, checkFinalVisitor, nil)
+	if err := dta[1].RevisitAll(srcDir, nil, checkFinalVisitor, nil); err != nil {
+		t.Fatalf("RevisitAll final check error: %v", err)
+	}
 
 	// Should have tags only for files that exist in destination
 	if finalWithTag != targetCopied {

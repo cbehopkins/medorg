@@ -13,7 +13,7 @@ func main() {
 }
 
 func run() (int, error) {
-	configPath := flag.String("config", "", "Path to config file (optional, defaults to ~/.medorg.xml)")
+	configPath := flag.String("config", "", "Path to config file (optional, defaults to ~/.mdcfg.xml)")
 	journalPath := flag.String("journal", "", "Path to journal file (required)")
 	flag.Parse()
 
