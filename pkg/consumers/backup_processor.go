@@ -56,6 +56,8 @@ type BackupProcessor struct {
 	filePath          string
 }
 
+
+
 // md5KeyFromHexString parses a hex-encoded MD5 digest into a treap.MD5Key.
 func md5KeyFromHexString(md5Key string) (treap.MD5Key, error) {
 	return treap.MD5KeyFromString(md5Key)
@@ -168,7 +170,7 @@ func (bp *BackupProcessor) prioritizedSrcFiles() (func() (core.Fpath, bool), err
 	// Bucket files by how many destinations they are already backed up to, then within each
 	// bucket sort by descending size so larger files are attempted first.
 	// FIXME this should be in a temporary treap structure for efficiency with large datasets
-	buckets := make(map[int][]fileData)
+	pb := newPriorityBuckets()
 
 	onlyInSrc := func(node treap.TreapNodeInterface[treap.MD5Key]) error {
 		payloadNode, ok := node.(treap.PersistentPayloadNodeInterface[treap.MD5Key, fileData])
@@ -176,9 +178,7 @@ func (bp *BackupProcessor) prioritizedSrcFiles() (func() (core.Fpath, bool), err
 			return fmt.Errorf("unexpected node type %T", node)
 		}
 		fd := payloadNode.GetPayload()
-		length := len(fd.BackupDest)
-		buckets[length] = append(buckets[length], fd)
-		return nil
+		return pb.add(len(fd.BackupDest), fd)
 	}
 
 	// Differences only: files present in both or only in dst are ignored.
@@ -191,23 +191,9 @@ func (bp *BackupProcessor) prioritizedSrcFiles() (func() (core.Fpath, bool), err
 		return nil, err
 	}
 
-	// Order buckets by ascending BackupDest length.
-	lengths := make([]int, 0, len(buckets))
-	for l := range buckets {
-		lengths = append(lengths, l)
-	}
-	sort.Ints(lengths)
-
-	// Flatten into a single ordered list: smallest BackupDest count first, within each bucket largest size first.
 	ordered := make([]core.Fpath, 0)
-	for _, length := range lengths {
-		bucket := buckets[length]
-		sort.Slice(bucket, func(i, j int) bool {
-			if bucket[i].Size == bucket[j].Size {
-				return bucket[i].Fpath < bucket[j].Fpath
-			}
-			return bucket[i].Size > bucket[j].Size
-		})
+	nextBucket := pb.iterate()
+	for bucket, ok := nextBucket(); ok; bucket, ok = nextBucket() {
 		for _, fd := range bucket {
 			ordered = append(ordered, fd.Fpath)
 		}
