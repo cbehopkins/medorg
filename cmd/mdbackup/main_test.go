@@ -396,15 +396,65 @@ func TestIntegration_EdgeCases(t *testing.T) {
 			t.Fatalf("Run failed: exit=%d err=%v", exitCode, err)
 		}
 
-		// Verify empty files were copied
-		for _, name := range []string{"empty1.txt", "empty2.dat"} {
+		// Deduplication: empty files have identical content; expect a single physical copy.
+		emptyNames := []string{"empty1.txt", "empty2.dat"}
+		existing := 0
+		for _, name := range emptyNames {
 			dstPath := filepath.Join(dirs["dst"], name)
-			info, err := os.Stat(dstPath)
-			if err != nil {
-				t.Errorf("empty file %s not copied: %v", name, err)
-			} else if info.Size() != 0 {
-				t.Errorf("file %s should be empty, got size %d", name, info.Size())
+			if info, err := os.Stat(dstPath); err == nil {
+				existing++
+				if info.Size() != 0 {
+					t.Errorf("file %s should be empty, got size %d", name, info.Size())
+				}
 			}
+		}
+		if existing != 1 {
+			t.Errorf("dedup expected exactly 1 empty file copy, found %d", existing)
+		}
+	})
+
+	t.Run("IdenticalEmptyFilesAcrossSubdirs", func(t *testing.T) {
+		dirs, cleanup := makeTempDirs(t, "src", "dst")
+		defer cleanup()
+
+		// Create identical empty files in different subdirectories
+		emptyPaths := []string{
+			filepath.Join("subA", "empty.txt"),
+			filepath.Join("subB", "empty.txt"),
+		}
+		for _, rel := range emptyPaths {
+			full := filepath.Join(dirs["src"], rel)
+			if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+				t.Fatalf("mkdirs: %v", err)
+			}
+			if err := os.WriteFile(full, []byte{}, 0o644); err != nil {
+				t.Fatalf("write %s: %v", full, err)
+			}
+		}
+
+		xc := newXMLCfgAt(t, dirs["dst"])
+		setupVolumeConfigs(t, xc, dirs["src"], dirs["dst"])
+
+		var logBuf, msgBuf bytes.Buffer
+		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src"]}, ProjectConfig: xc, LogOutput: &logBuf, MessageWriter: &msgBuf}
+		exitCode, err := Run(cfg)
+		if exitCode != cli.ExitOk || err != nil {
+			t.Fatalf("Run failed: exit=%d err=%v", exitCode, err)
+		}
+
+		// Deduplication across subdirs: expect a single physical copy amongst the duplicates
+		existing := 0
+		for _, rel := range emptyPaths {
+			dstPath := filepath.Join(dirs["dst"], rel)
+			if info, err := os.Stat(dstPath); err == nil {
+				existing++
+				if info.Size() != 0 {
+					t.Errorf("file %s should be empty, got size %d", rel, info.Size())
+				}
+			}
+		}
+		if existing != 1 {
+			t.Errorf("dedup expected exactly 1 physical copy across subdirs, found %d", existing)
 		}
 	})
 
@@ -447,6 +497,46 @@ func TestIntegration_EdgeCases(t *testing.T) {
 					break
 				}
 			}
+		}
+	})
+
+	t.Run("HiddenAndBinaryFiles", func(t *testing.T) {
+		dirs, cleanup := makeTempDirs(t, "src", "dst")
+		defer cleanup()
+
+		// Hidden file (dotfile) and a small binary blob
+		hidden := ".hidden.txt"
+		binary := "bin.dat"
+		if err := os.WriteFile(filepath.Join(dirs["src"], hidden), []byte("secret"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		binContent := []byte{0x00, 0x01, 0x02, 0xFF, 0x7F, 0x00}
+		if err := os.WriteFile(filepath.Join(dirs["src"], binary), binContent, 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		xc := newXMLCfgAt(t, dirs["dst"])
+		setupVolumeConfigs(t, xc, dirs["src"], dirs["dst"])
+
+		var logBuf, msgBuf bytes.Buffer
+		cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src"]}, ProjectConfig: xc, LogOutput: &logBuf, MessageWriter: &msgBuf}
+		exitCode, err := Run(cfg)
+		if exitCode != cli.ExitOk || err != nil {
+			t.Fatalf("Run failed: exit=%d err=%v", exitCode, err)
+		}
+
+		// Verify hidden file copied
+		if b, err := os.ReadFile(filepath.Join(dirs["dst"], hidden)); err != nil {
+			t.Errorf("hidden file not copied: %v", err)
+		} else if string(b) != "secret" {
+			t.Errorf("hidden file content mismatch")
+		}
+
+		// Verify binary file copied byte-for-byte
+		if b, err := os.ReadFile(filepath.Join(dirs["dst"], binary)); err != nil {
+			t.Errorf("binary file not copied: %v", err)
+		} else if !bytes.Equal(b, binContent) {
+			t.Errorf("binary file content mismatch")
 		}
 	})
 
@@ -514,15 +604,25 @@ func TestIntegration_EdgeCases(t *testing.T) {
 		}
 
 		// Verify all files were copied despite identical content
+		// Deduplication behavior: identical-content files should result in a single physical copy.
+		// Verify exactly one of the files exists in destination, with correct content.
+		existing := 0
+		var existingName string
 		for i := 1; i <= 5; i++ {
 			name := fmt.Sprintf("file%d.txt", i)
 			dstPath := filepath.Join(dirs["dst"], name)
-			content, err := os.ReadFile(dstPath)
-			if err != nil {
-				t.Errorf("file %s not copied: %v", name, err)
-			} else if string(content) != string(identicalContent) {
-				t.Errorf("file %s content mismatch", name)
+			if b, err := os.ReadFile(dstPath); err == nil {
+				existing++
+				existingName = name
+				if string(b) != string(identicalContent) {
+					t.Errorf("file %s content mismatch", name)
+				}
 			}
+		}
+		if existing != 1 {
+			t.Errorf("dedup expected exactly 1 physical copy, found %d", existing)
+		} else {
+			t.Logf("✓ dedup created single physical copy: %s", existingName)
 		}
 	})
 
@@ -700,6 +800,44 @@ func TestIntegration_EdgeCases(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestIntegration_DedupAcrossSources(t *testing.T) {
+	// Two sources containing identical files should produce a single physical copy in destination
+	dirs, cleanup := makeTempDirs(t, "src1", "src2", "dst")
+	defer cleanup()
+
+	// Create identical files in both sources
+	content := []byte("same across sources")
+	for _, src := range []string{"src1", "src2"} {
+		if err := os.WriteFile(filepath.Join(dirs[src], "dup.txt"), content, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Setup config
+	xc := newXMLCfgAt(t, dirs["dst"])
+	setupVolumeConfigs(t, xc, dirs["src1"], dirs["src2"], dirs["dst"])
+
+	var logBuf, msgBuf bytes.Buffer
+	cfg := Config{Destination: dirs["dst"], Sources: []string{dirs["src1"], dirs["src2"]}, ProjectConfig: xc, LogOutput: &logBuf, MessageWriter: &msgBuf}
+	exitCode, err := Run(cfg)
+	if exitCode != cli.ExitOk || err != nil {
+		t.Fatalf("Run failed: exit=%d err=%v", exitCode, err)
+	}
+
+	// Dedup expectation: only a single physical copy exists among potential duplicate names
+	// Since both sources have the same rel path, destination will have one winner.
+	existing := 0
+	if b, err := os.ReadFile(filepath.Join(dirs["dst"], "dup.txt")); err == nil {
+		existing++
+		if string(b) != string(content) {
+			t.Errorf("content mismatch for dedup across sources")
+		}
+	}
+	if existing != 1 {
+		t.Errorf("dedup across sources expected 1 physical copy, found %d", existing)
+	}
 }
 
 func TestIntegration_BackupTagsInMedorgXML(t *testing.T) {

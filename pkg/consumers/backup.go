@@ -47,6 +47,7 @@ var globalDirLocks = &directoryLocks{
 func (dl *directoryLocks) getLock(dir string) *sync.Mutex {
 	dl.mu.Lock()
 	defer dl.mu.Unlock()
+	dir = filepath.Clean(dir)
 
 	if dl.locks[dir] == nil {
 		dl.locks[dir] = &sync.Mutex{}
@@ -278,10 +279,7 @@ func (sfp *streamingFileProcessor) processBatch() error {
 			defer func() { sfp.copyTokens <- struct{}{} }()
 			err := doACopy(sfp.srcDir, sfp.destDir, sfp.backupLabelName, file, sfp.fileCopyCallback)
 			if err != nil {
-				select {
-				case sfp.errChan <- err:
-				default:
-				}
+				sfp.errChan <- err
 			}
 		}(file)
 	}
@@ -430,9 +428,8 @@ func extractCopyFiles(srcDir string, dt *core.DirTracker, volumeName string, reg
 	return remainingFiles, nil
 }
 
-// streamingExtractAndCopy walks the source directory and processes files in batches
-// to avoid memory buildup when backing up large collections
-func streamingExtractAndCopy(
+// memoryExtractAndCopy performs backup using inMemoryBackupProcessor with prioritized iteration.
+func memoryExtractAndCopy(
 	srcDir, destDir, volumeName string,
 	dt *core.DirTracker,
 	registerFunc func(*core.DirTracker),
@@ -441,38 +438,44 @@ func streamingExtractAndCopy(
 	logFunc func(msg string),
 	shutdownChan chan struct{},
 ) error {
-	processor := newStreamingFileProcessor(
-		srcDir, destDir, volumeName,
-		fileCopyCallback, maxNumBackups,
-		logFunc, shutdownChan,
-	)
+	if fileCopyCallback == nil {
+		fileCopyCallback = core.CopyFile
+	}
+
+	bp := NewInMemoryBackupProcessor()
 
 	visitFunc := func(dm core.DirectoryEntryInterface, dir, fn string, fileStruct core.FileStruct) error {
-		fmt.Println("Visiting", fn)
-		// Skip metadata files - these should never be backed up
 		if core.IsMetadataFile(fn) {
 			return nil
 		}
-
+		// Skip files already backed up to this destination label
 		if fileStruct.HasTag(volumeName) {
-			fmt.Println("Skipping ", fn, " as already has volume label", volumeName)
 			return nil
 		}
 		lenArchive := len(fileStruct.BackupDest)
 		if lenArchive > maxNumBackups {
 			return nil
 		}
-		fmt.Println("We should copy ", fn)
+		// Add to in-memory processor with metadata needed for prioritization
 		fp := core.NewFpath(dir, fn)
-		// Add to processor, which handles batching automatically
-		return processor.addFile(lenArchive, fp)
+		return bp.addSrcFile(fileStruct.Checksum, fileStruct.Size, fileStruct.BackupDest, fp)
 	}
-	fmt.Println("Kick off revisit")
-	dt.RevisitAll(srcDir, registerFunc, visitFunc, nil)
-	fmt.Println("Finished Revisit")
 
-	// Flush any remaining files
-	return processor.flush()
+	// Populate from source directory
+	dt.RevisitAll(srcDir, registerFunc, visitFunc, shutdownChan)
+
+	// Iterate prioritized files and copy until exhausted or destination fills
+	next, _ := bp.prioritizedSrcFiles()
+	for fp, ok := next(); ok; fp, ok = next() {
+		if err := doACopy(srcDir, destDir, volumeName, fp, fileCopyCallback); err != nil {
+			if errors.Is(err, ErrNoSpace) {
+				return ErrNoSpace
+			}
+			return err
+		}
+	}
+
+	return nil
 }
 
 type FileCopier func(src, dst core.Fpath) error
@@ -534,7 +537,7 @@ func doACopy(
 	}
 	srcLock.Unlock()
 
-	_ = src.RemoveTag(backupLabelName)
+	// _ = src.RemoveTag(backupLabelName)
 	// Update the destDir with the checksum from the srcDir
 
 	// Acquire lock for destination directory
@@ -665,11 +668,11 @@ func BackupRunnerMultiSource(
 		return nil
 	}
 
-	// Now copy files from each source using streaming approach
+	// Now copy files from each source using memory-based prioritized approach
 	for i, srcDir := range srcDirs {
 		logFunc(fmt.Sprintf("Looking for files to copy from source %d", i+1))
 
-		err = streamingExtractAndCopy(
+		err = memoryExtractAndCopy(
 			srcDir, destDir, backupLabelName,
 			dta[i+1],
 			registerFunc,
@@ -740,7 +743,7 @@ func BackupRunner(
 	}
 	logFunc("Looking for files to  copy")
 
-	err = streamingExtractAndCopy(
+	err = memoryExtractAndCopy(
 		srcDir, destDir, backupLabelName,
 		dt[1],
 		registerFunc,
@@ -754,5 +757,18 @@ func BackupRunner(
 	}
 
 	logFunc("Finished Copy")
+	return nil
+}
+
+func TunedBackupRunner(
+	volumeLabel VolumeLabeler,
+	maxNumBackups int,
+	fileCopyCallback FileCopier,
+	srcDir, destDir string,
+	orphanFunc func(path string) error,
+	logFunc func(msg string),
+	registerFunc func(*core.DirTracker),
+	shutdownChan chan struct{},
+) error {
 	return nil
 }
