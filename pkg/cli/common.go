@@ -189,12 +189,6 @@ func ValidatePath(path string, mustBeDir bool) error {
 	return nil
 }
 
-// ExitWithError prints an error message and exits with the given code.
-func ExitWithError(exitCode int, format string, args ...interface{}) {
-	fmt.Fprintf(os.Stderr, format+"\n", args...)
-	os.Exit(exitCode)
-}
-
 // CommonConfig holds fields commonly used across tool configs
 type CommonConfig struct {
 	ConfigPath string
@@ -217,15 +211,6 @@ func SetupLogFile(filename string) (io.Writer, int) {
 	}
 
 	return f, ExitOk
-}
-
-// PrintError prints an error message to the writer and returns the exit code.
-// This is useful for consistent error handling in Run() functions.
-// If err is nil, nothing is printed.
-func PrintError(err error, writer io.Writer) {
-	if err != nil {
-		fmt.Fprintf(writer, "Error: %v\n", err)
-	}
 }
 
 // ExitFromRun standardizes the pattern for exiting from main() after calling Run().

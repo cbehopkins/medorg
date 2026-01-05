@@ -370,7 +370,7 @@ func (dm DirectoryMap) UpdateChecksum(directory, file string, forceUpdate bool) 
 	}
 	log.Println("Updating checksum for", directory, file)
 	fc := func(fs *FileStruct) error {
-		return fs.UpdateChecksum(forceUpdate)
+		return fs.UpdateChecksum(forceUpdate, false, nil)
 	}
 	return dm.RunFsFc(directory, file, fc)
 }

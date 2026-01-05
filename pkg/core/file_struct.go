@@ -154,12 +154,31 @@ func (fs FileStruct) Changed(info fs.FileInfo) (bool, error) {
 	return false, nil
 }
 
-// UpdateChecksum makes the tea
-func (fs *FileStruct) UpdateChecksum(forceUpdate bool) error {
+// UpdateChecksum calculates checksum, optionally reporting progress via callback
+func (fs *FileStruct) UpdateChecksum(forceUpdate, showProgress bool, callback func(int64)) error {
 	if !forceUpdate && (fs.Checksum != "") {
 		return nil
 	}
-	cks, err := CalcMd5File(fs.directory, fs.Name)
+
+	var cks string
+	var err error
+
+	if showProgress {
+		cks, err = CalcMd5FileWithProgress(fs.directory, fs.Name, func(bytes int64, timestamp time.Time) {
+			if callback != nil {
+				callback(bytes)
+			}
+		})
+	} else {
+		cks, err = CalcMd5File(fs.directory, fs.Name)
+		if callback != nil {
+			// For non-progress case, we still call the callback but only once at the end
+			if err == nil {
+				callback(fs.Size)
+			}
+		}
+	}
+
 	if err != nil {
 		return err
 	}
@@ -172,51 +191,27 @@ func (fs *FileStruct) UpdateChecksum(forceUpdate bool) error {
 	return nil
 }
 
-// UpdateChecksumWithProgress calculates checksum while reporting progress via callback
-func (fs *FileStruct) UpdateChecksumWithProgress(forceUpdate bool, callback func(int64)) error {
-	if !forceUpdate && (fs.Checksum != "") {
-		return nil
-	}
+// ValidateChecksum checks if the checksum is correct, optionally reporting progress via callback
+func (fs *FileStruct) ValidateChecksum(showProgress bool, callback func(int64)) error {
+	var cks string
+	var err error
 
-	cks, err := CalcMd5FileWithProgress(fs.directory, fs.Name, func(bytes int64, timestamp time.Time) {
+	if showProgress {
+		cks, err = CalcMd5FileWithProgress(fs.directory, fs.Name, func(bytes int64, timestamp time.Time) {
+			if callback != nil {
+				callback(bytes)
+			}
+		})
+	} else {
+		cks, err = CalcMd5File(fs.directory, fs.Name)
 		if callback != nil {
-			callback(bytes)
+			// For non-progress case, we still call the callback but only once at the end
+			if err == nil {
+				callback(fs.Size)
+			}
 		}
-	})
-	if err != nil {
-		return err
 	}
-	if fs.Checksum == cks {
-		return nil
-	}
-	fs.Checksum = cks
-	// If we've had to update the checksum, then any existing backups are invalid
-	fs.BackupDest = []string{}
-	return nil
-}
 
-// ValidateChecksum checks if the checksum is correct
-func (fs *FileStruct) ValidateChecksum() error {
-	cks, err := CalcMd5File(fs.directory, fs.Name)
-	if err != nil {
-		return err
-	}
-	if fs.Checksum == cks {
-		return nil
-	}
-	fs.Checksum = cks
-	// If we've had to update the checksum, then any existing backups are invalid
-	fs.BackupDest = []string{}
-	return ErrRecalced
-}
-
-// ValidateChecksumWithProgress validates checksum while reporting progress via callback
-func (fs *FileStruct) ValidateChecksumWithProgress(callback func(int64)) error {
-	cks, err := CalcMd5FileWithProgress(fs.directory, fs.Name, func(bytes int64, timestamp time.Time) {
-		if callback != nil {
-			callback(bytes)
-		}
-	})
 	if err != nil {
 		return err
 	}
