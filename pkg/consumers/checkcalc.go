@@ -11,12 +11,13 @@ import (
 
 // CheckCalcOptions configures the mdcalc operation
 type CheckCalcOptions struct {
-	CalcCount int             // Number of parallel MD5 calculators (default: 2)
-	Recalc    bool            // Force recalculation of all checksums
-	Validate  bool            // Validate existing checksums
-	Scrub     bool            // Remove backup destination tags
-	AutoFix   *AutoFix        // Optional auto-fix for file renaming/deletion
-	Tuner     *adaptive.Tuner // Optional adaptive tuner for dynamic token adjustment
+	CalcCount    int             // Number of parallel MD5 calculators (default: 2)
+	Recalc       bool            // Force recalculation of all checksums
+	Validate     bool            // Validate existing checksums
+	Scrub        bool            // Remove backup destination tags
+	ShowProgress bool            // Show progress during checksum calculation (default: true)
+	AutoFix      *AutoFix        // Optional auto-fix for file renaming/deletion
+	Tuner        *adaptive.Tuner // Optional adaptive tuner for dynamic token adjustment
 }
 
 // RunCheckCalc calculates and maintains MD5 checksums for files in the given directories.
@@ -84,15 +85,16 @@ func RunCheckCalc(directories []string, opts CheckCalcOptions) error {
 				if opts.Tuner != nil {
 					<-opts.Tuner.AcquireToken()
 					defer opts.Tuner.ReleaseToken()
-
-					err = fs.ValidateChecksumWithProgress(func(bytes int64) {
-						opts.Tuner.RecordBytes(bytes)
-					})
 				} else {
 					<-tokenBuffer
 					defer func() { tokenBuffer <- struct{}{} }()
-					err = fs.ValidateChecksum()
 				}
+
+				err = fs.ValidateChecksum(opts.ShowProgress, func(bytes int64) {
+					if opts.Tuner != nil {
+						opts.Tuner.RecordBytes(bytes)
+					}
+				})
 				if errors.Is(err, core.ErrRecalced) {
 					// Checksum had to be recalculated, but that's ok
 					return nil
@@ -114,15 +116,16 @@ func RunCheckCalc(directories []string, opts CheckCalcOptions) error {
 			if opts.Tuner != nil {
 				<-opts.Tuner.AcquireToken()
 				defer opts.Tuner.ReleaseToken()
-
-				err = fs.UpdateChecksumWithProgress(opts.Recalc, func(bytes int64) {
-					opts.Tuner.RecordBytes(bytes)
-				})
 			} else {
 				<-tokenBuffer
 				defer func() { tokenBuffer <- struct{}{} }()
-				err = fs.UpdateChecksum(opts.Recalc)
 			}
+
+			err = fs.UpdateChecksum(opts.Recalc, opts.ShowProgress, func(bytes int64) {
+				if opts.Tuner != nil {
+					opts.Tuner.RecordBytes(bytes)
+				}
+			})
 
 			if errors.Is(err, ErrIOError) {
 				// Log but don't fail on IO errors (file might be locked)

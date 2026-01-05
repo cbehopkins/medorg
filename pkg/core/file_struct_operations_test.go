@@ -208,7 +208,7 @@ func TestUpdateChecksumWithoutForce(t *testing.T) {
 	fs := FileStruct{directory: tmpDir, Name: "test.txt", Checksum: "existing"}
 
 	// Without force, should skip if checksum exists
-	err := fs.UpdateChecksum(false)
+	err := fs.UpdateChecksum(false, false, nil)
 	if err != nil {
 		t.Errorf("UpdateChecksum returned error: %v", err)
 	}
@@ -230,7 +230,7 @@ func TestUpdateChecksumWithForce(t *testing.T) {
 	fs := FileStruct{directory: tmpDir, Name: "test.txt", Checksum: "old"}
 
 	// With force, should recalculate
-	err := fs.UpdateChecksum(true)
+	err := fs.UpdateChecksum(true, false, nil)
 	if err != nil {
 		t.Errorf("UpdateChecksum returned error: %v", err)
 	}
@@ -257,7 +257,7 @@ func TestUpdateChecksumClearsBackupDest(t *testing.T) {
 	}
 
 	// Update with force should clear backups
-	_ = fs.UpdateChecksum(true)
+	_ = fs.UpdateChecksum(true, false, nil)
 
 	if len(fs.BackupDest) != 0 {
 		t.Errorf("Expected BackupDest to be cleared, got %v", fs.BackupDest)
@@ -277,7 +277,7 @@ func TestValidateChecksumMatch(t *testing.T) {
 
 	// Calculate correct checksum
 	fs := FileStruct{directory: tmpDir, Name: "test.txt", Checksum: ""}
-	_ = fs.UpdateChecksum(true)
+	_ = fs.UpdateChecksum(true, false, nil)
 	correctChecksum := fs.Checksum
 
 	// Create new struct with correct checksum
@@ -288,7 +288,7 @@ func TestValidateChecksumMatch(t *testing.T) {
 		BackupDest: []string{"backup1"},
 	}
 
-	err := fs2.ValidateChecksum()
+	err := fs2.ValidateChecksum(false, nil)
 	if err != nil {
 		t.Errorf("ValidateChecksum returned error for valid checksum: %v", err)
 	}
@@ -317,7 +317,7 @@ func TestValidateChecksumMismatch(t *testing.T) {
 		BackupDest: []string{"backup1", "backup2"},
 	}
 
-	err := fs.ValidateChecksum()
+	err := fs.ValidateChecksum(false, nil)
 	if err != ErrRecalced {
 		t.Errorf("ValidateChecksum should return ErrRecalced for mismatch, got %v", err)
 	}
