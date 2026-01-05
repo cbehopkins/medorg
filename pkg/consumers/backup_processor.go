@@ -1,9 +1,7 @@
 package consumers
 
 import (
-	"crypto/md5"
-	"encoding/base64"
-	"encoding/hex"
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -56,8 +54,6 @@ type BackupProcessor struct {
 	filePath          string
 }
 
-
-
 // md5KeyFromHexString parses a hex-encoded MD5 digest into a treap.MD5Key.
 func md5KeyFromHexString(md5Key string) (treap.MD5Key, error) {
 	return treap.MD5KeyFromString(md5Key)
@@ -65,14 +61,7 @@ func md5KeyFromHexString(md5Key string) (treap.MD5Key, error) {
 
 // md5KeyFromBase64String parses a base64 (no padding) MD5 digest into a treap.MD5Key.
 func md5KeyFromBase64String(md5Key string) (treap.MD5Key, error) {
-	decoded, err := base64.StdEncoding.WithPadding(base64.NoPadding).DecodeString(md5Key)
-	if err != nil {
-		return treap.MD5Key{}, fmt.Errorf("invalid base64 md5 key %q: %w", md5Key, err)
-	}
-	if len(decoded) != md5.Size {
-		return treap.MD5Key{}, fmt.Errorf("invalid base64 md5 key %q: expected %d bytes, got %d", md5Key, md5.Size, len(decoded))
-	}
-	return treap.MD5KeyFromString(hex.EncodeToString(decoded))
+	return treap.Md5KeyFromBase64String(md5Key)
 }
 
 // md5KeyFromMedorgString converts a medorg checksum to a treap.MD5Key.
@@ -167,10 +156,17 @@ func (bp *BackupProcessor) addDstFile(md5Key string, size int64, backupDest []st
 
 // Return list of files to backup in a prioritized fashion
 func (bp *BackupProcessor) prioritizedSrcFiles() (func() (core.Fpath, bool), error) {
-	// Bucket files by how many destinations they are already backed up to, then within each
-	// bucket sort by descending size so larger files are attempted first.
-	// FIXME this should be in a temporary treap structure for efficiency with large datasets
-	pb := newPriorityBuckets()
+	identity := fmt.Sprintf("priority_%d", time.Now().UnixNano())
+	priorityColl, err := vault.GetOrCreateCollectionWithIdentity(
+		bp.session.Vault,
+		identity,
+		priorityKeyLess,
+		(*priorityKey)(new(priorityKey)),
+		fileData{},
+	)
+	if err != nil {
+		return nil, err
+	}
 
 	onlyInSrc := func(node treap.TreapNodeInterface[treap.MD5Key]) error {
 		payloadNode, ok := node.(treap.PersistentPayloadNodeInterface[treap.MD5Key, fileData])
@@ -178,7 +174,9 @@ func (bp *BackupProcessor) prioritizedSrcFiles() (func() (core.Fpath, bool), err
 			return fmt.Errorf("unexpected node type %T", node)
 		}
 		fd := payloadNode.GetPayload()
-		return pb.add(len(fd.BackupDest), fd)
+		key := buildPriorityKey(fd)
+		priorityColl.Insert(&key, fd)
+		return nil
 	}
 
 	// Differences only: files present in both or only in dst are ignored.
@@ -192,11 +190,16 @@ func (bp *BackupProcessor) prioritizedSrcFiles() (func() (core.Fpath, bool), err
 	}
 
 	ordered := make([]core.Fpath, 0)
-	nextBucket := pb.iterate()
-	for bucket, ok := nextBucket(); ok; bucket, ok = nextBucket() {
-		for _, fd := range bucket {
-			ordered = append(ordered, fd.Fpath)
+	ctx := context.Background()
+	for node, iterErr := range priorityColl.Iter(ctx) {
+		if iterErr != nil {
+			return nil, iterErr
 		}
+		payloadNode, ok := node.(treap.PersistentPayloadNodeInterface[priorityKey, fileData])
+		if !ok {
+			return nil, fmt.Errorf("unexpected node type %T", node)
+		}
+		ordered = append(ordered, payloadNode.GetPayload().Fpath)
 	}
 
 	idx := 0
@@ -254,25 +257,6 @@ func (bp *inMemoryBackupProcessor) addDstFile(md5Key string, size int64, backupD
 func (bp *inMemoryBackupProcessor) Close() error {
 	// No resources to clean up in this in-memory implementation
 	return nil
-}
-
-// FIXME add testing for this
-func (bp *inMemoryBackupProcessor) addLengthedFile(md5Key string, fileData *fileData) {
-	fd := &fileDataWithMd5{
-		fileData: *fileData,
-		MD5Key:   md5Key,
-	}
-	file_length := len(fileData.BackupDest)
-	if (file_length + 1) > len(bp.filesByLength) {
-		// Extend the slice to accommodate the new length
-		newSlice := make([][]*fileDataWithMd5, file_length+1)
-		copy(newSlice, bp.filesByLength)
-		bp.filesByLength = newSlice
-	}
-	if bp.filesByLength[file_length] == nil {
-		bp.filesByLength[file_length] = []*fileDataWithMd5{}
-	}
-	bp.filesByLength[file_length] = append(bp.filesByLength[file_length], fd)
 }
 
 // Return list of files to backup in a prioritized fashion
