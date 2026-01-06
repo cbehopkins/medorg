@@ -398,6 +398,41 @@ func TestLoadOrCreateMdConfigWithPath(t *testing.T) {
 	}
 }
 
+func TestResolveMdConfigPath(t *testing.T) {
+	// Explicit path returns as-is and reflects absence
+	customPath := filepath.Join(t.TempDir(), "custom.xml")
+	path, exists := resolveMdConfigPath(customPath)
+	absCustom, _ := filepath.Abs(customPath)
+	if path != absCustom {
+		t.Fatalf("expected %s, got %s", absCustom, path)
+	}
+	if exists {
+		t.Fatalf("expected exists=false for non-existent file")
+	}
+
+	// Default path uses ConfigPath and reports existence when present
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ConfigFileName)
+	if err := os.WriteFile(configPath, []byte("<xc></xc>"), 0o600); err != nil {
+		t.Fatalf("failed to create config file: %v", err)
+	}
+
+	origWd, _ := os.Getwd()
+	defer os.Chdir(origWd)
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("failed to chdir: %v", err)
+	}
+
+	path, exists = resolveMdConfigPath("")
+	absDefault, _ := filepath.Abs(configPath)
+	if path != absDefault {
+		t.Fatalf("expected default path %s, got %s", absDefault, path)
+	}
+	if !exists {
+		t.Fatalf("expected exists=true for created config")
+	}
+}
+
 // TestMdConfigPathCleaning tests that paths are cleaned consistently
 func TestMdConfigPathCleaning(t *testing.T) {
 	cfg := &MdConfig{}

@@ -71,24 +71,28 @@ func LoadOrCreateMdConfig() (*MdConfig, error) {
 	return LoadOrCreateMdConfigWithPath("")
 }
 
-// LoadOrCreateMdConfigWithPath loads the config from the specified path or default location
-// If configPath is empty, uses default behavior (XmConfig or ~/.mdcfg.xml)
-// If configPath is provided, uses that path directly
-func LoadOrCreateMdConfigWithPath(configPath string) (*MdConfig, error) {
-	// If a specific path is provided, use it
+// resolveMdConfigPath determines the path that should be used for the medorg config file.
+// It prefers an explicit path when provided. If none is provided, it looks for an existing
+// config in the current directory (via ConfigPath) and falls back to the user's home
+// directory path for creation. The boolean indicates whether a config file currently exists
+// at the resolved path.
+func resolveMdConfigPath(configPath string) (string, bool) {
 	if configPath != "" {
-		fmt.Println("Loading from:", configPath)
-		return NewMdConfig(configPath)
+		absPath, _ := filepath.Abs(configPath)
+		return absPath, fileExists(absPath)
 	}
 
-	// First check if XmConfig returns a location (looks for existing .mdcfg.xml)
-	if xmcf := XmConfig(); xmcf != "" {
-		return NewMdConfig(string(xmcf))
-	}
+	defaultPath := ConfigPath(ConfigFileName)
+	absPath, _ := filepath.Abs(defaultPath)
+	return absPath, fileExists(absPath)
+}
 
-	// If not found, use default location: ~/.mdcfg.xml
-	fn := ConfigPath(ConfigFileName)
-	return NewMdConfig(fn)
+// LoadOrCreateMdConfigWithPath loads the config from the specified path or default location.
+// If configPath is empty, uses default behavior (preferred location, typically ~/.mdcfg.xml).
+// If configPath is provided, uses that path directly.
+func LoadOrCreateMdConfigWithPath(configPath string) (*MdConfig, error) {
+	path, _ := resolveMdConfigPath(configPath)
+	return NewMdConfig(path)
 }
 
 func (xc *MdConfig) WriteXmlCfg() error {
@@ -205,6 +209,11 @@ func (xc *MdConfig) GetAliasForPath(path string) string {
 
 // SetRestoreDestination sets or updates the restore destination for an alias
 // If path is empty, uses the source directory path as default
+
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
+}
 func (xc *MdConfig) SetRestoreDestination(alias, path string) error {
 	// If no path provided, try to use the source directory path
 	if path == "" {

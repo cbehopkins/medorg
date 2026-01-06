@@ -209,25 +209,6 @@ func HomeDir() Fpath {
 	return Fpath(usr.HomeDir)
 }
 
-// AfConfig return the location of the xml config file if it exists in a known place
-func AfConfig() Fpath {
-	fn := ConfigPath(AfConfigFileName)
-	if _, err := os.Stat(fn); os.IsNotExist(err) {
-		fn = ""
-	}
-	return Fpath(fn)
-}
-
-// XmConfig return the location of the xml config file if it exists in a known place
-func XmConfig() Fpath {
-	fn := ConfigPath(ConfigFileName)
-	fmt.Println("Loading XmConfig from", fn)
-	if _, err := os.Stat(fn); os.IsNotExist(err) {
-		fn = ""
-	}
-	return Fpath(fn)
-}
-
 func ConfigPath(file string) string {
 	if _, err := os.Stat(file); os.IsNotExist(err) {
 		return filepath.Join(string(HomeDir()), file)
