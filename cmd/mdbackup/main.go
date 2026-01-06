@@ -146,6 +146,15 @@ func main() {
 	delflg := flag.Bool("delete", false, "Delete duplicated Files")
 	statsflg := flag.Bool("stats", false, "Generate backup statistics")
 
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage: %s [OPTIONS] <destination> [sources...]\n\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "Arguments:\n")
+		fmt.Fprintf(os.Stderr, "  <destination>  Backup destination directory (required, default: current directory if omitted)\n")
+		fmt.Fprintf(os.Stderr, "  [sources...]   Source directories to backup (optional, default: paths from config file)\n\n")
+		fmt.Fprintf(os.Stderr, "Options:\n")
+		flag.PrintDefaults()
+	}
+
 	flag.Parse()
 	///////////////////////////////////
 	// Logging setup
