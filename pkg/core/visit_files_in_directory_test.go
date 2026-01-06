@@ -94,6 +94,7 @@ func moveDetectDirCreationCount(numberOfDirectoriesWide, numberOfDirectoriesDeep
 }
 
 func TestVisitFilesInDirectory(t *testing.T) {
+	t.Parallel()
 	type testSet struct {
 		cfg []int
 	}
@@ -112,10 +113,12 @@ func TestVisitFilesInDirectory(t *testing.T) {
 	}
 
 	for _, tst := range testSet0 {
+		tst := tst // capture
 		ts := tst.cfg
 		testName := fmt.Sprintln("TestVisitFilesInDirectory", ts)
 
 		t.Run(testName, func(t *testing.T) {
+			t.Parallel()
 			root, err := createTestMoveDetectDirectories(ts[0], ts[1], ts[2])
 			if err != nil {
 				t.Error("Error creating test directories", err)
@@ -147,6 +150,7 @@ func TestVisitFilesInDirectory(t *testing.T) {
 }
 
 func TestVisitFilesInDirectory1(t *testing.T) {
+	t.Parallel()
 	type testSet struct {
 		cfg []int
 	}
@@ -165,10 +169,12 @@ func TestVisitFilesInDirectory1(t *testing.T) {
 	}
 
 	for _, tst := range testSet0 {
+		tst := tst // capture
 		ts := tst.cfg
 		testName := fmt.Sprintln("TestVisitFilesInDirectory", ts)
 
 		t.Run(testName, func(t *testing.T) {
+			t.Parallel()
 			root, err := createTestMoveDetectDirectories(ts[0], ts[1], ts[2])
 			if err != nil {
 				t.Error("Error creating test directories", err)

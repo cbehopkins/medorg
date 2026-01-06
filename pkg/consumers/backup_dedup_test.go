@@ -90,15 +90,15 @@ func TestBackupDuplicateContentFiles(t *testing.T) {
 		return core.CopyFile(src, dst)
 	}
 
-	err = BackupRunner(&xc, 2, fc, srcDir, dstDir, nil, nil, nil, nil, false)
+	err = BackupRunner(&xc, 2, fc, dstDir, nil, nil, nil, nil, false, srcDir)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatal("BackupRunner failed:", err)
 	}
 
 	// DEDUPLICATION BEHAVIOR: Files with identical checksums should only be copied once
 	// document1.txt and document2.txt have the same content, so only one should be copied
 	// This prevents wasting backup space on duplicate content
-	expectedCopies := 2
+	expectedCopies := 2 // One for the duplicate checksum, one for unique file
 	if int(copyCount) != expectedCopies {
 		t.Errorf("Expected %d files copied (deduplication), got %d", expectedCopies, copyCount)
 	}
@@ -241,7 +241,7 @@ func TestBackupDuplicateContentInSubdirs(t *testing.T) {
 		return core.CopyFile(src, dst)
 	}
 
-	err = BackupRunner(&xc, 2, fc, srcDir, dstDir, nil, nil, nil, nil, false)
+	err = BackupRunner(&xc, 2, fc, dstDir, nil, nil, nil, nil, false, srcDir)
 	if err != nil {
 		t.Fatal(err)
 	}

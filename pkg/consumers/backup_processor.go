@@ -19,6 +19,25 @@ type fileData struct {
 	BackupDest []string
 }
 
+// mergeBackupDestinations unions two backup destination lists, preserving order of first appearance.
+func mergeBackupDestinations(a, b []string) []string {
+	seen := make(map[string]bool, len(a)+len(b))
+	res := make([]string, 0, len(a)+len(b))
+	for _, v := range a {
+		if !seen[v] {
+			seen[v] = true
+			res = append(res, v)
+		}
+	}
+	for _, v := range b {
+		if !seen[v] {
+			seen[v] = true
+			res = append(res, v)
+		}
+	}
+	return res
+}
+
 // Marshal implements PersistentPayload interface
 func (f fileData) Marshal() ([]byte, error) {
 	data := fmt.Sprintf("%d:%v", f.Size, f.BackupDest)
@@ -52,6 +71,7 @@ type BackupProcessor struct {
 	dstFileCollection *treap.PersistentPayloadTreap[treap.MD5Key, fileData]
 	session           *vault.VaultSession
 	filePath          string
+	matchedDstKeys    map[treap.MD5Key]bool // Tracks which destination files were found in sources
 }
 
 // // md5KeyFromHexString parses a hex-encoded MD5 digest into a treap.MD5Key.
@@ -113,6 +133,7 @@ func NewBackupProcessor() (*BackupProcessor, error) {
 		dstFileCollection: dstCollection,
 		session:           session,
 		filePath:          tmpFile,
+		matchedDstKeys:    make(map[treap.MD5Key]bool),
 	}, nil
 }
 
@@ -140,6 +161,22 @@ func (bp *BackupProcessor) addSrcFile(md5Key string, size int64, backupDest []st
 		Fpath:      file,
 		BackupDest: backupDest,
 	}
+
+	// If we already have this checksum recorded, merge destinations and prefer the path
+	// that needs backup most (fewest existing destinations) while retaining merged metadata.
+	if existingNode := bp.srcFileCollection.Search(&key); existingNode != nil {
+		existing := existingNode.GetPayload()
+		mergedDest := mergeBackupDestinations(existing.BackupDest, payload.BackupDest)
+		chosen := existing
+		if len(payload.BackupDest) < len(existing.BackupDest) {
+			chosen.Fpath = payload.Fpath
+			chosen.Size = payload.Size
+		}
+		chosen.BackupDest = mergedDest
+		existingNode.SetPayload(chosen)
+		return existingNode.Persist()
+	}
+
 	bp.srcFileCollection.Insert(&key, payload)
 	return nil
 }
@@ -160,8 +197,80 @@ func (bp *BackupProcessor) addDstFile(md5Key string, size int64, backupDest []st
 		Fpath:      file,
 		BackupDest: backupDest,
 	}
+
+	// Merge duplicate destination entries for the same checksum, tracking all destinations
+	if existingNode := bp.dstFileCollection.Search(&key); existingNode != nil {
+		existing := existingNode.GetPayload()
+		mergedDest := mergeBackupDestinations(existing.BackupDest, payload.BackupDest)
+		chosen := existing
+		// Keep the first seen path; destinations are what matter here
+		chosen.BackupDest = mergedDest
+		existingNode.SetPayload(chosen)
+		return existingNode.Persist()
+	}
+
 	bp.dstFileCollection.Insert(&key, payload)
 	return nil
+}
+
+// checkDstFileExists checks if a file with the given checksum exists in destination
+// Returns the file path and true if found, empty string and false otherwise
+func (bp *BackupProcessor) checkDstFileExists(checksum string) (core.Fpath, bool) {
+	key, err := treap.MD5KeyFromString(checksum)
+	if err != nil {
+		// Try base64 format
+		key, err = treap.Md5KeyFromBase64String(checksum)
+		if err != nil {
+			return "", false
+		}
+	}
+
+	node := bp.dstFileCollection.Search(&key)
+	if node == nil || node.IsNil() {
+		return "", false
+	}
+	return node.GetPayload().Fpath, true
+}
+
+// markAsMatched marks a destination file as matched (found in source)
+// Used for orphan detection - unmatched files are orphans
+func (bp *BackupProcessor) markAsMatched(checksum string) error {
+	key, err := treap.MD5KeyFromString(checksum)
+	if err != nil {
+		// Try base64 format
+		key, err = treap.Md5KeyFromBase64String(checksum)
+		if err != nil {
+			return err
+		}
+	}
+	bp.matchedDstKeys[key] = true
+	return nil
+}
+
+// getOrphanFiles returns files in destination that weren't matched in any source
+// These are candidates for cleanup/archival
+func (bp *BackupProcessor) getOrphanFiles() []core.Fpath {
+	orphans := []core.Fpath{}
+
+	ctx := context.Background()
+	for node, iterErr := range bp.dstFileCollection.Iter(ctx) {
+		if iterErr != nil {
+			break
+		}
+		payloadNode, ok := node.(treap.PersistentPayloadNodeInterface[treap.MD5Key, fileData])
+		if !ok {
+			continue
+		}
+		keyVal := payloadNode.GetKey().Value()
+		payload := payloadNode.GetPayload()
+
+		// If not matched, it's an orphan
+		if !bp.matchedDstKeys[keyVal] {
+			orphans = append(orphans, payload.Fpath)
+		}
+	}
+
+	return orphans
 }
 
 // Return list of files to backup in a prioritized fashion
@@ -256,20 +365,25 @@ func NewInMemoryBackupProcessor() *inMemoryBackupProcessor {
 // backupDest is where it's already backed up to
 // Then srcDir and srcFile are where we find it to back it up from
 func (bp *inMemoryBackupProcessor) addSrcFile(md5Key string, size int64, backupDest []string, file core.Fpath) error {
-	bp.srcFiles[md5Key] = &fileData{
-		Size:       size,
-		Fpath:      file,
-		BackupDest: backupDest,
+	if existing, ok := bp.srcFiles[md5Key]; ok {
+		merged := mergeBackupDestinations(existing.BackupDest, backupDest)
+		if len(backupDest) < len(existing.BackupDest) {
+			existing.Fpath = file
+			existing.Size = size
+		}
+		existing.BackupDest = merged
+		return nil
 	}
+	bp.srcFiles[md5Key] = &fileData{Size: size, Fpath: file, BackupDest: backupDest}
 	return nil
 }
 
 func (bp *inMemoryBackupProcessor) addDstFile(md5Key string, size int64, backupDest []string, file core.Fpath) error {
-	bp.dstFiles[md5Key] = &fileData{
-		Size:       size,
-		Fpath:      file,
-		BackupDest: backupDest,
+	if existing, ok := bp.dstFiles[md5Key]; ok {
+		existing.BackupDest = mergeBackupDestinations(existing.BackupDest, backupDest)
+		return nil
 	}
+	bp.dstFiles[md5Key] = &fileData{Size: size, Fpath: file, BackupDest: backupDest}
 	return nil
 }
 

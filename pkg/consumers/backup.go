@@ -75,6 +75,49 @@ type backupDupeMap struct {
 	dupeMap map[backupKey]core.Fpath
 }
 
+type checksumRecord struct {
+	path            core.Fpath
+	fromDestination bool
+}
+
+type checksumSet struct {
+	mu   sync.Mutex
+	seen map[string]checksumRecord
+}
+
+func newChecksumSet() *checksumSet {
+	return &checksumSet{seen: make(map[string]checksumRecord)}
+}
+
+// SeedFromDestination marks a checksum as already present in the destination.
+func (cs *checksumSet) SeedFromDestination(checksum string, path core.Fpath) {
+	cs.mu.Lock()
+	cs.seen[checksum] = checksumRecord{path: path, fromDestination: true}
+	cs.mu.Unlock()
+}
+
+// Mark records a checksum that will be satisfied by the current run.
+// Returns true if this is the first time we've seen the checksum.
+func (cs *checksumSet) Mark(checksum string, path core.Fpath) bool {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	if _, ok := cs.seen[checksum]; ok {
+		return false
+	}
+	cs.seen[checksum] = checksumRecord{path: path}
+	return true
+}
+
+func (cs *checksumSet) Get(checksum string) (checksumRecord, bool) {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	if cs.seen == nil {
+		return checksumRecord{}, false
+	}
+	rec, ok := cs.seen[checksum]
+	return rec, ok
+}
+
 // Add an entry to the map (legacy concrete type version)
 func (bdm *backupDupeMap) Add(fs core.FileStruct) {
 	key := newBackupKeyFromFileStruct(fs)
@@ -147,10 +190,14 @@ func (bdm *backupDupeMap) NewSrcVisitor(
 		}
 		if ok {
 			// Then mark in the source as already backed up
-			_ = fileStruct.AddTag(volumeName)
+			if added := fileStruct.AddTag(volumeName); !added {
+				return fmt.Errorf("failed to add tag %s", volumeName)
+			}
 		}
 		if !ok && fileStruct.HasTag(volumeName) {
-			fileStruct.RemoveTag(volumeName)
+			if removed := fileStruct.RemoveTag(volumeName); !removed {
+				return fmt.Errorf("failed to remove tag %s", volumeName)
+			}
 		}
 
 		bdm.Add(fileStruct)
@@ -158,11 +205,6 @@ func (bdm *backupDupeMap) NewSrcVisitor(
 		adm.Add(fileStruct)
 		return nil
 	}
-}
-
-type backScanner struct {
-	dupeFunc   func(path string) error
-	lookupFunc func(core.Fpath, bool) error
 }
 
 type (
@@ -329,73 +371,6 @@ func (sfp *streamingFileProcessor) flush() error {
 	return nil
 }
 
-// scanBackupDirectories will mark srcDir's ArchiveAt
-// tag, with any files that are already found in the destination
-func (bs backScanner) scanBackupDirectories(
-	destDir, srcDir, volumeName string,
-	registerFunc func(*core.DirTracker),
-	logFunc func(msg string),
-	shutdownChan chan struct{},
-) ([]*core.DirTracker, error) {
-	if logFunc == nil {
-		logFunc = func(msg string) {
-			log.Println(msg)
-		}
-	}
-	dta := core.AutoVisitFilesInDirectories([]string{destDir, srcDir}, nil)
-	// Handle errors from directory traversal
-	errChan := make(chan error, len(dta)) // Buffer with capacity = number of senders
-	var wg sync.WaitGroup
-	wg.Add(len(dta))
-	for _, ndt := range dta {
-		if registerFunc != nil {
-			registerFunc(ndt)
-		}
-		go func(ndt *core.DirTracker) {
-			for err := range ndt.ErrChan() {
-				if err != nil {
-					errChan <- err
-				}
-			}
-			wg.Done()
-		}(ndt)
-	}
-	go func() {
-		wg.Wait()
-		close(errChan)
-	}()
-	for err := range errChan {
-		return nil, err
-	}
-
-	// No checksum calculation needed - RunCheckCalc already did it
-	// Just read the existing directory maps which now have checksums
-
-	var backupDestination backupDupeMap
-	var backupSource backupDupeMap
-
-	logFunc("Initial scan for anything that needs building")
-	if err := dta[0].RevisitAll(destDir, registerFunc, backupDestination.AddVisit, shutdownChan); err != nil {
-		return nil, err
-	}
-	logFunc("Scanning Source for Files already at destination")
-	if err := dta[1].RevisitAll(srcDir, registerFunc, backupSource.NewSrcVisitor(bs.lookupFunc, &backupDestination, volumeName), shutdownChan); err != nil {
-		return nil, err
-	}
-	logFunc("Dealing with duplicates")
-	if (bs.dupeFunc != nil) && (backupDestination.Len() > 0) {
-		// There's stuff on the backup that's not in the Source
-		// We'll need to do something about this soon!
-		// log.Println("Unexpected items left in backup destination")
-		for _, v := range backupDestination.dupeMap {
-			if err := bs.dupeFunc(string(v)); err != nil {
-				return nil, err
-			}
-		}
-	}
-	return dta, nil
-}
-
 // extractCopyFiles will look for files that are not backed up
 // i.e. walk through src file system looking for files
 // That don't have the volume name as an archived at
@@ -443,17 +418,8 @@ func extractAndCopy(
 	maxNumBackups int,
 	logFunc func(msg string),
 	shutdownChan chan struct{},
+	bp *BackupProcessor,
 ) error {
-	if fileCopyCallback == nil {
-		fileCopyCallback = core.CopyFile
-	}
-
-	bp, err := NewBackupProcessor()
-	if err != nil {
-		return err
-	}
-	defer bp.Close()
-
 	visitFunc := func(dm core.DirectoryEntryInterface, dir, fn string, fileStruct core.FileStruct) error {
 		if core.IsMetadataFile(fn) {
 			return nil
@@ -466,14 +432,35 @@ func extractAndCopy(
 		if lenArchive > maxNumBackups {
 			return nil
 		}
-		// Add to in-memory processor with metadata needed for prioritization
+
+		checksum := fileStruct.Checksum
+		if dstPath, exists := bp.checkDstFileExists(checksum); exists {
+			// Already in destination: tag source and mark matched to suppress orphan reporting
+			if err := bp.markAsMatched(checksum); err != nil {
+				return err
+			}
+			_, err := updateSourceDirectoryMap(dir, fn, volumeName, core.NewFpath(dir, fn))
+			if err != nil {
+				return err
+			}
+			// Skip adding to src collection since copy not needed
+			_ = dstPath // informational only
+			return nil
+		}
+
+		// Add to processor with metadata needed for prioritization
 		fp := core.NewFpath(dir, fn)
-		return bp.addSrcFile(fileStruct.Checksum, fileStruct.Size, fileStruct.BackupDest, fp)
+		return bp.addSrcFile(checksum, fileStruct.Size, fileStruct.BackupDest, fp)
 	}
 
 	// Populate from source directory
 	if err := dt.RevisitAll(srcDir, registerFunc, visitFunc, shutdownChan); err != nil {
 		return err
+	}
+
+	// If scan-only mode, stop after tagging source metadata for existing destination files
+	if fileCopyCallback == nil {
+		return nil
 	}
 
 	// Iterate prioritized files and copy until exhausted or destination fills
@@ -485,9 +472,62 @@ func extractAndCopy(
 			}
 			return err
 		}
+
+		// After a successful copy, add to destination collection and mark matched so later sources skip it
+		rel, err := filepath.Rel(srcDir, string(fp))
+		if err != nil {
+			return err
+		}
+		// Retrieve fresh metadata for checksum and backup destinations
+		dir := filepath.Dir(string(fp))
+		fn := filepath.Base(string(fp))
+		dmSrc, err := core.DirectoryMapFromDir(dir)
+		if err != nil {
+			return err
+		}
+		fs, ok := dmSrc.Get(fn)
+		if !ok {
+			return fmt.Errorf("%w: %s", ErrMissingEntry, fp)
+		}
+		dstPath := core.NewFpath(destDir, rel)
+		if err := bp.markAsMatched(fs.Checksum); err != nil {
+			return err
+		}
+		if err := bp.addDstFile(fs.Checksum, fs.Size, fs.BackupDest, dstPath); err != nil {
+			return err
+		}
 	}
 
 	return nil
+}
+
+func tagSourceAsBackedUp(file core.Fpath, backupLabelName string) (core.FileStruct, error) {
+	basename := filepath.Base(string(file))
+	sd := filepath.Dir(string(file))
+	return updateSourceDirectoryMap(sd, basename, backupLabelName, file)
+}
+
+func updateSourceDirectoryMap(dir, filename, backupLabelName string, srcFile core.Fpath) (core.FileStruct, error) {
+	srcLock := globalDirLocks.getLock(dir)
+	srcLock.Lock()
+	defer srcLock.Unlock()
+
+	dmSrc, err := core.DirectoryMapFromDir(dir)
+	if err != nil {
+		return core.FileStruct{}, err
+	}
+	src, ok := dmSrc.Get(filename)
+	if !ok {
+		return core.FileStruct{}, fmt.Errorf("%w: %s, \"%s\" \"%s\"", ErrMissingEntry, srcFile, dir, filename)
+	}
+	if src.HasTag(backupLabelName) {
+		return src, nil
+	}
+	if added := src.AddTag(backupLabelName); !added {
+		return src, fmt.Errorf("failed to add tag %s", backupLabelName)
+	}
+	dmSrc.Add(src)
+	return src, dmSrc.Persist(dir)
 }
 
 type FileCopier func(src, dst core.Fpath) error
@@ -521,33 +561,10 @@ func doACopy(
 		return ErrNoSpace
 	}
 	// Update the srcDir .md5 file with the fact we've backed this up now
-	basename := filepath.Base(string(file))
-	sd := filepath.Dir(string(file))
+	src, err := tagSourceAsBackedUp(file, backupLabelName)
 	if err != nil {
 		return err
 	}
-
-	// Acquire lock for source directory to prevent concurrent DirectoryMap updates
-	srcLock := globalDirLocks.getLock(sd)
-	srcLock.Lock()
-
-	dmSrc, err := core.DirectoryMapFromDir(sd)
-	if err != nil {
-		srcLock.Unlock()
-		return err
-	}
-	src, ok := dmSrc.Get(basename)
-	if !ok {
-		srcLock.Unlock()
-		return fmt.Errorf("%w: %s, \"%s\" \"%s\"", ErrMissingEntry, file, sd, basename)
-	}
-	_ = src.AddTag(backupLabelName)
-	dmSrc.Add(src)
-	if err := dmSrc.Persist(sd); err != nil {
-		srcLock.Unlock()
-		return err
-	}
-	srcLock.Unlock()
 
 	// _ = src.RemoveTag(backupLabelName)
 	// Update the destDir with the checksum from the srcDir
@@ -572,26 +589,33 @@ func doACopy(
 	return dmDst.Persist(destDirForLock)
 }
 
-// BackupRunnerMultiSource handles backup from multiple source directories to a single destination
-// with proper orphan detection across all sources. This should be used when len(srcDirs) > 1 and
-// orphan detection is enabled.
-func BackupRunnerMultiSource(
+// BackupRunner handles backup from one or more source directories to a single destination.
+// Supports single or multiple sources with proper orphan detection across all sources.
+func BackupRunner(
 	volumeLabel VolumeLabeler,
 	maxNumBackups int,
 	fileCopyCallback FileCopier,
-	srcDirs []string,
 	destDir string,
 	orphanFunc func(path string) error,
 	logFunc func(msg string),
 	registerFunc func(*core.DirTracker),
 	shutdownChan chan struct{},
 	skipCheckCalc bool,
+	srcDirs ...string,
 ) error {
+	if len(srcDirs) == 0 {
+		return fmt.Errorf("at least one source directory required")
+	}
 	if logFunc == nil {
 		logFunc = func(msg string) {
 			log.Println(msg)
 		}
 	}
+	bp, err := NewBackupProcessor()
+	if err != nil {
+		return err
+	}
+	defer bp.Close()
 	backupLabelName, err := volumeLabel.GetVolumeLabel(destDir)
 	if err != nil {
 		return err
@@ -616,6 +640,8 @@ func BackupRunnerMultiSource(
 		if err := RunCheckCalc(allDirs, checkCalcOpts); err != nil {
 			return fmt.Errorf("error running mdcalc: %w", err)
 		}
+		logFunc("Finished mdcalc")
+
 	} else {
 		logFunc("Skipping mdcalc (using existing checksums)")
 	}
@@ -649,47 +675,31 @@ func BackupRunnerMultiSource(
 	}
 
 	// No checksum calculation needed - RunCheckCalc already did it
-	// Build destination file map
-	var backupDestination backupDupeMap
-	logFunc("Initial scan for anything that needs building")
-	if err := dta[0].RevisitAll(destDir, registerFunc, backupDestination.AddVisit, shutdownChan); err != nil {
-		return err
-	}
+	// Build destination file map into BackupProcessor
+	logFunc("Initial scan for destination inventory")
+	// BackupRunner does not seem to use a progress bar when actually doing its work.
+	// There are three places I can see a pb being useful here
+	// 1) when scanning the destination directory
+	// 2) When scanning the source directory
+	// 3) when copying a file.
 
-	// Scan all sources and mark files found in destination
-	for i, srcDir := range srcDirs {
-		logFunc(fmt.Sprintf("Scanning Source %d for Files already at destination", i+1))
-		// Create a visitor that removes matching files from backupDestination
-		removeMatchingVisitor := func(dm core.DirectoryEntryInterface, dir, fn string, fileStruct core.FileStruct) error {
-			key := newBackupKeyFromFileStruct(fileStruct)
-			_, ok := backupDestination.Get(key)
-			if ok {
-				// File exists in destination - mark as backed up and remove from orphan candidates
-				_ = fileStruct.AddTag(backupLabelName)
-				backupDestination.Remove(key)
-			}
+	// Could you please add a progress bar to each of these steps, using the existing pb library already imported in this file?
+	destVisitor := func(dm core.DirectoryEntryInterface, dir, fn string, fileStruct core.FileStruct) error {
+		if core.IsMetadataFile(fn) {
 			return nil
 		}
-		if err := dta[i+1].RevisitAll(srcDir, registerFunc, removeMatchingVisitor, shutdownChan); err != nil {
-			return err
-		}
-	} // Now handle orphans - files in destination but not in ANY source
-	logFunc("Dealing with duplicates")
-	if (orphanFunc != nil) && (backupDestination.Len() > 0) {
-		for _, v := range backupDestination.dupeMap {
-			if err := orphanFunc(string(v)); err != nil {
-				return err
-			}
-		}
+		return bp.addDstFile(fileStruct.Checksum, fileStruct.Size, fileStruct.BackupDest, core.NewFpath(dir, fn))
 	}
-
-	// If scan-only mode, we're done
+	if err := dta[0].RevisitAll(destDir, registerFunc, destVisitor, shutdownChan); err != nil {
+		return err
+	}
+	logFunc("Finishing up as a test of memory consumption")
+	return nil
 	if fileCopyCallback == nil {
-		logFunc("Scan only. Going no further")
-		return nil
+		logFunc("Scan only requested; performing ingestion without copying")
 	}
 
-	// Now copy files from each source using memory-based prioritized approach
+	// Now copy files from each source
 	for i, srcDir := range srcDirs {
 		logFunc(fmt.Sprintf("Looking for files to copy from source %d", i+1))
 
@@ -701,101 +711,24 @@ func BackupRunnerMultiSource(
 			maxNumBackups,
 			logFunc,
 			shutdownChan,
+			bp,
 		)
 		if err != nil {
-			return fmt.Errorf("BackupRunnerMultiSource failed copying from source %d, %w", i+1, err)
+			return fmt.Errorf("BackupRunner failed copying from source %d, %w", i+1, err)
 		}
 
 		logFunc(fmt.Sprintf("Finished Copy from source %d", i+1))
 	}
 
-	return nil
-}
-
-func BackupRunner(
-	volumeLabel VolumeLabeler,
-	maxNumBackups int,
-	fileCopyCallback FileCopier,
-	srcDir, destDir string,
-	orphanFunc func(path string) error,
-	logFunc func(msg string),
-	registerFunc func(*core.DirTracker),
-	shutdownChan chan struct{},
-	skipCheckCalc bool,
-) error {
-	if logFunc == nil {
-		logFunc = func(msg string) {
-			log.Println(msg)
+	// Report orphans: destination files never matched by any source
+	if orphanFunc != nil {
+		logFunc("Reporting orphaned destination files")
+		for _, orphan := range bp.getOrphanFiles() {
+			if err := orphanFunc(string(orphan)); err != nil {
+				return err
+			}
 		}
 	}
-	backupLabelName, err := volumeLabel.GetVolumeLabel(destDir)
-	if err != nil {
-		return err
-	}
-	logFunc(fmt.Sprint("Determined label as: \"", backupLabelName, "\" :now scanning directories"))
 
-	// Step 1: Run mdcalc to calculate/update all MD5 checksums
-	// This ensures both source and destination have up-to-date .medorg.xml files
-	checkCalcOpts := CheckCalcOptions{
-		CalcCount:    2, // Default parallelism
-		Recalc:       false,
-		Validate:     false,
-		Scrub:        false,
-		AutoFix:      nil,
-		ShowProgress: true,
-	}
-	if !skipCheckCalc {
-		logFunc(fmt.Sprintf("Running mdcalc on %s and destination %s", srcDir, destDir))
-		if err := RunCheckCalc([]string{srcDir, destDir}, checkCalcOpts); err != nil {
-			return fmt.Errorf("error running mdcalc: %w", err)
-		}
-	} else {
-		logFunc("Skipping mdcalc (using existing checksums)")
-	}
-
-	// Step 2: Scan directories and mark files (no checksum calculation needed)
-	// Go ahead and run a mdcalc style scan of the directories and make sure
-	// they have all their existing md5s up to date
-	// First of all get the srcDir updated with files that are already in destDir
-	var bs backScanner
-	bs.dupeFunc = orphanFunc
-	dt, err := bs.scanBackupDirectories(destDir, srcDir, backupLabelName, registerFunc, logFunc, shutdownChan)
-	if err != nil {
-		return err
-	}
-	if fileCopyCallback == nil {
-		logFunc("Scan only. Going no further")
-		// If we've not supplied a copier, when we clearly don't want to run the copy
-		return nil
-	}
-	logFunc("Looking for files to  copy")
-
-	err = extractAndCopy(
-		srcDir, destDir, backupLabelName,
-		dt[1],
-		registerFunc,
-		fileCopyCallback,
-		maxNumBackups,
-		logFunc,
-		shutdownChan,
-	)
-	if err != nil {
-		return fmt.Errorf("BackupRunner failed, %w", err)
-	}
-
-	logFunc("Finished Copy")
-	return nil
-}
-
-func TunedBackupRunner(
-	volumeLabel VolumeLabeler,
-	maxNumBackups int,
-	fileCopyCallback FileCopier,
-	srcDir, destDir string,
-	orphanFunc func(path string) error,
-	logFunc func(msg string),
-	registerFunc func(*core.DirTracker),
-	shutdownChan chan struct{},
-) error {
 	return nil
 }

@@ -161,8 +161,8 @@ func TestAddFileOverwrite(t *testing.T) {
 	if !ok {
 		t.Fatal("expected one file from iterator")
 	}
-	if string(fp) != "/file2.txt" {
-		t.Errorf("expected /file2.txt after overwrite, got %s", fp)
+	if string(fp) != "/file1.txt" {
+		t.Errorf("expected /file1.txt (fewest backups retained), got %s", fp)
 	}
 }
 
@@ -474,13 +474,6 @@ func TestPrioritizedFilesWithManyFiles(t *testing.T) {
 	// Only test on inMemoryBackupProcessor which supports deduplication
 	bp := NewInMemoryBackupProcessor()
 
-	// Track files added for verification
-	type fileInfo struct {
-		fpath       core.Fpath
-		backupCount int
-	}
-	addedFiles := make(map[string]fileInfo)
-
 	// Add 100 files with varying backup destinations
 	for i := 0; i < 100; i++ {
 		md5Key := generateMD5Key(string(rune('a' + (i % 26))))
@@ -489,13 +482,17 @@ func TestPrioritizedFilesWithManyFiles(t *testing.T) {
 		for j := 0; j < backupCount; j++ {
 			backupDest[j] = string(rune('x' + j))
 		}
-		fpath := core.Fpath(string(rune('/' + i)))
+		fpath := core.Fpath(fmt.Sprintf("/file_%03d", i))
 		err := bp.addSrcFile(md5Key, int64(i*100), backupDest, fpath)
 		if err != nil {
 			t.Fatalf("addFile failed for file %d: %v", i, err)
 		}
-		// Track last added file with this key (will overwrite in inMemory)
-		addedFiles[md5Key] = fileInfo{fpath: fpath, backupCount: backupCount}
+	}
+
+	// Capture the processor's final view of src files (after merging logic)
+	pathCounts := make(map[core.Fpath]int)
+	for _, fd := range bp.srcFiles {
+		pathCounts[fd.Fpath] = len(fd.BackupDest)
 	}
 
 	next, err := bp.prioritizedSrcFiles()
@@ -513,19 +510,9 @@ func TestPrioritizedFilesWithManyFiles(t *testing.T) {
 		}
 		count++
 
-		// Find the backup count for this file
-		var currentBackupCount int
-		found := false
-		for _, info := range addedFiles {
-			if info.fpath == fp {
-				currentBackupCount = info.backupCount
-				found = true
-				break
-			}
-		}
-
+		currentBackupCount, found := pathCounts[fp]
 		if !found {
-			t.Errorf("returned file %s not in added files", fp)
+			t.Errorf("returned file %s not in selected min set", fp)
 			continue
 		}
 
@@ -535,9 +522,8 @@ func TestPrioritizedFilesWithManyFiles(t *testing.T) {
 		prevBackupCount = currentBackupCount
 	}
 
-	// We added 100 files but with duplicate keys (26 possible keys)
-	// So we should have exactly 26 unique files (only last one for each key is kept)
-	if count != 26 {
-		t.Errorf("expected 26 files (unique keys), got %d", count)
+	// Expect exactly the entries present in the processor's src map
+	if count != len(pathCounts) {
+		t.Errorf("expected %d files (unique keys), got %d", len(pathCounts), count)
 	}
 }

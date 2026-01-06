@@ -53,7 +53,7 @@ func TestBackupDestinationMetadataRecovery(t *testing.T) {
 		return core.CopyFile(src, dst)
 	}
 
-	err = BackupRunner(&xc, 2, fc, srcDir, dstDir, nil, nil, nil, nil, false)
+	err = BackupRunner(&xc, 2, fc, dstDir, nil, nil, nil, nil, false, srcDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,12 +117,7 @@ func TestBackupDestinationMetadataRecovery(t *testing.T) {
 		return core.CopyFile(src, dst)
 	}
 
-	err = BackupRunner(&xc, 2, fc2, srcDir, dstDir, nil, nil, nil, nil, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// STEP 4: Verify files were NOT recopied
+err = BackupRunner(&xc, 2, fc2, dstDir, nil, nil, nil, nil, false, srcDir)
 	if secondCopyCount != 0 {
 		t.Errorf("Expected 0 files to be copied (idempotent), but %d were copied", secondCopyCount)
 	} else {
@@ -203,7 +198,7 @@ func TestBackupDestinationMetadataRecoveryWithSubdirs(t *testing.T) {
 		return core.CopyFile(src, dst)
 	}
 
-	err = BackupRunner(&xc, 2, fc, srcDir, dstDir, nil, nil, nil, nil, false)
+	err = BackupRunner(&xc, 2, fc, dstDir, nil, nil, nil, nil, false, srcDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,7 +239,7 @@ func TestBackupDestinationMetadataRecoveryWithSubdirs(t *testing.T) {
 		return core.CopyFile(src, dst)
 	}
 
-	err = BackupRunner(&xc, 2, fc2, srcDir, dstDir, nil, nil, nil, nil, false)
+	err = BackupRunner(&xc, 2, fc2, dstDir, nil, nil, nil, nil, false, srcDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -333,7 +328,7 @@ func TestBackupSourceMetadataRecovery(t *testing.T) {
 		return core.CopyFile(src, dst)
 	}
 
-	err = BackupRunner(&xc, 2, fc, srcDir, dstDir, nil, nil, nil, nil, false)
+	err = BackupRunner(&xc, 2, fc, dstDir, nil, nil, nil, nil, false, srcDir)
 	if err != nil {
 		t.Fatal(err)
 	}

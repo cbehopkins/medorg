@@ -200,53 +200,26 @@ func Run(cfg Config) (int, error) {
 	}
 	fmt.Println("Finished configuring callbacks", len(cfg.Sources))
 
-	// Choose backup strategy based on source count and delete mode
-	// Use multi-source runner when we have multiple sources, as it handles orphan detection correctly
-	if len(cfg.Sources) > 1 {
-		setMessage("Starting Multi-Source Backup Run")
-		volumeLabel := SimpleVolumeLabelProvider{cfg.ProjectConfig}
-		err := consumers.BackupRunnerMultiSource(
-			volumeLabel,
-			2,
-			copyer,
-			cfg.Sources,
-			cfg.Destination,
-			orphanedFunc,
-			logFunc,
-			registerFunc,
-			cfg.ShutdownChan,
-			cfg.SkipCheckCalc,
-		)
-		setMessage("Completed Multi-Source Backup Run")
+	// Run unified backup with all sources
+	setMessage("Starting Backup Run")
+	volumeLabel := SimpleVolumeLabelProvider{cfg.ProjectConfig}
+	err := consumers.BackupRunner(
+		volumeLabel,
+		2,
+		copyer,
+		cfg.Destination,
+		orphanedFunc,
+		logFunc,
+		registerFunc,
+		cfg.ShutdownChan,
+		cfg.SkipCheckCalc,
+		cfg.Sources...,
+	)
+	setMessage("Completed Backup Run")
 
-		if err != nil {
-			setMessage(fmt.Sprint("Unable to complete backup:", err))
-			return cli.ExitIncompleteBackup, err
-		}
-	} else {
-		// Single source - use original BackupRunner
-		volumeLabel := SimpleVolumeLabelProvider{cfg.ProjectConfig}
-		for _, src := range cfg.Sources {
-			setMessage("Starting Backup Run on " + src)
-			err := consumers.BackupRunner(
-				volumeLabel,
-				2,
-				copyer,
-				src,
-				cfg.Destination,
-				orphanedFunc,
-				logFunc,
-				registerFunc,
-				cfg.ShutdownChan,
-				cfg.SkipCheckCalc,
-			)
-			setMessage("Completed Backup Run")
-
-			if err != nil {
-				setMessage(fmt.Sprint("Unable to complete backup:", err))
-				return cli.ExitIncompleteBackup, err
-			}
-		}
+	if err != nil {
+		setMessage(fmt.Sprint("Unable to complete backup:", err))
+		return cli.ExitIncompleteBackup, err
 	}
 
 	setMessage("Waiting for complete")

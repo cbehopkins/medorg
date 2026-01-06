@@ -209,10 +209,10 @@ func TestRunDummyModeMultipleSources(t *testing.T) {
 		t.Errorf("Multi-source dummy mode failed: exit=%d err=%v", exitCode, err)
 	}
 
-	// Verify multi-source messages
+	// Verify backup ran successfully
 	output := msgBuf.String()
-	if !strings.Contains(output, "Multi-Source") {
-		t.Errorf("Expected multi-source message, got: %s", output)
+	if !strings.Contains(output, "Starting Backup Run") {
+		t.Errorf("Expected backup run message, got: %s", output)
 	}
 }
 
