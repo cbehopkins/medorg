@@ -54,24 +54,24 @@ type BackupProcessor struct {
 	filePath          string
 }
 
-// md5KeyFromHexString parses a hex-encoded MD5 digest into a treap.MD5Key.
-func md5KeyFromHexString(md5Key string) (treap.MD5Key, error) {
-	return treap.MD5KeyFromString(md5Key)
-}
+// // md5KeyFromHexString parses a hex-encoded MD5 digest into a treap.MD5Key.
+// func md5KeyFromHexString(md5Key string) (treap.MD5Key, error) {
+// 	return treap.MD5KeyFromString(md5Key)
+// }
 
 // md5KeyFromBase64String parses a base64 (no padding) MD5 digest into a treap.MD5Key.
-func md5KeyFromBase64String(md5Key string) (treap.MD5Key, error) {
-	return treap.Md5KeyFromBase64String(md5Key)
-}
+// func md5KeyFromBase64String(md5Key string) (treap.MD5Key, error) {
+// }
 
 // md5KeyFromMedorgString converts a medorg checksum to a treap.MD5Key.
 // It tries hex first for forward compatibility, then base64 (current format).
 func md5KeyFromMedorgString(md5Key string) (treap.MD5Key, error) {
-	if key, err := md5KeyFromHexString(md5Key); err == nil {
-		return key, nil
-	}
+	// if key, err := md5KeyFromHexString(md5Key); err == nil {
+	// 	return key, nil
+	// }
 
-	return md5KeyFromBase64String(md5Key)
+	return treap.Md5KeyFromBase64String(md5Key)
+	// return md5KeyFromBase64String(md5Key)
 }
 
 func NewBackupProcessor() (*BackupProcessor, error) {
@@ -105,9 +105,9 @@ func NewBackupProcessor() (*BackupProcessor, error) {
 	if !ok {
 		return nil, fmt.Errorf("collection has wrong type: got %T", colls["dstFiles"])
 	}
-	// Set memory budget: keep max 1000 nodes, flush oldest 25% when exceeded
-	// This means when we hit 1000 nodes, we'll flush 250 of the oldest ones
-	session.Vault.SetMemoryBudgetWithPercentile(1000, 25)
+	// Set memory budget: keep max 50 nodes, flush oldest 50% when exceeded
+	// This is aggressive but necessary on Pi with limited RAM
+	session.Vault.SetMemoryBudgetWithPercentile(50, 50)
 	return &BackupProcessor{
 		srcFileCollection: srcCollection,
 		dstFileCollection: dstCollection,
@@ -126,9 +126,14 @@ func (bp *BackupProcessor) Close() error {
 // backupDest is where it's already backed up to
 // Then srcDir and srcFile are where we find it to back it up from
 func (bp *BackupProcessor) addSrcFile(md5Key string, size int64, backupDest []string, file core.Fpath) error {
-	key, err := md5KeyFromMedorgString(md5Key)
+	// Try hex string first (for tests), then fall back to base64 (production format)
+	key, err := treap.MD5KeyFromString(md5Key)
 	if err != nil {
-		return err
+		// If hex fails, try base64
+		key, err = treap.Md5KeyFromBase64String(md5Key)
+		if err != nil {
+			return fmt.Errorf("invalid md5 key %q: %w", md5Key, err)
+		}
 	}
 	payload := fileData{
 		Size:       size,
@@ -141,9 +146,14 @@ func (bp *BackupProcessor) addSrcFile(md5Key string, size int64, backupDest []st
 
 // Add files to the list of files we found in the backup destination
 func (bp *BackupProcessor) addDstFile(md5Key string, size int64, backupDest []string, file core.Fpath) error {
-	key, err := md5KeyFromMedorgString(md5Key)
+	// Try hex string first (for tests), then fall back to base64 (production format)
+	key, err := treap.MD5KeyFromString(md5Key)
 	if err != nil {
-		return err
+		// If hex fails, try base64
+		key, err = treap.Md5KeyFromBase64String(md5Key)
+		if err != nil {
+			return fmt.Errorf("invalid md5 key %q: %w", md5Key, err)
+		}
 	}
 	payload := fileData{
 		Size:       size,
@@ -155,7 +165,9 @@ func (bp *BackupProcessor) addDstFile(md5Key string, size int64, backupDest []st
 }
 
 // Return list of files to backup in a prioritized fashion
+// Uses vault-based sorting to avoid in-memory sort operations
 func (bp *BackupProcessor) prioritizedSrcFiles() (func() (core.Fpath, bool), error) {
+	// Create a temporary collection for sorting by priority
 	identity := fmt.Sprintf("priority_%d", time.Now().UnixNano())
 	priorityColl, err := vault.GetOrCreateCollectionWithIdentity(
 		bp.session.Vault,
@@ -168,6 +180,7 @@ func (bp *BackupProcessor) prioritizedSrcFiles() (func() (core.Fpath, bool), err
 		return nil, err
 	}
 
+	// Callback: insert files that are only in src (not in dst) into priority collection
 	onlyInSrc := func(node treap.TreapNodeInterface[treap.MD5Key]) error {
 		payloadNode, ok := node.(treap.PersistentPayloadNodeInterface[treap.MD5Key, fileData])
 		if !ok {
@@ -179,16 +192,22 @@ func (bp *BackupProcessor) prioritizedSrcFiles() (func() (core.Fpath, bool), err
 		return nil
 	}
 
-	// Differences only: files present in both or only in dst are ignored.
+	// Ignore files in both collections
 	inBoth := func(_ treap.TreapNodeInterface[treap.MD5Key], _ treap.TreapNodeInterface[treap.MD5Key]) error {
 		return nil
 	}
-	onlyInDst := func(_ treap.TreapNodeInterface[treap.MD5Key]) error { return nil }
 
+	// Ignore files only in dst
+	onlyInDst := func(_ treap.TreapNodeInterface[treap.MD5Key]) error {
+		return nil
+	}
+
+	// Compare and populate priority collection with only src files
 	if err := bp.srcFileCollection.Compare(bp.dstFileCollection, onlyInSrc, inBoth, onlyInDst); err != nil {
 		return nil, err
 	}
 
+	// Iterate through the sorted collection and collect paths in order
 	ordered := make([]core.Fpath, 0)
 	ctx := context.Background()
 	for node, iterErr := range priorityColl.Iter(ctx) {

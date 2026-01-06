@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"runtime"
 	"sync"
 	"time"
 
@@ -21,6 +22,35 @@ var (
 	MaxBackups = 2
 	AF         *consumers.AutoFix
 )
+
+// logMemoryStats logs current memory statistics
+func logMemoryStats(prefix string) {
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+	log.Printf("%s Memory: Alloc=%v MB, TotalAlloc=%v MB, Sys=%v MB, NumGC=%v, HeapObjects=%v",
+		prefix,
+		m.Alloc/1024/1024,
+		m.TotalAlloc/1024/1024,
+		m.Sys/1024/1024,
+		m.NumGC,
+		m.HeapObjects)
+}
+
+// startMemoryMonitor starts periodic memory monitoring
+func startMemoryMonitor(interval time.Duration, done <-chan struct{}) {
+	ticker := time.NewTicker(interval)
+	go func() {
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				logMemoryStats("[MONITOR]")
+			case <-done:
+				return
+			}
+		}
+	}()
+}
 
 func sizeOf(fn string) int {
 	fi, err := os.Stat(fn)
@@ -169,6 +199,14 @@ func main() {
 	log.SetOutput(f)
 	log.Println("This is a test log entry")
 
+	// Log initial memory stats
+	logMemoryStats("[STARTUP]")
+
+	// Start periodic memory monitoring (every 30 seconds)
+	monitorDone := make(chan struct{})
+	defer close(monitorDone)
+	startMemoryMonitor(30*time.Second, monitorDone)
+
 	///////////////////////////////////
 	// Read in top level config
 	loader := cli.NewConfigLoader(*configPath, os.Stderr)
@@ -211,8 +249,10 @@ func main() {
 			ccCnt++
 			if ccCnt == 1 {
 				fmt.Println("Ctrl-C Detected")
+				logMemoryStats("[INTERRUPT]")
 				close(shutdownChan)
 			} else {
+				logMemoryStats("[FORCE EXIT]")
 				os.Exit(1)
 			}
 		}
@@ -235,5 +275,7 @@ func main() {
 		UseProgressBar: true,
 	}
 
+	logMemoryStats("[BEFORE RUN]")
 	cli.ExitFromRun(Run(cfg))
+	logMemoryStats("[AFTER RUN]")
 }

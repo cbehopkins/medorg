@@ -731,11 +731,12 @@ func BackupRunner(
 	// Step 1: Run mdcalc to calculate/update all MD5 checksums
 	// This ensures both source and destination have up-to-date .medorg.xml files
 	checkCalcOpts := CheckCalcOptions{
-		CalcCount: 2, // Default parallelism
-		Recalc:    false,
-		Validate:  false,
-		Scrub:     false,
-		AutoFix:   nil,
+		CalcCount:    2, // Default parallelism
+		Recalc:       false,
+		Validate:     false,
+		Scrub:        false,
+		AutoFix:      nil,
+		ShowProgress: true,
 	}
 	logFunc(fmt.Sprintf("Running mdcalc on %s and destination %s", srcDir, destDir))
 	if err := RunCheckCalc([]string{srcDir, destDir}, checkCalcOpts); err != nil {

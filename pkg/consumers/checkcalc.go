@@ -15,7 +15,7 @@ type CheckCalcOptions struct {
 	Recalc       bool            // Force recalculation of all checksums
 	Validate     bool            // Validate existing checksums
 	Scrub        bool            // Remove backup destination tags
-	ShowProgress bool            // Show progress during checksum calculation (default: true)
+	ShowProgress bool            // Show progress during checksum calculation
 	AutoFix      *AutoFix        // Optional auto-fix for file renaming/deletion
 	Tuner        *adaptive.Tuner // Optional adaptive tuner for dynamic token adjustment
 }

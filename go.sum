@@ -1,13 +1,7 @@
 github.com/VividCortex/ewma v1.2.0 h1:f58SaIzcDXrSy3kWaHNvuJgJ3Nmz59Zji6XoJR/q1ow=
 github.com/VividCortex/ewma v1.2.0/go.mod h1:nz4BbCtbLyFDeC9SUHbtcT5644juEuWfUAUnGx7j5l4=
-github.com/cbehopkins/bobbob v0.0.0-20251212160632-6ebc73c9f5e9 h1:7PEVhck5Bmu17p3PLG277ob/+65Pev9k/Ny57I44hbk=
-github.com/cbehopkins/bobbob v0.0.0-20251212160632-6ebc73c9f5e9/go.mod h1:N/OZ/pS7PKWDukzZiFGrHmhNyTENbnFi47G2gDk7EaE=
-github.com/cbehopkins/bobbob v0.0.0-20260102145159-c72e09cd9fd9 h1:VXPkChobypD8wE2/crEE6bJ/OhRoJO3CxX9JP+kGLeA=
-github.com/cbehopkins/bobbob v0.0.0-20260102145159-c72e09cd9fd9/go.mod h1:N/OZ/pS7PKWDukzZiFGrHmhNyTENbnFi47G2gDk7EaE=
-github.com/cbehopkins/bobbob v0.0.0-20260102170402-088a95d0877a h1:mqVnEg4vO50yIB97cYtmoF+QpQ3zpiNjb6FbSmk70S0=
-github.com/cbehopkins/bobbob v0.0.0-20260102170402-088a95d0877a/go.mod h1:N/OZ/pS7PKWDukzZiFGrHmhNyTENbnFi47G2gDk7EaE=
-github.com/cbehopkins/bobbob v0.0.0-20260102181121-d21ec352153e h1:V0Sh1CaZCzGnJvJuRaPd9BPj7sx5P2wrcgbE+pJ89qU=
-github.com/cbehopkins/bobbob v0.0.0-20260102181121-d21ec352153e/go.mod h1:N/OZ/pS7PKWDukzZiFGrHmhNyTENbnFi47G2gDk7EaE=
+github.com/cbehopkins/bobbob v0.1.0 h1:ve5R4MkDWegCqDmRgWux6A+p8Co5w4WlYrTZLnZtWds=
+github.com/cbehopkins/bobbob v0.1.0/go.mod h1:N/OZ/pS7PKWDukzZiFGrHmhNyTENbnFi47G2gDk7EaE=
 github.com/cbehopkins/pb/v3 v3.0.10 h1:bbpCxnvuDk+sZZ0/ucyMO1XotsCpcYysEn/Lbo3shAw=
 github.com/cbehopkins/pb/v3 v3.0.10/go.mod h1:c1ondN79Y9mkUtiUpLqoFrEs66sbpwuAjrBX4GN6Gmo=
 github.com/clipperhouse/uax29/v2 v2.2.0 h1:ChwIKnQN3kcZteTXMgb1wztSgaU+ZemkgWdohwgs8tY=

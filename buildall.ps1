@@ -1,9 +1,14 @@
 #!/usr/bin/env pwsh
 param(
-    [string]$BaseBinDir = (if ($env:BASE_BIN_DIR) { $env:BASE_BIN_DIR } else { "$HOME/home/git" })
+    [string]$BaseBinDir
 )
 
 $ErrorActionPreference = "Stop"
+
+# Set default if not provided
+if (-not $BaseBinDir) {
+    $BaseBinDir = if ($env:BASE_BIN_DIR) { $env:BASE_BIN_DIR } else { "$HOME/home/git" }
+}
 
 # Install for native OS
 Write-Host "Installing for native OS..."
