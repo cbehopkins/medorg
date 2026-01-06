@@ -12,6 +12,14 @@ import (
 
 var errorMissingDe = errors.New("missing de when evaluating directory")
 
+// Progressable represents an object that can report progress through Total, Value, and completion signaling.
+// This interface is compatible with pb.Progressable from github.com/cbehopkins/pb/v3.
+type Progressable interface {
+	Total() int64
+	Value() int64
+	FinishedChan() <-chan struct{}
+}
+
 type DirectoryTrackerInterface interface {
 	ErrChan() <-chan error
 	Start() error
@@ -58,6 +66,7 @@ type DirTracker struct {
 	wg              *sync.WaitGroup
 	errChan         chan error
 	preserveStructs bool
+	shouldIgnore    func(path string) bool // Optional function to check if path should be ignored
 
 	finished     finishedB
 	finishedChan chan struct{}
@@ -81,6 +90,16 @@ const NumTrackerOutstanding = 4
 // At some later time, we will then close the directory
 // There are no guaranetees about when this will happen
 func NewDirTracker(preserveStructs bool, dir string, trackerMaker func(string) (DirectoryTrackerInterface, error)) *DirTracker {
+	return NewDirTrackerWithIgnore(preserveStructs, dir, trackerMaker, nil)
+}
+
+// NewDirTrackerWithIgnore creates a DirTracker with an optional ignore function
+func NewDirTrackerWithIgnore(
+	preserveStructs bool,
+	dir string,
+	trackerMaker func(string) (DirectoryTrackerInterface, error),
+	shouldIgnore func(path string) bool,
+) *DirTracker {
 	var dt DirTracker
 	dt.dm = make(map[string]DirectoryTrackerInterface)
 	dt.trackerMaker = trackerMaker
@@ -88,6 +107,7 @@ func NewDirTracker(preserveStructs bool, dir string, trackerMaker func(string) (
 	dt.wg = new(sync.WaitGroup)
 	dt.errChan = make(chan error, 8) // buffered to avoid blocking
 	dt.finishedChan = make(chan struct{})
+	dt.shouldIgnore = shouldIgnore // Set ignore function before population
 	dt.wg.Add(1) // add one for populateDircount
 	dt.finished.Clear()
 	dt.preserveStructs = preserveStructs
@@ -141,6 +161,12 @@ func (dt *DirTracker) Finished() bool {
 // FinishedChan returns a channel that will be closed when the directory tracking is complete
 func (dt *DirTracker) FinishedChan() <-chan struct{} {
 	return dt.finishedChan
+}
+
+// SetShouldIgnore sets a function to determine if a path should be ignored.
+// This is used to skip directories that match ignore patterns during traversal.
+func (dt *DirTracker) SetShouldIgnore(shouldIgnore func(path string) bool) {
+	dt.shouldIgnore = shouldIgnore
 }
 
 func (dt *DirTracker) runChild(de DirectoryTrackerInterface) {
@@ -201,7 +227,12 @@ func (dt *DirTracker) directoryWalkerPopulateDircount(path string, d fs.DirEntry
 		return err
 	}
 	if d.IsDir() {
+		// Skip hidden directories
 		if isHiddenDirectory(path) {
+			return filepath.SkipDir
+		}
+		// Skip directories matching ignore patterns
+		if dt.shouldIgnore != nil && dt.shouldIgnore(path) {
 			return filepath.SkipDir
 		}
 		log.Println("populating dir", path, dt.Total())
@@ -217,7 +248,12 @@ func (dt *DirTracker) directoryWalkerPopulateDircount(path string, d fs.DirEntry
 }
 
 func (dt *DirTracker) handleDirectory(path string) error {
+	// Skip hidden directories
 	if isHiddenDirectory(path) {
+		return filepath.SkipDir
+	}
+	// Skip directories matching ignore patterns
+	if dt.shouldIgnore != nil && dt.shouldIgnore(path) {
 		return filepath.SkipDir
 	}
 	log.Println("visiting dir", path, dt.Value(), "of", dt.Total())

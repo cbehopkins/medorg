@@ -17,7 +17,6 @@ import (
 	pb "github.com/cbehopkins/pb/v3"
 	bytesize "github.com/inhies/go-bytesize"
 )
-
 var (
 	MaxBackups = 2
 	AF         *consumers.AutoFix
@@ -27,13 +26,15 @@ var (
 func logMemoryStats(prefix string) {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
-	log.Printf("%s Memory: Alloc=%v MB, TotalAlloc=%v MB, Sys=%v MB, NumGC=%v, HeapObjects=%v",
+	log.Printf("%s Memory: Alloc=%v MB, HeapInuse=%v MB, Sys=%v MB, TotalAlloc=%v MB, NumGC=%v, HeapObjects=%v, Goroutines=%v",
 		prefix,
 		m.Alloc/1024/1024,
+		m.HeapInuse/1024/1024,
 		m.TotalAlloc/1024/1024,
 		m.Sys/1024/1024,
 		m.NumGC,
-		m.HeapObjects)
+		m.HeapObjects,
+		runtime.NumGoroutine())
 }
 
 // startMemoryMonitor starts periodic memory monitoring
@@ -51,6 +52,8 @@ func startMemoryMonitor(interval time.Duration, done <-chan struct{}) {
 		}
 	}()
 }
+
+// pprofAddFlags and pprofInit are provided by build-tagged files
 
 func sizeOf(fn string) int {
 	fi, err := os.Stat(fn)
@@ -114,8 +117,10 @@ func visitFilesUpdatingProgressBar(pool *pb.Pool, directories []string,
 	someVisitFunc func(dm core.DirectoryMap, dir, fn string, d fs.DirEntry, fileStruct core.FileStruct, fileInfo fs.FileInfo) error,
 ) {
 	var wg sync.WaitGroup
-	registerFunc := func(dt *core.DirTracker) {
-		topRegisterFunc(dt, pool, &wg)
+	registerFunc := func(p core.Progressable) {
+		if dt, ok := p.(*core.DirTracker); ok {
+			topRegisterFunc(dt, pool, &wg)
+		}
 	}
 	errChan := core.VisitFilesInDirectories(directories, registerFunc, someVisitFunc)
 	for err := range errChan {
@@ -173,9 +178,12 @@ func main() {
 	// FIXME add help flag
 	scanflg := flag.Bool("scan", false, "Only scan files in src & dst updating labels, don't run the backup")
 	dummyflg := flag.Bool("dummy", false, "Don't copy, just tell me what you'd do")
-	delflg := flag.Bool("delete", false, "Delete duplicated Files")
+	delflg := flag.Bool("delete", false, "Delete duplicated/orphaned Files")
 	statsflg := flag.Bool("stats", false, "Generate backup statistics")
 	skipCheckCalcFlg := flag.Bool("skip-checkcalc", false, "Skip MD5 checksum calculation on source and destination (use existing checksums)")
+
+	// Register optional pprof flags (enabled only with -tags debugpprof)
+	pprofAddFlags()
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: %s [OPTIONS] <destination> [sources...]\n\n", os.Args[0])
@@ -207,6 +215,9 @@ func main() {
 	monitorDone := make(chan struct{})
 	defer close(monitorDone)
 	startMemoryMonitor(30*time.Second, monitorDone)
+
+	// Initialize optional pprof (no-op unless built with -tags debugpprof)
+	onInterrupt := pprofInit(monitorDone, f)
 
 	///////////////////////////////////
 	// Read in top level config
@@ -251,6 +262,7 @@ func main() {
 			if ccCnt == 1 {
 				fmt.Println("Ctrl-C Detected")
 				logMemoryStats("[INTERRUPT]")
+				if onInterrupt != nil { onInterrupt() }
 				close(shutdownChan)
 			} else {
 				logMemoryStats("[FORCE EXIT]")

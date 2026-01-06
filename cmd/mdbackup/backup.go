@@ -192,10 +192,12 @@ func Run(cfg Config) (int, error) {
 	}
 
 	// Setup progress tracking
-	var registerFunc func(*core.DirTracker)
+	var progressTracker consumers.ProgressTracker
 	if cfg.UseProgressBar {
-		registerFunc = func(dt *core.DirTracker) {
-			topRegisterFunc(dt, pool, &wg)
+		progressTracker = func(p core.Progressable) {
+			if dt, ok := p.(*core.DirTracker); ok {
+				topRegisterFunc(dt, pool, &wg)
+			}
 		}
 	}
 	fmt.Println("Finished configuring callbacks", len(cfg.Sources))
@@ -210,7 +212,7 @@ func Run(cfg Config) (int, error) {
 		cfg.Destination,
 		orphanedFunc,
 		logFunc,
-		registerFunc,
+		progressTracker,
 		cfg.ShutdownChan,
 		cfg.SkipCheckCalc,
 		cfg.Sources...,

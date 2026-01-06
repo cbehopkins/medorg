@@ -10,7 +10,7 @@ import (
 // Uses FileMetadata and DirectoryStorage interfaces instead of concrete types
 func VisitFilesWithInterface(
 	directories []string,
-	registerFunc func(dt *DirTracker),
+	registerFunc func(Progressable),
 	visitor ExtendedDirectoryVisitor,
 ) <-chan error {
 	// Wrap the interface visitor to work with the legacy implementation
@@ -28,7 +28,7 @@ func VisitFilesWithInterface(
 // Note it only visits files that already have an entry (This might need to be fixed?)
 func VisitFilesInDirectories(
 	directories []string,
-	registerFunc func(dt *DirTracker),
+	registerFunc func(Progressable),
 	someVisitFunc func(dm DirectoryMap, dir, fn string, d fs.DirEntry, fileStruct FileStruct, fileInfo fs.FileInfo) error,
 ) <-chan error {
 	dts := AutoVisitFilesInDirectories(directories, someVisitFunc)
@@ -37,10 +37,10 @@ func VisitFilesInDirectories(
 
 func errHandler(
 	dts []*DirTracker,
-	registerFunc func(dt *DirTracker),
+	registerFunc func(Progressable),
 ) <-chan error {
 	if registerFunc == nil {
-		registerFunc = func(dt *DirTracker) {}
+		registerFunc = func(Progressable) {}
 	}
 	errChan := make(chan error, len(dts)) // Buffer with capacity = number of senders
 	var wg sync.WaitGroup

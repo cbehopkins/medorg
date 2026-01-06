@@ -242,7 +242,9 @@ func (jo *Journal) PopulateFromDirectories(directory string, alias string) error
 		return core.NewDirectoryEntry(dir, mkFk)
 	}
 
-	dt := core.NewDirTracker(false, directory, makerFunc)
+	dt := core.NewDirTrackerWithIgnore(false, directory, makerFunc, func(path string) bool {
+		return jo.shouldIgnore(path)
+	})
 	// Wait for completion and collect errors
 	for err := range dt.ErrChan() {
 		if err != nil {

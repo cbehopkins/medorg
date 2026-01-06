@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 	"time"
 
@@ -96,7 +95,14 @@ func md5KeyFromMedorgString(md5Key string) (treap.MD5Key, error) {
 
 func NewBackupProcessor() (*BackupProcessor, error) {
 	tmpDir := os.TempDir()
-	tmpFile := filepath.Join(tmpDir, fmt.Sprintf("backup_processor_%d.db", time.Now().UnixNano()))
+	// Use CreateTemp to avoid filename collisions under parallel tests
+	f, err := os.CreateTemp(tmpDir, "backup_processor_*.db")
+	if err != nil {
+		return nil, err
+	}
+	tmpFile := f.Name()
+	// We only need the path for the vault; close the file handle
+	_ = f.Close()
 
 	session, colls, err := vault.OpenVaultWithIdentity(
 		tmpFile,

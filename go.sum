@@ -1,7 +1,7 @@
 github.com/VividCortex/ewma v1.2.0 h1:f58SaIzcDXrSy3kWaHNvuJgJ3Nmz59Zji6XoJR/q1ow=
 github.com/VividCortex/ewma v1.2.0/go.mod h1:nz4BbCtbLyFDeC9SUHbtcT5644juEuWfUAUnGx7j5l4=
-github.com/cbehopkins/bobbob v0.1.0 h1:ve5R4MkDWegCqDmRgWux6A+p8Co5w4WlYrTZLnZtWds=
-github.com/cbehopkins/bobbob v0.1.0/go.mod h1:N/OZ/pS7PKWDukzZiFGrHmhNyTENbnFi47G2gDk7EaE=
+github.com/cbehopkins/bobbob v0.1.1 h1:utSv2SwgAHVt8S7rLBgo5sBkJgEb7Ro2H2C7XW4HxHI=
+github.com/cbehopkins/bobbob v0.1.1/go.mod h1:N/OZ/pS7PKWDukzZiFGrHmhNyTENbnFi47G2gDk7EaE=
 github.com/cbehopkins/pb/v3 v3.0.10 h1:bbpCxnvuDk+sZZ0/ucyMO1XotsCpcYysEn/Lbo3shAw=
 github.com/cbehopkins/pb/v3 v3.0.10/go.mod h1:c1ondN79Y9mkUtiUpLqoFrEs66sbpwuAjrBX4GN6Gmo=
 github.com/clipperhouse/uax29/v2 v2.2.0 h1:ChwIKnQN3kcZteTXMgb1wztSgaU+ZemkgWdohwgs8tY=

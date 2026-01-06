@@ -3,6 +3,7 @@ package consumers
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
@@ -30,6 +31,11 @@ var (
 type VolumeLabeler interface {
 	GetVolumeLabel(destDir string) (string, error)
 }
+
+// ProgressTracker is called with Progressable objects for progress tracking during directory traversal.
+// Typically used to register progress bars with the UI.
+// Uses core.Progressable which DirTracker implements.
+type ProgressTracker func(core.Progressable)
 
 // directoryLocks provides per-directory mutex locks to prevent concurrent
 // DirectoryMap updates from creating race conditions
@@ -371,60 +377,21 @@ func (sfp *streamingFileProcessor) flush() error {
 	return nil
 }
 
-// extractCopyFiles will look for files that are not backed up
-// i.e. walk through src file system looking for files
-// That don't have the volume name as an archived at
-//
-// NOTE: This function is kept for testing purposes to validate file extraction logic.
-// Production code uses streamingExtractAndCopy to avoid memory buildup.
-func extractCopyFiles(srcDir string, dt *core.DirTracker, volumeName string, registerFunc func(*core.DirTracker), maxNumBackups int, shutdownChan chan struct{}) (fpathListList, error) {
-	var lk sync.Mutex
-	remainingFiles := fpathListList{}
-	visitFunc := func(dm core.DirectoryEntryInterface, dir, fn string, fileStruct core.FileStruct) error {
-		// Skip metadata files - these should never be backed up
-		if core.IsMetadataFile(fn) {
-			return nil
-		}
-		// FIXME I'd like to add to the source definition skip paths
-		// Such that a backup source could specify paths not to back up
-		// e.g. Recycle Bin, Thumbs.db, .DS_Store, etc.
-		// Hidden files could be one such option
-
-		if fileStruct.HasTag(volumeName) {
-			return nil
-		}
-		fp := core.NewFpath(dir, fn)
-		lenArchive := len(fileStruct.BackupDest)
-		if lenArchive > maxNumBackups {
-			return nil
-		}
-		lk.Lock()
-		remainingFiles.Add(lenArchive, fp)
-		lk.Unlock()
-		return nil
-	}
-	if err := dt.RevisitAll(srcDir, registerFunc, visitFunc, nil); err != nil {
-		return nil, err
-	}
-	return remainingFiles, nil
-}
-
-// extractAndCopy performs backup
+// extractAndCopy performs backup using streaming visitor pattern (memory efficient)
 func extractAndCopy(
 	srcDir, destDir, volumeName string,
-	dt *core.DirTracker,
-	registerFunc func(*core.DirTracker),
+	progressTracker ProgressTracker,
 	fileCopyCallback FileCopier,
 	maxNumBackups int,
 	logFunc func(msg string),
 	shutdownChan chan struct{},
 	bp *BackupProcessor,
 ) error {
-	visitFunc := func(dm core.DirectoryEntryInterface, dir, fn string, fileStruct core.FileStruct) error {
+	// First pass: scan source and populate BackupProcessor
+	srcVisitor := func(dm core.DirectoryMap, dir, fn string, d fs.DirEntry, fileStruct core.FileStruct, fileInfo fs.FileInfo) error {
 		if core.IsMetadataFile(fn) {
 			return nil
 		}
-		// Skip files already backed up to this destination label
 		if fileStruct.HasTag(volumeName) {
 			return nil
 		}
@@ -433,9 +400,16 @@ func extractAndCopy(
 			return nil
 		}
 
+		if shutdownChan != nil {
+			select {
+			case <-shutdownChan:
+				return fmt.Errorf("shutdown requested")
+			default:
+			}
+		}
+
 		checksum := fileStruct.Checksum
 		if dstPath, exists := bp.checkDstFileExists(checksum); exists {
-			// Already in destination: tag source and mark matched to suppress orphan reporting
 			if err := bp.markAsMatched(checksum); err != nil {
 				return err
 			}
@@ -443,27 +417,26 @@ func extractAndCopy(
 			if err != nil {
 				return err
 			}
-			// Skip adding to src collection since copy not needed
-			_ = dstPath // informational only
+			_ = dstPath
 			return nil
 		}
 
-		// Add to processor with metadata needed for prioritization
 		fp := core.NewFpath(dir, fn)
 		return bp.addSrcFile(checksum, fileStruct.Size, fileStruct.BackupDest, fp)
 	}
 
-	// Populate from source directory
-	if err := dt.RevisitAll(srcDir, registerFunc, visitFunc, shutdownChan); err != nil {
-		return err
+	errChan := core.VisitFilesInDirectories([]string{srcDir}, progressTracker, srcVisitor)
+	for err := range errChan {
+		if err != nil {
+			return fmt.Errorf("error scanning source: %w", err)
+		}
 	}
 
-	// If scan-only mode, stop after tagging source metadata for existing destination files
 	if fileCopyCallback == nil {
 		return nil
 	}
 
-	// Iterate prioritized files and copy until exhausted or destination fills
+	// Second pass: copy prioritized files
 	next, _ := bp.prioritizedSrcFiles()
 	for fp, ok := next(); ok; fp, ok = next() {
 		if err := doACopy(srcDir, destDir, volumeName, fp, fileCopyCallback); err != nil {
@@ -473,12 +446,10 @@ func extractAndCopy(
 			return err
 		}
 
-		// After a successful copy, add to destination collection and mark matched so later sources skip it
 		rel, err := filepath.Rel(srcDir, string(fp))
 		if err != nil {
 			return err
 		}
-		// Retrieve fresh metadata for checksum and backup destinations
 		dir := filepath.Dir(string(fp))
 		fn := filepath.Base(string(fp))
 		dmSrc, err := core.DirectoryMapFromDir(dir)
@@ -598,7 +569,7 @@ func BackupRunner(
 	destDir string,
 	orphanFunc func(path string) error,
 	logFunc func(msg string),
-	registerFunc func(*core.DirTracker),
+	progressTracker ProgressTracker,
 	shutdownChan chan struct{},
 	skipCheckCalc bool,
 	srcDirs ...string,
@@ -646,67 +617,38 @@ func BackupRunner(
 		logFunc("Skipping mdcalc (using existing checksums)")
 	}
 
-	// Step 2: Scan all directories (checksums already calculated)
-	dta := core.AutoVisitFilesInDirectories(allDirs, nil)
-
-	// Handle errors from directory traversal
-	errChan := make(chan error, len(dta)) // Buffer with capacity = number of senders
-	var wg sync.WaitGroup
-	wg.Add(len(dta))
-	for _, ndt := range dta {
-		if registerFunc != nil {
-			registerFunc(ndt)
-		}
-		go func(ndt *core.DirTracker) {
-			for err := range ndt.ErrChan() {
-				if err != nil {
-					errChan <- err
-				}
-			}
-			wg.Done()
-		}(ndt)
-	}
-	go func() {
-		wg.Wait()
-		close(errChan)
-	}()
-	for err := range errChan {
-		return err
-	}
-
-	// No checksum calculation needed - RunCheckCalc already did it
-	// Build destination file map into BackupProcessor
+	// Step 2: Scan destination directory with streaming visitor (no memory accumulation)
 	logFunc("Initial scan for destination inventory")
-	// BackupRunner does not seem to use a progress bar when actually doing its work.
-	// There are three places I can see a pb being useful here
-	// 1) when scanning the destination directory
-	// 2) When scanning the source directory
-	// 3) when copying a file.
-
-	// Could you please add a progress bar to each of these steps, using the existing pb library already imported in this file?
-	destVisitor := func(dm core.DirectoryEntryInterface, dir, fn string, fileStruct core.FileStruct) error {
+	destVisitor := func(dm core.DirectoryMap, dir, fn string, d fs.DirEntry, fileStruct core.FileStruct, fileInfo fs.FileInfo) error {
 		if core.IsMetadataFile(fn) {
 			return nil
 		}
+		if shutdownChan != nil {
+			select {
+			case <-shutdownChan:
+				return fmt.Errorf("shutdown requested")
+			default:
+			}
+		}
 		return bp.addDstFile(fileStruct.Checksum, fileStruct.Size, fileStruct.BackupDest, core.NewFpath(dir, fn))
 	}
-	if err := dta[0].RevisitAll(destDir, registerFunc, destVisitor, shutdownChan); err != nil {
-		return err
+	errChan := core.VisitFilesInDirectories([]string{destDir}, progressTracker, destVisitor)
+	for err := range errChan {
+		if err != nil {
+			return fmt.Errorf("error scanning destination: %w", err)
+		}
 	}
-	logFunc("Finishing up as a test of memory consumption")
-	return nil
 	if fileCopyCallback == nil {
 		logFunc("Scan only requested; performing ingestion without copying")
 	}
 
-	// Now copy files from each source
+	// Now copy files from each source using streaming approach
 	for i, srcDir := range srcDirs {
 		logFunc(fmt.Sprintf("Looking for files to copy from source %d", i+1))
 
 		err = extractAndCopy(
 			srcDir, destDir, backupLabelName,
-			dta[i+1],
-			registerFunc,
+			progressTracker,
 			fileCopyCallback,
 			maxNumBackups,
 			logFunc,
