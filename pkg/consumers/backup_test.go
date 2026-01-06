@@ -300,7 +300,7 @@ func TestPreExistingBackupTags(t *testing.T) {
 		return nil
 	}
 
-	err = BackupRunner(&xc, 2, fc, srcDir, destDir, nil, nil, nil, nil)
+	err = BackupRunner(&xc, 2, fc, srcDir, destDir, nil, nil, nil, nil, false)
 	if err != nil {
 		t.Fatal("First BackupRunner failed:", err)
 	}
@@ -321,7 +321,7 @@ func TestPreExistingBackupTags(t *testing.T) {
 		return nil
 	}
 
-	err = BackupRunner(&xc, 2, fc2, srcDir, destDir, nil, nil, nil, nil)
+	err = BackupRunner(&xc, 2, fc2, srcDir, destDir, nil, nil, nil, nil, false)
 	if err != nil {
 		t.Fatal("Second BackupRunner failed:", err)
 	}
@@ -489,7 +489,7 @@ func TestBackupMain(t *testing.T) {
 		atomic.AddUint32(&callCount, 1)
 		return nil
 	}
-	err = BackupRunner(&xc, 2, fc, dirs[0], dirs[1], nil, nil, nil, nil)
+	err = BackupRunner(&xc, 2, fc, dirs[0], dirs[1], nil, nil, nil, nil, false)
 	if err != nil {
 		t.Error(err)
 	}
@@ -640,7 +640,7 @@ func TestBackupChecksumMaintenance(t *testing.T) {
 		return core.CopyFile(src, dst)
 	}
 
-	err = BackupRunner(&xc, 2, fc, srcDir, destDir, nil, nil, nil, nil)
+	err = BackupRunner(&xc, 2, fc, srcDir, destDir, nil, nil, nil, nil, false)
 	if err != nil {
 		t.Fatal("BackupRunner failed:", err)
 	}
@@ -711,7 +711,7 @@ func TestBackupOrphanDetection(t *testing.T) {
 		return core.CopyFile(src, dst)
 	}
 
-	err = BackupRunner(&xc, 2, fc, srcDir, destDir, nil, nil, nil, nil)
+	err = BackupRunner(&xc, 2, fc, srcDir, destDir, nil, nil, nil, nil, false)
 	if err != nil {
 		t.Fatal("Initial BackupRunner failed:", err)
 	}
@@ -775,7 +775,7 @@ func TestBackupOrphanDetection(t *testing.T) {
 	}
 
 	// Run backup again with orphan detection
-	err = BackupRunner(&xc, 2, fc, srcDir, destDir, orphanCallback, nil, nil, nil)
+	err = BackupRunner(&xc, 2, fc, srcDir, destDir, orphanCallback, nil, nil, nil, false)
 	if err != nil {
 		t.Error("Second BackupRunner failed:", err)
 	}

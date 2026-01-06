@@ -44,6 +44,7 @@ type Config struct {
 	DummyMode      bool
 	DeleteMode     bool
 	StatsMode      bool
+	SkipCheckCalc  bool
 	LogOutput      io.Writer
 	MessageWriter  io.Writer
 	ShutdownChan   chan struct{}
@@ -214,6 +215,7 @@ func Run(cfg Config) (int, error) {
 			logFunc,
 			registerFunc,
 			cfg.ShutdownChan,
+			cfg.SkipCheckCalc,
 		)
 		setMessage("Completed Multi-Source Backup Run")
 
@@ -236,6 +238,7 @@ func Run(cfg Config) (int, error) {
 				logFunc,
 				registerFunc,
 				cfg.ShutdownChan,
+				cfg.SkipCheckCalc,
 			)
 			setMessage("Completed Backup Run")
 

@@ -175,6 +175,7 @@ func main() {
 	dummyflg := flag.Bool("dummy", false, "Don't copy, just tell me what you'd do")
 	delflg := flag.Bool("delete", false, "Delete duplicated Files")
 	statsflg := flag.Bool("stats", false, "Generate backup statistics")
+	skipCheckCalcFlg := flag.Bool("skip-checkcalc", false, "Skip MD5 checksum calculation on source and destination (use existing checksums)")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: %s [OPTIONS] <destination> [sources...]\n\n", os.Args[0])
@@ -269,6 +270,7 @@ func main() {
 		DummyMode:      *dummyflg,
 		DeleteMode:     *delflg,
 		StatsMode:      *statsflg,
+		SkipCheckCalc:  *skipCheckCalcFlg,
 		LogOutput:      f,
 		MessageWriter:  os.Stdout,
 		ShutdownChan:   shutdownChan,

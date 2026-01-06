@@ -585,6 +585,7 @@ func BackupRunnerMultiSource(
 	logFunc func(msg string),
 	registerFunc func(*core.DirTracker),
 	shutdownChan chan struct{},
+	skipCheckCalc bool,
 ) error {
 	if logFunc == nil {
 		logFunc = func(msg string) {
@@ -610,9 +611,13 @@ func BackupRunnerMultiSource(
 		Scrub:     false,
 		AutoFix:   nil,
 	}
-	logFunc("Running mdcalc on all directories (destination + sources)")
-	if err := RunCheckCalc(allDirs, checkCalcOpts); err != nil {
-		return fmt.Errorf("error running mdcalc: %w", err)
+	if !skipCheckCalc {
+		logFunc("Running mdcalc on all directories (destination + sources)")
+		if err := RunCheckCalc(allDirs, checkCalcOpts); err != nil {
+			return fmt.Errorf("error running mdcalc: %w", err)
+		}
+	} else {
+		logFunc("Skipping mdcalc (using existing checksums)")
 	}
 
 	// Step 2: Scan all directories (checksums already calculated)
@@ -716,6 +721,7 @@ func BackupRunner(
 	logFunc func(msg string),
 	registerFunc func(*core.DirTracker),
 	shutdownChan chan struct{},
+	skipCheckCalc bool,
 ) error {
 	if logFunc == nil {
 		logFunc = func(msg string) {
@@ -738,9 +744,13 @@ func BackupRunner(
 		AutoFix:      nil,
 		ShowProgress: true,
 	}
-	logFunc(fmt.Sprintf("Running mdcalc on %s and destination %s", srcDir, destDir))
-	if err := RunCheckCalc([]string{srcDir, destDir}, checkCalcOpts); err != nil {
-		return fmt.Errorf("error running mdcalc: %w", err)
+	if !skipCheckCalc {
+		logFunc(fmt.Sprintf("Running mdcalc on %s and destination %s", srcDir, destDir))
+		if err := RunCheckCalc([]string{srcDir, destDir}, checkCalcOpts); err != nil {
+			return fmt.Errorf("error running mdcalc: %w", err)
+		}
+	} else {
+		logFunc("Skipping mdcalc (using existing checksums)")
 	}
 
 	// Step 2: Scan directories and mark files (no checksum calculation needed)

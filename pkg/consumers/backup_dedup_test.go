@@ -90,7 +90,7 @@ func TestBackupDuplicateContentFiles(t *testing.T) {
 		return core.CopyFile(src, dst)
 	}
 
-	err = BackupRunner(&xc, 2, fc, srcDir, dstDir, nil, nil, nil, nil)
+	err = BackupRunner(&xc, 2, fc, srcDir, dstDir, nil, nil, nil, nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -241,7 +241,7 @@ func TestBackupDuplicateContentInSubdirs(t *testing.T) {
 		return core.CopyFile(src, dst)
 	}
 
-	err = BackupRunner(&xc, 2, fc, srcDir, dstDir, nil, nil, nil, nil)
+	err = BackupRunner(&xc, 2, fc, srcDir, dstDir, nil, nil, nil, nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
