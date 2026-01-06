@@ -18,17 +18,18 @@ var Debug bool
 
 type DirectoryMapMod func(DirectoryMap, string)
 
+// FIXME thos should be in some sort of common package...?
 // Md5FileName is the filename we use to save the data in
 const (
-	Md5FileName      = ".medorg.xml"
-	ConfigFileName   = ".mdcfg.xml"
-	AfConfigFileName = ".autofix"
-	JournalPathName  = ".mdjournal.xml"
-	VolumePathName   = ".mdbackup.xml"
+	/// The File Names for:
+	Md5FileName     = ".medorg.xml"    // md5 checksum/backupdest/tag data
+	ConfigFileName  = ".mdcfg.xml"     // medorg configuration data
+	JournalPathName = ".mdjournal.xml" // journal data
+	VolumePathName  = ".mdbackup.xml"  // volume backup data - i.e. what is written in the root of a backup volume
 )
 
 func IsMetadataFile(fn string) bool {
-	return fn == Md5FileName || fn == ConfigFileName || fn == AfConfigFileName || fn == JournalPathName
+	return fn == Md5FileName || fn == ConfigFileName || fn == JournalPathName
 }
 
 // ErrSkipCheck Reports a checksum that we have skipped producing

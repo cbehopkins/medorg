@@ -72,15 +72,6 @@ func (cl *ConfigLoader) Load() (*core.MdConfig, int) {
 	return xc, ExitOk
 }
 
-// MustLoad loads or creates the MdConfig and exits the program on error.
-func (cl *ConfigLoader) MustLoad() *core.MdConfig {
-	xc, exitCode := cl.Load()
-	if exitCode != ExitOk {
-		os.Exit(exitCode)
-	}
-	return xc
-}
-
 // SourceDirResolver handles resolving source directories from CLI args or config.
 type SourceDirResolver struct {
 	CLIArgs []string

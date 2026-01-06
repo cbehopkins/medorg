@@ -31,21 +31,15 @@ func main() {
 
 	// Load XMLCfg (needed for rename and for getting source directories)
 	var err error
-	if *configPath != "" || core.XmConfig() != "" {
-		xc, err = core.LoadOrCreateMdConfigWithPath(*configPath)
-		if err != nil {
-			fmt.Println("Error loading config file:", err)
-			// Don't exit - config is optional for basic operations
-			xc = nil
-		}
-	} else if *rnmflg {
-		// Only error if rename was requested but no config found
-		fmt.Println("no config file found (required for rename)")
-		xc, err = core.LoadOrCreateMdConfig()
-		if err != nil {
-			fmt.Println("Error creating config file:", err)
-			os.Exit(5)
-		}
+	xc, err = core.LoadOrCreateMdConfigWithPath(*configPath)
+	if err != nil {
+		fmt.Println("Error loading config file:", err)
+		// Config is optional for most operations
+		xc = nil
+	}
+	if *rnmflg && xc == nil {
+		fmt.Println("config file required for rename operation")
+		os.Exit(5)
 	}
 
 	// Get directories: command line args take precedence, otherwise use config

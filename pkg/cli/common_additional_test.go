@@ -101,17 +101,18 @@ func TestConfigLoaderWithNilStdout(t *testing.T) {
 	}
 }
 
-// TestConfigLoaderMustLoad tests MustLoad method
-func TestConfigLoaderMustLoad(t *testing.T) {
+// TestConfigLoaderLoadSuccess tests Load success path
+func TestConfigLoaderLoadSuccess(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "test.xml")
 
 	var buf bytes.Buffer
 	loader := NewConfigLoader(configPath, &buf)
 
-	// This should not panic or exit in this test context
-	// Note: MustLoad calls os.Exit on error, so we only test the success path
-	xc := loader.MustLoad()
+	xc, exitCode := loader.Load()
+	if exitCode != ExitOk {
+		t.Fatalf("Expected ExitOk, got %d", exitCode)
+	}
 	if xc == nil {
 		t.Error("Expected config to be created")
 	}
