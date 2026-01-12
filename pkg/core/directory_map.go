@@ -324,17 +324,66 @@ func (dm DirectoryMap) ListFiles() []FileMetadata {
 
 // ForEachFile iterates over all files in the directory map
 // The callback receives the filename and file metadata
-// This is a read only operation
+// This guarantees that all returned metadata has valid checksums before the visitor is called
 func (dm DirectoryMap) ForEachFile(fn func(string, FileMetadata) error) error {
+	// Phase 1: Identify files needing checksum calculation (read-only)
+	var needsChecksum []string
+	dm.lock.RLock()
+	filesCount := len(dm.mp)
+	for name, fs := range dm.mp {
+		if fs.Checksum == "" {
+			needsChecksum = append(needsChecksum, name)
+		}
+	}
+	dm.lock.RUnlock()
+
+	if len(needsChecksum) > 0 {
+		log.Printf("ForEachFile: found %d files needing checksums out of %d total files", len(needsChecksum), filesCount)
+	}
+
+	// Phase 2: Calculate checksums and update map (write lock needed for modifications)
+	if len(needsChecksum) > 0 {
+		updates := make(map[string]FileStruct)
+		for _, name := range needsChecksum {
+			dm.lock.RLock()
+			fs := dm.mp[name]
+			dm.lock.RUnlock()
+
+			cks, err := CalcMd5File(fs.directory, fs.Name)
+			if err != nil {
+				// Log but don't fail - allow visitor to handle the empty checksum
+				log.Printf("warning: failed to calculate checksum for %s/%s: %v", fs.directory, fs.Name, err)
+				continue
+			}
+			fs.Checksum = cks
+			updates[name] = fs
+		}
+
+		// Apply updates with write lock
+		if len(updates) > 0 {
+			dm.lock.Lock()
+			for name, fs := range updates {
+				dm.mp[name] = fs
+			}
+			*dm.stale = true
+			dm.lock.Unlock()
+			log.Printf("ForEachFile: updated %d checksums", len(updates))
+		}
+	}
+
+	// Phase 3: Visit files with guaranteed valid checksums (read-only)
 	dm.lock.RLock()
 	defer dm.lock.RUnlock()
 
+	visitedCount := 0
 	for name, fs := range dm.mp {
 		fsCopy := fs // Create a copy to avoid pointer issues
 		if err := fn(name, &fsCopy); err != nil {
 			return err
 		}
+		visitedCount++
 	}
+	log.Printf("ForEachFile: visited %d files", visitedCount)
 	return nil
 }
 

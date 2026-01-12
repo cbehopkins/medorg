@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 
@@ -259,6 +260,7 @@ func extractAndCopy(
 			}
 		}
 		checksum := fm.GetChecksum()
+
 		if dstPath, exists := bp.checkDstFileExists(checksum); exists {
 			if err := bp.markAsMatched(checksum); err != nil {
 				return err
@@ -288,23 +290,45 @@ func extractAndCopy(
 	}
 	logFunc("Completed source scan")
 
+	return nil
+}
+
+// copyPendingFiles copies files queued in BackupProcessor after all sources are scanned.
+// This runs after orphan deletion to ensure space reclamation happens first.
+func copyPendingFiles(
+	srcDirs []string,
+	destDir, volumeName string,
+	fileCopyCallback FileCopier,
+	logFunc func(string),
+	ignoreFunc func(path string) bool,
+	bp *BackupProcessor,
+) error {
 	if fileCopyCallback == nil {
 		return nil
 	}
 
-	// Second pass: copy prioritized files
 	logFunc("Starting file copy")
 	next, _ := bp.prioritizedSrcFiles()
 	for fp, ok := next(); ok; fp, ok = next() {
+		// Determine which source root this file belongs to
+		srcRoot, found := findSourceRoot(srcDirs, string(fp))
+		if !found {
+			return fmt.Errorf("unable to determine source root for %s", fp)
+		}
+
+		if ignoreFunc != nil && ignoreFunc(string(fp)) {
+			continue
+		}
+
 		logFunc(fmt.Sprintf("Copying file: %s", fp))
-		if err := doACopy(srcDir, destDir, volumeName, fp, fileCopyCallback); err != nil {
+		if err := doACopy(srcRoot, destDir, volumeName, fp, fileCopyCallback); err != nil {
 			if errors.Is(err, ErrNoSpace) {
 				return ErrNoSpace
 			}
 			return err
 		}
 
-		rel, err := filepath.Rel(srcDir, string(fp))
+		rel, err := filepath.Rel(srcRoot, string(fp))
 		if err != nil {
 			return err
 		}
@@ -350,8 +374,26 @@ func extractAndCopy(
 			return err
 		}
 	}
+
 	logFunc("Completed file copy")
 	return nil
+}
+
+// findSourceRoot finds the matching source root for a file path.
+func findSourceRoot(srcDirs []string, filePath string) (string, bool) {
+	for _, root := range srcDirs {
+		if root == "" {
+			continue
+		}
+		rel, err := filepath.Rel(root, filePath)
+		if err != nil {
+			continue
+		}
+		if rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))) {
+			return root, true
+		}
+	}
+	return "", false
 }
 
 func tagSourceAsBackedUp(file core.Fpath, backupLabelName string) (core.FileStruct, error) {
@@ -546,7 +588,10 @@ func BackupRunner(
 			default:
 			}
 		}
-		return bp.addDstFile(fm.GetChecksum(), fm.GetSize(), fm.BackupDestinations(), fm.Path())
+
+		checksum := fm.GetChecksum()
+
+		return bp.addDstFile(checksum, fm.GetSize(), fm.BackupDestinations(), fm.Path())
 	}
 
 	if err := dwDest.Walk(destDir); err != nil {
@@ -557,8 +602,24 @@ func BackupRunner(
 		logFunc("Scan only requested; performing ingestion without copying")
 	}
 
-	// Report orphans: destination files never matched by any source
-	// Since we will probably delete files, delete before copy
+	// Phase 2: scan all sources to populate backup plan (no copying yet)
+	for i, srcDir := range srcDirs {
+		logFunc(fmt.Sprintf("Scanning source %d for files to backup", i+1))
+		if err := extractAndCopy(
+			srcDir, destDir, backupLabelName,
+			factory,
+			nil, // scan only
+			maxNumBackups,
+			logFunc,
+			shutdownChan,
+			ignoreFunc,
+			bp,
+		); err != nil {
+			return fmt.Errorf("BackupRunner failed scanning source %d, %w", i+1, err)
+		}
+	}
+
+	// Phase 3: delete orphans now that all sources are known
 	if orphanFunc != nil {
 		logFunc("Reporting orphaned destination files")
 		for _, orphan := range bp.getOrphanFiles() {
@@ -567,25 +628,10 @@ func BackupRunner(
 			}
 		}
 	}
-	// Now copy files from each source using streaming approach
-	for i, srcDir := range srcDirs {
-		logFunc(fmt.Sprintf("Looking for files to copy from source %d", i+1))
 
-		err = extractAndCopy(
-			srcDir, destDir, backupLabelName,
-			factory,
-			fileCopyCallback,
-			maxNumBackups,
-			logFunc,
-			shutdownChan,
-			ignoreFunc,
-			bp,
-		)
-		if err != nil {
-			return fmt.Errorf("BackupRunner failed copying from source %d, %w", i+1, err)
-		}
-
-		logFunc(fmt.Sprintf("Finished Copy from source %d", i+1))
+	// Phase 4: perform copies using the populated plan
+	if err := copyPendingFiles(srcDirs, destDir, backupLabelName, fileCopyCallback, logFunc, ignoreFunc, bp); err != nil {
+		return err
 	}
 
 	return nil

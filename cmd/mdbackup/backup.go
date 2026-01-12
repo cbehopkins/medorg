@@ -197,6 +197,7 @@ func Run(cfg Config) (int, error) {
 		factory = pb.NewPoolProgressFactory(pool)
 	}
 	fmt.Println("Finished configuring callbacks", len(cfg.Sources))
+	log.Println("DEBUG: Inside Run(), about to call BackupRunner or return early")
 
 	// Run unified backup with all sources
 	setMessage("Starting Backup Run")
@@ -226,7 +227,6 @@ func Run(cfg Config) (int, error) {
 		factory.Wg.Wait()
 	}
 	wg.Wait()
-
 	return cli.ExitOk, nil
 }
 
