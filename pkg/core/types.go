@@ -1,6 +1,8 @@
 package core
 
-import "time"
+import (
+	"time"
+)
 
 // Core Interfaces - Define the contracts between different parts of the system
 // These interfaces establish clear boundaries and allow for better decoupling

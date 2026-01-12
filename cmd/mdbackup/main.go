@@ -3,10 +3,12 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"sync"
 	"time"
@@ -17,6 +19,7 @@ import (
 	pb "github.com/cbehopkins/pb/v3"
 	bytesize "github.com/inhies/go-bytesize"
 )
+
 var (
 	MaxBackups = 2
 	AF         *consumers.AutoFix
@@ -67,66 +70,130 @@ func sizeOf(fn string) int {
 	return int(fs)
 }
 
+// sizeOfBytes returns file size in bytes or 0
+func sizeOfBytes(fn string) int64 {
+	fi, err := os.Stat(fn)
+	if err != nil {
+		return 0
+	}
+	return fi.Size()
+}
+
+// poolCopier copies a file while updating a progress bar using bytes written
 func poolCopier(src, dst core.Fpath, pool *pb.Pool, wg *sync.WaitGroup) error {
 	myBar := new(pb.ProgressBar)
 	myBar.Set("prefix", fmt.Sprint(string(src), ":"))
 	myBar.Set(pb.Bytes, true)
-	srcSize := sizeOf(string(src))
-	myBar.SetTotal(int64(srcSize))
+	total := sizeOfBytes(string(src))
+	myBar.SetTotal(total)
 
 	pool.Add(myBar)
 	myBar.Start()
-	defer func() {
-		_ = pool.Remove(myBar)
-	}()
-	closeChan := make(chan struct{})
-	defer func() { close(closeChan) }()
-	wg.Add(1)
-	go func() {
-		for {
-			select {
-			case <-time.After(2 * time.Second):
-				dstSize := sizeOf(string(dst))
-				myBar.SetCurrent(int64(dstSize))
-			case <-closeChan:
-				myBar.Finish()
-				wg.Done()
-				return
-			}
-		}
-	}()
 
-	return core.CopyFile(src, dst)
-}
-
-func topRegisterFunc(dt *core.DirTracker, pool *pb.Pool, wg *sync.WaitGroup) {
-	removeFunc := func(pb *pb.ProgressBar) {
-		err := pool.Remove(pb)
-		if err != nil {
-			log.Println("Failed to remove bar::", err)
+	// Replicate core.CopyFile with progress-enabled copy path
+	srcs := string(src)
+	dsts := string(dst)
+	sfi, err := os.Stat(srcs)
+	if err != nil {
+		myBar.Finish()
+		return fmt.Errorf("error in CopyFile src file status %w %s", err, srcs)
+	}
+	if !sfi.Mode().IsRegular() {
+		myBar.Finish()
+		return fmt.Errorf("CopyFile: non-regular source file %s (%q)", sfi.Name(), sfi.Mode().String())
+	}
+	if dfi, err := os.Stat(dsts); err == nil {
+		if !(dfi.Mode().IsRegular()) {
+			myBar.Finish()
+			return fmt.Errorf("CopyFile: non-regular destination file %s (%q)", dfi.Name(), dfi.Mode().String())
 		}
-		wg.Done()
+		if os.SameFile(sfi, dfi) {
+			myBar.Finish()
+			return nil
+		}
+	} else if !os.IsNotExist(err) {
+		myBar.Finish()
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(dsts), 0o777); err != nil {
+		myBar.Finish()
+		return fmt.Errorf("issue in CopyFile creating directory tree %w", err)
+	}
+	if err := os.Link(srcs, dsts); err == nil {
+		myBar.SetCurrent(total)
+		myBar.Finish()
+		return nil
 	}
 
-	bar := pb.RegisterProgressable(dt, removeFunc)
-	pool.Add(bar)
-	wg.Add(1)
+	in, err := os.Open(srcs)
+	if err != nil {
+		myBar.Finish()
+		return fmt.Errorf("info error on src in copyFileContents : %w", err)
+	}
+	defer func() { _ = in.Close() }()
+	out, err := os.Create(dsts)
+	if err != nil {
+		myBar.Finish()
+		return fmt.Errorf("unable to write to output file in copyFileContents %w %s", err, dsts)
+	}
+	// Ensure we close and report any close error
+	var copyErr error
+	defer func() {
+		cerr := out.Close()
+		if copyErr == nil {
+			copyErr = cerr
+		}
+	}()
+
+	// Stream copy with progress updates
+	buf := make([]byte, 1<<20) // 1 MiB buffer
+	var written int64
+	for {
+		nr, er := in.Read(buf)
+		if nr > 0 {
+			nw, ew := out.Write(buf[0:nr])
+			if nw > 0 {
+				written += int64(nw)
+				myBar.SetCurrent(written)
+			}
+			if ew != nil {
+				copyErr = ew
+				break
+			}
+			if nr != nw {
+				copyErr = io.ErrShortWrite
+				break
+			}
+		}
+		if er != nil {
+			if er != io.EOF {
+				copyErr = er
+			}
+			break
+		}
+	}
+	if copyErr != nil {
+		myBar.Finish()
+		return copyErr
+	}
+	if err := out.Sync(); err != nil {
+		myBar.Finish()
+		return err
+	}
+	myBar.SetCurrent(total)
+	myBar.Finish()
+	return nil
 }
 
 func visitFilesUpdatingProgressBar(pool *pb.Pool, directories []string,
 	someVisitFunc func(dm core.DirectoryMap, dir, fn string, d fs.DirEntry, fileStruct core.FileStruct, fileInfo fs.FileInfo) error,
 ) {
-	var wg sync.WaitGroup
-	registerFunc := func(p core.Progressable) {
-		if dt, ok := p.(*core.DirTracker); ok {
-			topRegisterFunc(dt, pool, &wg)
-		}
-	}
-	errChan := core.VisitFilesInDirectories(directories, registerFunc, someVisitFunc)
+	factory := pb.NewPoolProgressFactory(pool)
+	errChan := core.VisitFilesInDirectories(directories, factory, someVisitFunc)
 	for err := range errChan {
 		log.Println("Error Got...", err)
 	}
-	wg.Wait()
+	factory.Wg.Wait()
 }
 
 func runStats(pool *pb.Pool, messageBar *pb.ProgressBar, directories []string) {
@@ -262,7 +329,9 @@ func main() {
 			if ccCnt == 1 {
 				fmt.Println("Ctrl-C Detected")
 				logMemoryStats("[INTERRUPT]")
-				if onInterrupt != nil { onInterrupt() }
+				if onInterrupt != nil {
+					onInterrupt()
+				}
 				close(shutdownChan)
 			} else {
 				logMemoryStats("[FORCE EXIT]")

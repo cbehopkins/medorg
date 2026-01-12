@@ -131,12 +131,11 @@ func TestVisitFilesInDirectory(t *testing.T) {
 			var visitedFiles uint32
 			expectedVisitCount := moveDetectDirCreationCount(ts[0], ts[1], ts[2])
 
-			registerFunc := func(Progressable) {}
 			someVisitFunc := func(dm DirectoryMap, dir, fn string, d fs.DirEntry, fileStruct FileStruct, fileInfo fs.FileInfo) error {
 				atomic.AddUint32(&visitedFiles, 1)
 				return nil
 			}
-			errChan := VisitFilesInDirectories([]string{root}, registerFunc, someVisitFunc)
+			errChan := VisitFilesInDirectories([]string{root}, nil, someVisitFunc)
 			for err := range errChan {
 				t.Error("Rxd", err)
 			}
@@ -187,9 +186,6 @@ func TestVisitFilesInDirectory1(t *testing.T) {
 			var visitedFiles uint32
 			expectedVisitCount := moveDetectDirCreationCount(ts[0], ts[1], ts[2])
 
-			registerFunc := func(p Progressable) {
-				log.Println("Registering  Dirtracker error handler start")
-			}
 			someVisitFunc := func(dm DirectoryMap, dir, fn string, d fs.DirEntry, fileStruct FileStruct, fileInfo fs.FileInfo) error {
 				log.Println("Visit 0", dir, fn)
 				atomic.AddUint32(&visitedFiles, 1)
@@ -197,7 +193,7 @@ func TestVisitFilesInDirectory1(t *testing.T) {
 			}
 			dta := AutoVisitFilesInDirectories([]string{root}, someVisitFunc)
 
-			for err := range errHandler(dta, registerFunc) {
+			for err := range errHandler(dta, nil) {
 				t.Error("Rxd", err)
 			}
 

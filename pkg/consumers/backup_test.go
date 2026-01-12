@@ -177,7 +177,7 @@ func TestPreExistingBackupTags(t *testing.T) {
 		return nil
 	}
 
-	err = BackupRunner(&xc, 2, fc, destDir, nil, nil, nil, nil, false, srcDir)
+	err = BackupRunner(&xc, 2, fc, destDir, nil, nil, nil, nil, false, nil, srcDir)
 	if err != nil {
 		t.Fatal("First BackupRunner failed:", err)
 	}
@@ -193,7 +193,7 @@ func TestPreExistingBackupTags(t *testing.T) {
 		return nil
 	}
 
-	err = BackupRunner(&xc, 2, fc2, destDir, nil, nil, nil, nil, false, srcDir)
+	err = BackupRunner(&xc, 2, fc2, destDir, nil, nil, nil, nil, false, nil, srcDir)
 	if err != nil {
 		t.Fatal("Second BackupRunner failed:", err)
 	}
@@ -245,7 +245,7 @@ func TestBackupChecksumMaintenance(t *testing.T) {
 		return core.CopyFile(src, dst)
 	}
 
-	err = BackupRunner(&xc, 2, fc, destDir, nil, nil, nil, nil, false, srcDir)
+	err = BackupRunner(&xc, 2, fc, destDir, nil, nil, nil, nil, false, nil, srcDir)
 	if err != nil {
 		t.Fatal("BackupRunner failed:", err)
 	}
@@ -316,7 +316,7 @@ func TestBackupOrphanDetection(t *testing.T) {
 		return core.CopyFile(src, dst)
 	}
 
-err = BackupRunner(&xc, 2, fc, destDir, nil, nil, nil, nil, false, srcDir)
+err = BackupRunner(&xc, 2, fc, destDir, nil, nil, nil, nil, false, nil, srcDir)
 
 	// Get the list of files now in destination
 	destFilesAfterBackup := make(map[string]struct{})
@@ -377,7 +377,7 @@ err = BackupRunner(&xc, 2, fc, destDir, nil, nil, nil, nil, false, srcDir)
 	}
 
 	// Run backup again with orphan detection
-	err = BackupRunner(&xc, 2, fc, destDir, orphanCallback, nil, nil, nil, false, srcDir)
+	err = BackupRunner(&xc, 2, fc, destDir, orphanCallback, nil, nil, nil, false, nil, srcDir)
 	if err != nil {
 		t.Error("Second BackupRunner failed:", err)
 	}

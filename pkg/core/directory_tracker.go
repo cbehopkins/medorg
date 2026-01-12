@@ -59,15 +59,17 @@ type DirTracker struct {
 	directoryCountVisited int64
 	// We do not lock the dm map as we only access it in a single threaded manner
 	// i.e. only the directory walker or things it calls have access
-	dm              map[string]DirectoryTrackerInterface
-	trackerMaker    func(dir string) (DirectoryTrackerInterface, error)
-	lastPath        lastPath
-	workTokens      chan struct{}
-	wg              *sync.WaitGroup
-	errChan         chan error
-	preserveStructs bool
-	shouldIgnore    func(path string) bool // Optional function to check if path should be ignored
+	dm                map[string]DirectoryTrackerInterface
+	trackerMaker      func(dir string) (DirectoryTrackerInterface, error)
+	lastPath          lastPath
+	workTokens        chan struct{}
+	fileProcessTokens chan struct{} // Global file processing concurrency limit
+	wg                *sync.WaitGroup
+	errChan           chan error
+	preserveStructs   bool
+	shouldIgnore      func(path string) bool // Optional function to check if path should be ignored
 
+	// FIXME Why finishedB and finishedChan?
 	finished     finishedB
 	finishedChan chan struct{}
 }
@@ -93,6 +95,11 @@ func NewDirTracker(preserveStructs bool, dir string, trackerMaker func(string) (
 	return NewDirTrackerWithIgnore(preserveStructs, dir, trackerMaker, nil)
 }
 
+// NewDirTrackerWithTokens creates a DirTracker without an ignore function (simplified version)
+func NewDirTrackerWithTokens(preserveStructs bool, dir string, trackerMaker func(string) (DirectoryTrackerInterface, error)) *DirTracker {
+	return NewDirTrackerWithIgnore(preserveStructs, dir, trackerMaker, nil)
+}
+
 // NewDirTrackerWithIgnore creates a DirTracker with an optional ignore function
 func NewDirTrackerWithIgnore(
 	preserveStructs bool,
@@ -104,15 +111,18 @@ func NewDirTrackerWithIgnore(
 	dt.dm = make(map[string]DirectoryTrackerInterface)
 	dt.trackerMaker = trackerMaker
 	dt.workTokens = MakeTokenChan(NumTrackerOutstanding)
+	// File processing token limit: Controls concurrent file processing across all directories.
+	// Since persist operations are now serialized via BackupProcessor's persist queue,
+	// we can be more aggressive here. Set to 50-100 to balance I/O parallelism with memory usage.
+	dt.fileProcessTokens = MakeTokenChan(50)
 	dt.wg = new(sync.WaitGroup)
 	dt.errChan = make(chan error, 8) // buffered to avoid blocking
 	dt.finishedChan = make(chan struct{})
 	dt.shouldIgnore = shouldIgnore // Set ignore function before population
-	dt.wg.Add(1) // add one for populateDircount
+	dt.wg.Add(1)                   // add one for populateDircount
 	dt.finished.Clear()
 	dt.preserveStructs = preserveStructs
-	// go dt.populateDircount(dir)
-	dt.populateDircount(dir) // Removed go for testing purposes
+	go dt.populateDircount(dir)
 	go func() {
 		err := filepath.WalkDir(dir, dt.directoryWalker)
 		if err != nil {
@@ -131,6 +141,7 @@ func NewDirTrackerWithIgnore(
 		dt.finished.Set()
 		close(dt.errChan)
 		close(dt.workTokens)
+		close(dt.fileProcessTokens)
 		close(dt.finishedChan)
 	}()
 
@@ -235,14 +246,11 @@ func (dt *DirTracker) directoryWalkerPopulateDircount(path string, d fs.DirEntry
 		if dt.shouldIgnore != nil && dt.shouldIgnore(path) {
 			return filepath.SkipDir
 		}
+		if hasSkipfile(path) {
+			return filepath.SkipDir
+		}
 		log.Println("populating dir", path, dt.Total())
 		atomic.AddInt64(&dt.directoryCountTotal, 1)
-	}
-	_, file := filepath.Split(path)
-	// FIXME I think this logic is broken as this is the first thing it should look for
-	// Howevver it could have done a bunch of stuff before hitting this
-	if file == ".mdSkipDir" {
-		return filepath.SkipDir
 	}
 	return nil
 }

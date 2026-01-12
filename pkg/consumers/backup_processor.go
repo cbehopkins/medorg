@@ -3,10 +3,13 @@ package consumers
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"sort"
+	"sync"
 	"time"
 
+	"github.com/cbehopkins/bobbob/store/allocator"
 	"github.com/cbehopkins/bobbob/yggdrasil/treap"
 	"github.com/cbehopkins/bobbob/yggdrasil/vault"
 	"github.com/cbehopkins/medorg/pkg/core"
@@ -71,26 +74,17 @@ type BackupProcessor struct {
 	session           *vault.VaultSession
 	filePath          string
 	matchedDstKeys    map[treap.MD5Key]bool // Tracks which destination files were found in sources
+	mu                sync.Mutex            // Serializes treap/vault writes and map updates
+	persistQueue      chan persistRequest   // Serializes persist operations to prevent allocator corruption
+	persistWg         sync.WaitGroup        // Tracks persist operations
+	done              chan struct{}         // Closed to signal shutdown
+	closeOnce         sync.Once             // Ensures Close is called only once
 }
 
-// // md5KeyFromHexString parses a hex-encoded MD5 digest into a treap.MD5Key.
-// func md5KeyFromHexString(md5Key string) (treap.MD5Key, error) {
-// 	return treap.MD5KeyFromString(md5Key)
-// }
-
-// md5KeyFromBase64String parses a base64 (no padding) MD5 digest into a treap.MD5Key.
-// func md5KeyFromBase64String(md5Key string) (treap.MD5Key, error) {
-// }
-
-// md5KeyFromMedorgString converts a medorg checksum to a treap.MD5Key.
-// It tries hex first for forward compatibility, then base64 (current format).
-func md5KeyFromMedorgString(md5Key string) (treap.MD5Key, error) {
-	// if key, err := md5KeyFromHexString(md5Key); err == nil {
-	// 	return key, nil
-	// }
-
-	return treap.Md5KeyFromBase64String(md5Key)
-	// return md5KeyFromBase64String(md5Key)
+// persistRequest represents a request to persist a treap node
+type persistRequest struct {
+	fn    func() error // Function to call to perform the persist
+	errCh chan error
 }
 
 func NewBackupProcessor() (*BackupProcessor, error) {
@@ -133,19 +127,98 @@ func NewBackupProcessor() (*BackupProcessor, error) {
 	}
 	// Set memory budget: keep max 50 nodes, flush oldest 50% when exceeded
 	// This is aggressive but necessary on Pi with limited RAM
-	session.Vault.SetMemoryBudgetWithPercentile(50, 50)
-	return &BackupProcessor{
+	// shouldFlushDebug := func(stats vault.MemoryStats, sf bool) {
+	// 	if sf {
+	// 		log.Println("[MEMORY] Flushing memory: ", stats)
+	// 	} else {
+	// 		log.Println("[MEMORY] Memory usage within budget", stats)
+	// 	}
+
+	// }
+	// onFlushDebug := func(stats vault.MemoryStats, cnt int) {
+	// 	log.Printf("[MEMORY] Flushed %d nodes, current stats: %v", cnt, stats)
+	// }
+	session.Vault.SetMemoryBudgetWithPercentileWithCallbacks(10_000, 25, nil, nil)
+	// session.Vault.SetCheckInterval(10)
+
+	// Setup allocation logging for debugging memory issues
+	// setupAllocationLogging(session)
+
+	bp := &BackupProcessor{
 		srcFileCollection: srcCollection,
 		dstFileCollection: dstCollection,
 		session:           session,
 		filePath:          tmpFile,
 		matchedDstKeys:    make(map[treap.MD5Key]bool),
-	}, nil
+		persistQueue:      make(chan persistRequest, 100), // Buffered queue for persist requests
+		done:              make(chan struct{}),            // Closed to signal shutdown
+	}
+
+	// Start background persist worker to serialize persist operations
+	bp.persistWg.Add(1)
+	go bp.persistWorker()
+
+	return bp, nil
+}
+
+func (bp *BackupProcessor) persistWorker() {
+	defer bp.persistWg.Done()
+	for req := range bp.persistQueue {
+		// Serialize persist operations to prevent allocator corruption
+		req.errCh <- req.fn()
+	}
+}
+
+// queuePersist queues a persist operation and waits for it to complete
+func (bp *BackupProcessor) queuePersist(fn func() error) error {
+	errCh := make(chan error, 1)
+	req := persistRequest{
+		fn:    fn,
+		errCh: errCh,
+	}
+
+	// Use select to avoid sending on closed channel
+	select {
+	case bp.persistQueue <- req:
+		return <-errCh
+	case <-bp.done:
+		return fmt.Errorf("BackupProcessor is shutting down")
+	}
 }
 
 func (bp *BackupProcessor) Close() error {
-	defer os.Remove(bp.filePath)
-	return bp.session.Close()
+	var closeErr error
+	bp.closeOnce.Do(func() {
+		close(bp.done)         // Signal shutdown to all goroutines
+		close(bp.persistQueue) // Close queue so persistWorker exits
+		bp.persistWg.Wait()    // Wait for persistWorker to finish
+		defer os.Remove(bp.filePath)
+		closeErr = bp.session.Close()
+	})
+	return closeErr
+}
+
+// setupAllocationLogging configures allocation logging on the store's allocators for debugging memory usage.
+// Uses type assertion to access SetOnAllocate callbacks on allocator interfaces.
+func setupAllocationLogging(session *vault.VaultSession) {
+	if session == nil || session.Vault == nil || session.Vault.Store == nil {
+		return
+	}
+	ok := session.ConfigureAllocatorCallbacks(
+		func(objId allocator.ObjectId, offset allocator.FileOffset, size int) {
+			if size > 4096 {
+				log.Printf("[ALLOC] WARNING: Large allocation %d bytes at offset %d (objId=%d)",
+					size, offset, objId)
+			}
+		},
+		func(objId allocator.ObjectId, offset allocator.FileOffset, size int) {
+			log.Printf("[ALLOC] Parent allocator allocated %d bytes at offset %d (objId=%d)",
+				size, offset, objId)
+		},
+	)
+	if !ok {
+		panic("Allocator shenannigans")
+	}
 }
 
 // Add files to the list of files we found
@@ -153,6 +226,15 @@ func (bp *BackupProcessor) Close() error {
 // backupDest is where it's already backed up to
 // Then srcDir and srcFile are where we find it to back it up from
 func (bp *BackupProcessor) addSrcFile(md5Key string, size int64, backupDest []string, file core.Fpath) error {
+	// Check if shutting down
+	select {
+	case <-bp.done:
+		return fmt.Errorf("BackupProcessor is shutting down")
+	default:
+	}
+
+	bp.mu.Lock()
+	defer bp.mu.Unlock()
 	// Try hex string first (for tests), then fall back to base64 (production format)
 	key, err := treap.MD5KeyFromString(md5Key)
 	if err != nil {
@@ -180,7 +262,7 @@ func (bp *BackupProcessor) addSrcFile(md5Key string, size int64, backupDest []st
 		}
 		chosen.BackupDest = mergedDest
 		existingNode.SetPayload(chosen)
-		return existingNode.Persist()
+		return bp.queuePersist(existingNode.Persist)
 	}
 
 	bp.srcFileCollection.Insert(&key, payload)
@@ -189,6 +271,15 @@ func (bp *BackupProcessor) addSrcFile(md5Key string, size int64, backupDest []st
 
 // Add files to the list of files we found in the backup destination
 func (bp *BackupProcessor) addDstFile(md5Key string, size int64, backupDest []string, file core.Fpath) error {
+	// Check if shutting down
+	select {
+	case <-bp.done:
+		return fmt.Errorf("BackupProcessor is shutting down")
+	default:
+	}
+
+	bp.mu.Lock()
+	defer bp.mu.Unlock()
 	// Try hex string first (for tests), then fall back to base64 (production format)
 	key, err := treap.MD5KeyFromString(md5Key)
 	if err != nil {
@@ -207,12 +298,15 @@ func (bp *BackupProcessor) addDstFile(md5Key string, size int64, backupDest []st
 	// Merge duplicate destination entries for the same checksum, tracking all destinations
 	if existingNode := bp.dstFileCollection.Search(&key); existingNode != nil {
 		existing := existingNode.GetPayload()
+		// FIXME this feels over complex
+		// Why isn't merging them sufficient?
 		mergedDest := mergeBackupDestinations(existing.BackupDest, payload.BackupDest)
 		chosen := existing
 		// Keep the first seen path; destinations are what matter here
 		chosen.BackupDest = mergedDest
+		// Why can't we just set the node and let the memory management handle it?
 		existingNode.SetPayload(chosen)
-		return existingNode.Persist()
+		return bp.queuePersist(existingNode.Persist)
 	}
 
 	bp.dstFileCollection.Insert(&key, payload)
@@ -241,6 +335,8 @@ func (bp *BackupProcessor) checkDstFileExists(checksum string) (core.Fpath, bool
 // markAsMatched marks a destination file as matched (found in source)
 // Used for orphan detection - unmatched files are orphans
 func (bp *BackupProcessor) markAsMatched(checksum string) error {
+	bp.mu.Lock()
+	defer bp.mu.Unlock()
 	key, err := treap.MD5KeyFromString(checksum)
 	if err != nil {
 		// Try base64 format
@@ -256,6 +352,8 @@ func (bp *BackupProcessor) markAsMatched(checksum string) error {
 // getOrphanFiles returns files in destination that weren't matched in any source
 // These are candidates for cleanup/archival
 func (bp *BackupProcessor) getOrphanFiles() []core.Fpath {
+	bp.mu.Lock()
+	defer bp.mu.Unlock()
 	orphans := []core.Fpath{}
 
 	ctx := context.Background()

@@ -131,9 +131,9 @@ func Run(cfg Config) (int, error) {
 	if cfg.Destination == "" || len(cfg.Sources) == 0 {
 		return cli.ExitTwoDirectoriesOnly, fmt.Errorf("expected destination + at least 1 source, got dest='%s' sources=%d", cfg.Destination, len(cfg.Sources))
 	}
-	fileSkipper := func(path core.Fpath) bool {
+	fileSkipper := func(path string) bool {
 		// Reuse ignore patterns defined in the project config if available
-		if cfg.ProjectConfig != nil && cfg.ProjectConfig.ShouldIgnore(string(path)) {
+		if cfg.ProjectConfig != nil && cfg.ProjectConfig.ShouldIgnore(path) {
 			log.Println("Skipping (ignored):", path)
 			return true
 		}
@@ -145,7 +145,7 @@ func Run(cfg Config) (int, error) {
 	if cfg.DummyMode {
 		log.Println("Configuring for dummy copy mode")
 		copyer = func(src, dst core.Fpath) error {
-			if fileSkipper(src) {
+			if fileSkipper(string(src)) {
 				return nil
 			}
 			log.Println("Copy from:", src, " to ", dst)
@@ -154,7 +154,7 @@ func Run(cfg Config) (int, error) {
 	} else if cfg.UseProgressBar {
 		log.Println("Using Progress bar style copy")
 		copyer = func(src, dst core.Fpath) error {
-			if fileSkipper(src) {
+			if fileSkipper(string(src)) {
 				return nil
 			}
 			return poolCopier(src, dst, pool, &wg)
@@ -162,7 +162,7 @@ func Run(cfg Config) (int, error) {
 	} else {
 		log.Println("Configuring for default copy mode")
 		copyer = func(src, dst core.Fpath) error {
-			if fileSkipper(src) {
+			if fileSkipper(string(src)) {
 				return nil
 			}
 			log.Println("Copying:", src, "to", dst)
@@ -192,13 +192,9 @@ func Run(cfg Config) (int, error) {
 	}
 
 	// Setup progress tracking
-	var progressTracker consumers.ProgressTracker
+	var factory *pb.PoolProgressFactory
 	if cfg.UseProgressBar {
-		progressTracker = func(p core.Progressable) {
-			if dt, ok := p.(*core.DirTracker); ok {
-				topRegisterFunc(dt, pool, &wg)
-			}
-		}
+		factory = pb.NewPoolProgressFactory(pool)
 	}
 	fmt.Println("Finished configuring callbacks", len(cfg.Sources))
 
@@ -212,9 +208,10 @@ func Run(cfg Config) (int, error) {
 		cfg.Destination,
 		orphanedFunc,
 		logFunc,
-		progressTracker,
+		factory,
 		cfg.ShutdownChan,
 		cfg.SkipCheckCalc,
+		fileSkipper,
 		cfg.Sources...,
 	)
 	setMessage("Completed Backup Run")
@@ -225,6 +222,9 @@ func Run(cfg Config) (int, error) {
 	}
 
 	setMessage("Waiting for complete")
+	if factory != nil && factory.Wg != nil {
+		factory.Wg.Wait()
+	}
 	wg.Wait()
 
 	return cli.ExitOk, nil

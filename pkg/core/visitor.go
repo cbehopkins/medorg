@@ -19,6 +19,7 @@ type ExtendedDirectoryVisitor interface {
 	// Visit is called for each file with directory and entry information
 	Visit(storage DirectoryStorage, dir, filename string, entry fs.DirEntry, metadata FileMetadata, fileInfo fs.FileInfo) error
 }
+type FileVisitorCallback func(dm DirectoryMap, dir, fn string, d fs.DirEntry, fileStruct FileStruct, fileInfo fs.FileInfo) error
 
 // SimpleFileVisitor wraps a simple function into a FileVisitor interface
 type SimpleFileVisitor func(metadata FileMetadata, fileInfo fs.FileInfo) error

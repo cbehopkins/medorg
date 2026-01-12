@@ -12,6 +12,13 @@ type Fpath string
 func (f Fpath) String() string {
 	return string(f)
 }
+func (f Fpath) Dir() string {
+	return filepath.Dir(string(f))
+}
+func (f Fpath) Base() string {
+	return filepath.Base(string(f))
+}
+
 
 func NewFpath(directory, fn string) Fpath {
 	return Fpath(filepath.Join(directory, fn))
@@ -35,6 +42,13 @@ func isHiddenDirectory(path string) bool {
 		if strings.HasPrefix(p, ".") {
 			return true
 		}
+	}
+	return false
+}
+func hasSkipfile(directory string) bool {
+	skipFilePath := filepath.Join(directory, ".mdSkipDir")
+	if _, err := os.Stat(skipFilePath); !os.IsNotExist(err) {
+		return true
 	}
 	return false
 }

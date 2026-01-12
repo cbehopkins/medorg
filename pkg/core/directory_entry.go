@@ -42,18 +42,24 @@ type EntryMaker func(string) (DirectoryEntryInterface, error)
 // xml file, and when requested, close it again
 // We are also able to send it files to work
 type DirectoryEntry struct {
-	workItems   chan workItem
-	Dir         string
-	errorChan   chan error // now buffered
-	Dm          DirectoryEntryInterface
-	activeFiles *sync.WaitGroup
-	closed      *atomic.Bool
+	workItems         chan workItem
+	Dir               string
+	errorChan         chan error // now buffered
+	Dm                DirectoryEntryInterface
+	activeFiles       *sync.WaitGroup
+	closed            *atomic.Bool
+	fileProcessTokens chan struct{} // Global concurrency limiter across all directories
 }
 
 // NewDirectoryEntry creates a directory entry
 // That is an entry for each file in the dirctory
 // We will later be visited populating this structure
 func NewDirectoryEntry(path string, mkF EntryMaker) (DirectoryEntry, error) {
+	return NewDirectoryEntryWithTokens(path, mkF, nil)
+}
+
+// NewDirectoryEntryWithTokens creates a directory entry with optional token-based concurrency control
+func NewDirectoryEntryWithTokens(path string, mkF EntryMaker, fileProcessTokens chan struct{}) (DirectoryEntry, error) {
 	var itm DirectoryEntry
 	var err error
 	itm.Dir = path
@@ -66,6 +72,7 @@ func NewDirectoryEntry(path string, mkF EntryMaker) (DirectoryEntry, error) {
 	itm.errorChan = make(chan error, 4) // buffered to avoid blocking
 	itm.activeFiles = new(sync.WaitGroup)
 	itm.closed = &atomic.Bool{}
+	itm.fileProcessTokens = fileProcessTokens
 	return itm, nil
 }
 
@@ -102,7 +109,17 @@ func (de DirectoryEntry) Start() error {
 func (de DirectoryEntry) worker() {
 	// allow file paths to be sent to us for processing
 	for wi := range de.workItems {
+		// Acquire token from global pool if available (before spawning goroutine)
+		if de.fileProcessTokens != nil {
+			<-de.fileProcessTokens // Block until token available
+		}
 		go func(dir, file string, d fs.DirEntry) {
+			// Release token when done
+			defer func() {
+				if de.fileProcessTokens != nil {
+					de.fileProcessTokens <- struct{}{}
+				}
+			}()
 			err := de.Dm.Visitor(dir, file, d)
 			de.errorChan <- err
 			wi.callback()

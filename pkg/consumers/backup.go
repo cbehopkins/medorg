@@ -3,7 +3,6 @@ package consumers
 import (
 	"errors"
 	"fmt"
-	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
@@ -11,6 +10,7 @@ import (
 	"syscall"
 
 	"github.com/cbehopkins/medorg/pkg/core"
+	pb "github.com/cbehopkins/pb/v3"
 )
 
 // ErrMissingEntry You are copying a file that there is no directory entry for. Probably need to rerun a visit on the directory
@@ -31,11 +31,6 @@ var (
 type VolumeLabeler interface {
 	GetVolumeLabel(destDir string) (string, error)
 }
-
-// ProgressTracker is called with Progressable objects for progress tracking during directory traversal.
-// Typically used to register progress bars with the UI.
-// Uses core.Progressable which DirTracker implements.
-type ProgressTracker func(core.Progressable)
 
 // directoryLocks provides per-directory mutex locks to prevent concurrent
 // DirectoryMap updates from creating race conditions
@@ -225,178 +220,34 @@ func (fpll *fpathListList) Add(index int, fp core.Fpath) {
 	(*fpll)[index] = append((*fpll)[index], fp)
 }
 
-// streamingFileProcessor processes files in batches to avoid memory buildup
-// It maintains priority ordering by processing files with fewer existing backups first
-type streamingFileProcessor struct {
-	srcDir           string
-	destDir          string
-	backupLabelName  string
-	fileCopyCallback FileCopier
-	maxNumBackups    int
-	logFunc          func(msg string)
-	shutdownChan     chan struct{}
-
-	// Batching state
-	batches    fpathListList
-	batchSize  int
-	copyTokens chan struct{}
-	mu         sync.Mutex
-	wg         sync.WaitGroup
-	errChan    chan error
-}
-
-func newStreamingFileProcessor(
-	srcDir, destDir, backupLabelName string,
-	fileCopyCallback FileCopier,
-	maxNumBackups int,
-	logFunc func(msg string),
-	shutdownChan chan struct{},
-) *streamingFileProcessor {
-	return &streamingFileProcessor{
-		srcDir:           srcDir,
-		destDir:          destDir,
-		backupLabelName:  backupLabelName,
-		fileCopyCallback: fileCopyCallback,
-		maxNumBackups:    maxNumBackups,
-		logFunc:          logFunc,
-		shutdownChan:     shutdownChan,
-		batches:          fpathListList{},
-		batchSize:        1000, // Process files in chunks of 1000
-		copyTokens:       core.MakeTokenChan(2),
-		errChan:          make(chan error),
-	}
-}
-
-// addFile adds a file to the current batch, potentially triggering a flush
-func (sfp *streamingFileProcessor) addFile(numBackups int, fp core.Fpath) error {
-	sfp.mu.Lock()
-	sfp.batches.Add(numBackups, fp)
-
-	// Count total files in all batches
-	totalFiles := 0
-	for _, batch := range sfp.batches {
-		totalFiles += len(batch)
-	}
-	sfp.mu.Unlock()
-
-	// If we've accumulated enough files, process a batch
-	if totalFiles >= sfp.batchSize {
-		return sfp.processBatch()
-	}
-	return nil
-}
-
-// processBatch processes the highest priority batch (fewest existing backups)
-func (sfp *streamingFileProcessor) processBatch() error {
-	sfp.mu.Lock()
-
-	// Find first non-empty batch (these are ordered by priority)
-	var filesToProcess fpathList
-	for i, batch := range sfp.batches {
-		if len(batch) > 0 {
-			if i >= sfp.maxNumBackups {
-				// Skip files that already have too many backups
-				sfp.batches[i] = fpathList{}
-				continue
-			}
-			filesToProcess = batch
-			sfp.batches[i] = fpathList{}
-			break
-		}
-	}
-	sfp.mu.Unlock()
-
-	if len(filesToProcess) == 0 {
-		return nil
-	}
-
-	// Process this batch of files
-	for _, file := range filesToProcess {
-		select {
-		case <-sfp.shutdownChan:
-			return nil
-		default:
-		}
-
-		// Get a token to limit concurrency
-		<-sfp.copyTokens
-
-		sfp.wg.Add(1)
-		go func(file core.Fpath) {
-			defer sfp.wg.Done()
-			defer func() { sfp.copyTokens <- struct{}{} }()
-			err := doACopy(sfp.srcDir, sfp.destDir, sfp.backupLabelName, file, sfp.fileCopyCallback)
-			if err != nil {
-				sfp.errChan <- err
-			}
-		}(file)
-	}
-
-	return nil
-}
-
-// flush processes all remaining files
-func (sfp *streamingFileProcessor) flush() error {
-	// Process all remaining batches
-	for {
-		sfp.mu.Lock()
-		hasFiles := false
-		for _, batch := range sfp.batches {
-			if len(batch) > 0 {
-				hasFiles = true
-				break
-			}
-		}
-		sfp.mu.Unlock()
-
-		if !hasFiles {
-			break
-		}
-
-		if err := sfp.processBatch(); err != nil {
-			return err
-		}
-	}
-
-	// Wait for all copy operations to complete
-	sfp.wg.Wait()
-	close(sfp.copyTokens)
-	close(sfp.errChan)
-
-	// Check for any errors
-	for err := range sfp.errChan {
-		if errors.Is(err, ErrNoSpace) {
-			sfp.logFunc("Destination full")
-			return nil
-		}
-		if err != nil {
-			return fmt.Errorf("copy failed, %w::%s, %s, %s", err, sfp.srcDir, sfp.destDir, sfp.backupLabelName)
-		}
-	}
-
-	return nil
-}
-
 // extractAndCopy performs backup using streaming visitor pattern (memory efficient)
 func extractAndCopy(
 	srcDir, destDir, volumeName string,
-	progressTracker ProgressTracker,
+	factory *pb.PoolProgressFactory,
 	fileCopyCallback FileCopier,
 	maxNumBackups int,
 	logFunc func(msg string),
 	shutdownChan chan struct{},
+	ignoreFunc func(path string) bool,
 	bp *BackupProcessor,
 ) error {
+
 	// First pass: scan source and populate BackupProcessor
-	srcVisitor := func(dm core.DirectoryMap, dir, fn string, d fs.DirEntry, fileStruct core.FileStruct, fileInfo fs.FileInfo) error {
-		if core.IsMetadataFile(fn) {
+	srcVisitor := func(file string, fm core.FileMetadata) error {
+		if core.IsMetadataFile(file) {
 			return nil
 		}
-		if fileStruct.HasTag(volumeName) {
+		if fm.HasTag(volumeName) {
 			return nil
 		}
-		lenArchive := len(fileStruct.BackupDest)
+		lenArchive := len(fm.BackupDestinations())
 		if lenArchive > maxNumBackups {
+			return nil
+		}
+
+		// Check if file should be ignored
+		fp := fm.Path()
+		if ignoreFunc != nil && ignoreFunc(string(fp)) {
 			return nil
 		}
 
@@ -407,13 +258,12 @@ func extractAndCopy(
 			default:
 			}
 		}
-
-		checksum := fileStruct.Checksum
+		checksum := fm.GetChecksum()
 		if dstPath, exists := bp.checkDstFileExists(checksum); exists {
 			if err := bp.markAsMatched(checksum); err != nil {
 				return err
 			}
-			_, err := updateSourceDirectoryMap(dir, fn, volumeName, core.NewFpath(dir, fn))
+			_, err := updateSourceDirectoryMap(fp.Dir(), fp.Base(), volumeName, fm.Path())
 			if err != nil {
 				return err
 			}
@@ -421,24 +271,32 @@ func extractAndCopy(
 			return nil
 		}
 
-		fp := core.NewFpath(dir, fn)
-		return bp.addSrcFile(checksum, fileStruct.Size, fileStruct.BackupDest, fp)
+		return bp.addSrcFile(checksum, fm.GetSize(), fm.BackupDestinations(), fp)
 	}
-
-	errChan := core.VisitFilesInDirectories([]string{srcDir}, progressTracker, srcVisitor)
-	for err := range errChan {
-		if err != nil {
-			return fmt.Errorf("error scanning source: %w", err)
+	logFunc("Scanning source for files to backup")
+	dwSrc := core.NewProgressableDirectoryWalker(core.MakeTokenChan(4), srcDir)
+	if factory != nil {
+		if err := factory.Register(dwSrc.Progress); err != nil {
+			log.Printf("failed to register source progress: %v", err)
 		}
 	}
+
+	dwSrc.FileVisitor = srcVisitor
+
+	if err := dwSrc.Walk(srcDir); err != nil {
+		return fmt.Errorf("error scanning source: %w", err)
+	}
+	logFunc("Completed source scan")
 
 	if fileCopyCallback == nil {
 		return nil
 	}
 
 	// Second pass: copy prioritized files
+	logFunc("Starting file copy")
 	next, _ := bp.prioritizedSrcFiles()
 	for fp, ok := next(); ok; fp, ok = next() {
+		logFunc(fmt.Sprintf("Copying file: %s", fp))
 		if err := doACopy(srcDir, destDir, volumeName, fp, fileCopyCallback); err != nil {
 			if errors.Is(err, ErrNoSpace) {
 				return ErrNoSpace
@@ -458,7 +316,31 @@ func extractAndCopy(
 		}
 		fs, ok := dmSrc.Get(fn)
 		if !ok {
-			return fmt.Errorf("%w: %s", ErrMissingEntry, fp)
+			// Try to rebuild the directory entry for the missing file
+			log.Printf("Missing directory entry for %s in %s, attempting to rebuild", fn, dir)
+
+			// Create a new FileStruct from the actual file
+			fs, err = core.NewFileStruct(dir, fn)
+			if err != nil {
+				return fmt.Errorf("failed to create directory entry for %s: %w", fp, err)
+			}
+
+			// Calculate checksum if not present
+			if fs.Checksum == "" {
+				cks, err := core.CalcMd5File(dir, fn)
+				if err != nil {
+					return fmt.Errorf("failed to calculate checksum for %s: %w", fp, err)
+				}
+				fs.Checksum = cks
+			}
+
+			// Add the rebuilt entry to the directory map
+			dmSrc.Add(fs)
+
+			// Persist the updated directory map
+			if err := dmSrc.Persist(dir); err != nil {
+				log.Printf("warning: failed to persist rebuilt directory entry for %s: %v", fp, err)
+			}
 		}
 		dstPath := core.NewFpath(destDir, rel)
 		if err := bp.markAsMatched(fs.Checksum); err != nil {
@@ -468,7 +350,7 @@ func extractAndCopy(
 			return err
 		}
 	}
-
+	logFunc("Completed file copy")
 	return nil
 }
 
@@ -489,7 +371,31 @@ func updateSourceDirectoryMap(dir, filename, backupLabelName string, srcFile cor
 	}
 	src, ok := dmSrc.Get(filename)
 	if !ok {
-		return core.FileStruct{}, fmt.Errorf("%w: %s, \"%s\" \"%s\"", ErrMissingEntry, srcFile, dir, filename)
+		// Try to rebuild the directory entry for the missing file
+		log.Printf("Missing directory entry for %s in %s, attempting to rebuild", filename, dir)
+
+		// Create a new FileStruct from the actual file
+		src, err = core.NewFileStruct(dir, filename)
+		if err != nil {
+			return core.FileStruct{}, fmt.Errorf("failed to create directory entry for %s: %w", srcFile, err)
+		}
+
+		// Calculate checksum if not present
+		if src.Checksum == "" {
+			cks, err := core.CalcMd5File(dir, filename)
+			if err != nil {
+				return core.FileStruct{}, fmt.Errorf("failed to calculate checksum for %s: %w", srcFile, err)
+			}
+			src.Checksum = cks
+		}
+
+		// Add the rebuilt entry to the directory map
+		dmSrc.Add(src)
+
+		// Persist the updated directory map
+		if err := dmSrc.Persist(dir); err != nil {
+			log.Printf("warning: failed to persist rebuilt directory entry for %s: %v", srcFile, err)
+		}
 	}
 	if src.HasTag(backupLabelName) {
 		return src, nil
@@ -562,6 +468,7 @@ func doACopy(
 
 // BackupRunner handles backup from one or more source directories to a single destination.
 // Supports single or multiple sources with proper orphan detection across all sources.
+// ignoreFunc is optional and should return true if a path should be ignored.
 func BackupRunner(
 	volumeLabel VolumeLabeler,
 	maxNumBackups int,
@@ -569,9 +476,10 @@ func BackupRunner(
 	destDir string,
 	orphanFunc func(path string) error,
 	logFunc func(msg string),
-	progressTracker ProgressTracker,
+	factory *pb.PoolProgressFactory,
 	shutdownChan chan struct{},
 	skipCheckCalc bool,
+	ignoreFunc func(path string) bool,
 	srcDirs ...string,
 ) error {
 	if len(srcDirs) == 0 {
@@ -619,50 +527,38 @@ func BackupRunner(
 
 	// Step 2: Scan destination directory with streaming visitor (no memory accumulation)
 	logFunc("Initial scan for destination inventory")
-	destVisitor := func(dm core.DirectoryMap, dir, fn string, d fs.DirEntry, fileStruct core.FileStruct, fileInfo fs.FileInfo) error {
-		if core.IsMetadataFile(fn) {
+	// Use ProgressableDirectoryWalker to track progress
+	dwDest := core.NewProgressableDirectoryWalker(core.MakeTokenChan(4), destDir)
+	if factory != nil {
+		if err := factory.Register(dwDest.Progress); err != nil {
+			log.Printf("failed to register destination progress: %v", err)
+		}
+	}
+
+	dwDest.FileVisitor = func(file string, fm core.FileMetadata) error {
+		if core.IsMetadataFile(file) {
 			return nil
 		}
 		if shutdownChan != nil {
 			select {
 			case <-shutdownChan:
-				return fmt.Errorf("shutdown requested")
+				return filepath.SkipAll
 			default:
 			}
 		}
-		return bp.addDstFile(fileStruct.Checksum, fileStruct.Size, fileStruct.BackupDest, core.NewFpath(dir, fn))
+		return bp.addDstFile(fm.GetChecksum(), fm.GetSize(), fm.BackupDestinations(), fm.Path())
 	}
-	errChan := core.VisitFilesInDirectories([]string{destDir}, progressTracker, destVisitor)
-	for err := range errChan {
-		if err != nil {
-			return fmt.Errorf("error scanning destination: %w", err)
-		}
+
+	if err := dwDest.Walk(destDir); err != nil {
+		return fmt.Errorf("error scanning destination: %w", err)
 	}
+
 	if fileCopyCallback == nil {
 		logFunc("Scan only requested; performing ingestion without copying")
 	}
 
-	// Now copy files from each source using streaming approach
-	for i, srcDir := range srcDirs {
-		logFunc(fmt.Sprintf("Looking for files to copy from source %d", i+1))
-
-		err = extractAndCopy(
-			srcDir, destDir, backupLabelName,
-			progressTracker,
-			fileCopyCallback,
-			maxNumBackups,
-			logFunc,
-			shutdownChan,
-			bp,
-		)
-		if err != nil {
-			return fmt.Errorf("BackupRunner failed copying from source %d, %w", i+1, err)
-		}
-
-		logFunc(fmt.Sprintf("Finished Copy from source %d", i+1))
-	}
-
 	// Report orphans: destination files never matched by any source
+	// Since we will probably delete files, delete before copy
 	if orphanFunc != nil {
 		logFunc("Reporting orphaned destination files")
 		for _, orphan := range bp.getOrphanFiles() {
@@ -670,6 +566,26 @@ func BackupRunner(
 				return err
 			}
 		}
+	}
+	// Now copy files from each source using streaming approach
+	for i, srcDir := range srcDirs {
+		logFunc(fmt.Sprintf("Looking for files to copy from source %d", i+1))
+
+		err = extractAndCopy(
+			srcDir, destDir, backupLabelName,
+			factory,
+			fileCopyCallback,
+			maxNumBackups,
+			logFunc,
+			shutdownChan,
+			ignoreFunc,
+			bp,
+		)
+		if err != nil {
+			return fmt.Errorf("BackupRunner failed copying from source %d, %w", i+1, err)
+		}
+
+		logFunc(fmt.Sprintf("Finished Copy from source %d", i+1))
 	}
 
 	return nil

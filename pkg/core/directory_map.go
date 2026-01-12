@@ -185,6 +185,50 @@ func DirectoryMapFromDir(directory string) (dm DirectoryMap, err error) {
 	return dm, dm.RangeMutate(fc)
 }
 
+// DirectoryMapFromDirWithScan loads the on-disk directory map (if present),
+// removes entries for missing files, and adds entries for any files that exist
+// on disk but are not present in the map. This ensures the returned map reflects
+// the current contents of the filesystem.
+func DirectoryMapFromDirWithScan(directory string) (DirectoryMap, error) {
+	dm, err := DirectoryMapFromDir(directory)
+	if err != nil {
+		return dm, err
+	}
+
+	// Drop entries whose files no longer exist
+	if err := dm.DeleteMissingFiles(); err != nil {
+		return dm, err
+	}
+
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		return dm, err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || entry.Name() == Md5FileName {
+			continue
+		}
+		if _, ok := dm.Get(entry.Name()); ok {
+			continue
+		}
+		fs, err := NewFileStruct(directory, entry.Name())
+		if err != nil {
+			continue
+		}
+		dm.Add(fs)
+	}
+
+	return dm, nil
+}
+func (dm *DirectoryMap) UpdateAllChecksums() error {
+	fc := func(fn string, fs FileStruct) (FileStruct, error) {
+		// FIXME update this to actually do a file query later
+		err := fs.UpdateChecksum(false, false, nil)
+		return fs, err
+	}
+	return dm.RangeMutate(fc)
+}
+
 // Stale returns true if the dm has been modified since writted
 func (dm DirectoryMap) Stale() bool {
 	dm.lock.RLock()
@@ -324,6 +368,7 @@ func (dm DirectoryMap) RangeMutate(fc func(string, FileStruct) (FileStruct, erro
 		switch err {
 		case nil:
 			dm.mp[fn] = fs
+			// FIXME Don't mark stale if nothing changed
 			*dm.stale = true
 		case ErrIgnoreThisMutate:
 		case ErrDeleteThisEntry:
