@@ -228,7 +228,7 @@ func buildSourceMapping(cfg Config) (map[FileKey][]SourceFileInfo, error) {
 
 			// Get the file struct
 			fileName := filepath.Base(path)
-			fs, ok := dm.Get(fileName)
+			fs, ok := dm.Get(core.Fname(fileName))
 			if !ok || fs.Checksum == "" {
 				// File not in metadata or no checksum - skip it
 				return nil
@@ -294,7 +294,7 @@ func buildDestinationMapping(destDir string) (map[FileKey]bool, error) {
 
 		// Get the file struct
 		fileName := filepath.Base(path)
-		fs, ok := dm.Get(fileName)
+		fs, ok := dm.Get(core.Fname(fileName))
 		if !ok || fs.Checksum == "" {
 			return nil // Skip if no checksum
 		}
@@ -353,7 +353,7 @@ func discoverAndUpdate(cfg Config, sourceMapping map[FileKey][]SourceFileInfo, d
 				}
 
 				// Update the file struct with the volume label
-				fs, ok := dm.Get(srcFile.FileName)
+				fs, ok := dm.Get(core.Fname(srcFile.FileName))
 				if !ok {
 					continue // File disappeared?
 				}

@@ -153,9 +153,9 @@ func (jo *Journal) Append(dm core.DirectoryMap, dir, alias string) error {
 
 	// Extract files from DirectoryMap
 	var files []core.FileStruct
-	err := dm.ForEachFile(func(filename string, fm core.FileMetadata) error {
+	err := dm.ForEachFile(func(filename core.Fname, fm core.FileMetadata) error {
 		// Evaluate ignore patterns against the full path so directory names are respected
-		fullPath := filepath.Join(dir, filename)
+		fullPath := filepath.Join(dir, string(filename))
 		if jo.shouldIgnore(fullPath) {
 			return nil
 		}
@@ -226,7 +226,7 @@ func (jo *Journal) PopulateFromDirectories(directory string, alias string) error
 			}
 
 			// Set a no-op visitor function
-			dm.SetVisitFunc(func(dm core.DirectoryMap, directory, file string, d fs.DirEntry) error {
+			dm.SetVisitFunc(func(dm core.DirectoryMap, directory core.Dirname, file core.Fname, d fs.DirEntry) error {
 				return nil
 			})
 

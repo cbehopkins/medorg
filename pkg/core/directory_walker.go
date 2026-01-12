@@ -126,7 +126,9 @@ func (dw *DirectoryWalker) dirVisitor(path string, d fs.DirEntry, err error) err
 	// See above comment about optimisation
 	// We could collect up the file entries during the directory walk
 	// and avoid this second pass
-	err = dm.ForEachFile(dw.FileVisitor)
+	err = dm.ForEachFile(func(fn Fname, fm FileMetadata) error {
+		return dw.FileVisitor(string(fn), fm)
+	})
 	if err != nil {
 		return err
 	}

@@ -26,7 +26,7 @@ func TestB2B(t *testing.T) {
 	var bob Md5File
 
 	for _, file := range files {
-		bob.Files = append(bob.Files, FileStruct{Name: file.Name()})
+		bob.Files = append(bob.Files, FileStruct{Name: Fname(file.Name())})
 	}
 
 	marshelled, err := xml.MarshalIndent(bob, "", "  ")

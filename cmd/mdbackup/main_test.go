@@ -902,7 +902,7 @@ func TestIntegration_BackupTagsInMedorgXML(t *testing.T) {
 		t.Fatalf("Failed to load source root DirectoryMap: %v", err)
 	}
 
-	fs, ok := srcRootDM.Get(testFile)
+	fs, ok := srcRootDM.Get(core.Fname(testFile))
 	if !ok {
 		t.Fatalf("File %s not found in source root DirectoryMap", testFile)
 	}
@@ -936,7 +936,7 @@ func TestIntegration_BackupTagsInMedorgXML(t *testing.T) {
 		t.Fatalf("Failed to load destination root DirectoryMap: %v", err)
 	}
 
-	dstFs, ok := dstRootDM.Get(testFile)
+	dstFs, ok := dstRootDM.Get(core.Fname(testFile))
 	if !ok {
 		t.Errorf("File %s not found in destination root DirectoryMap", testFile)
 	} else {
@@ -1045,7 +1045,7 @@ func TestIntegration_BackupTagsRaceCondition(t *testing.T) {
 	var missingTagFiles []string
 
 	for filename := range testFiles {
-		fs, ok := srcRootDM.Get(filename)
+		fs, ok := srcRootDM.Get(core.Fname(filename))
 		if !ok {
 			t.Errorf("File %s not found in source root DirectoryMap", filename)
 			continue
@@ -1168,7 +1168,7 @@ func TestIntegration_BackupTagsWithSubdirectories(t *testing.T) {
 		t.Logf("Checking directory: %s", dir)
 		for _, filename := range files {
 			totalFiles++
-			fs, ok := dm.Get(filename)
+			fs, ok := dm.Get(core.Fname(filename))
 			if !ok {
 				t.Errorf("File %s not found in DirectoryMap for %s", filename, dir)
 				continue
@@ -1217,7 +1217,7 @@ func TestIntegration_BackupTagsWithSubdirectories(t *testing.T) {
 		}
 
 		for _, filename := range files {
-			fs, ok := dm.Get(filename)
+			fs, ok := dm.Get(core.Fname(filename))
 			if !ok {
 				t.Errorf("File %s not found in destination DirectoryMap for %s", filename, dir)
 				continue

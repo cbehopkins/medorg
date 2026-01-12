@@ -11,8 +11,8 @@ import (
 
 // fakeChecksumForTest creates a DirectoryMap entry with a fake checksum instead of calculating MD5.
 // This is much faster for tests that only verify file visiting logic, not checksum correctness.
-func fakeChecksumForTest(dm DirectoryMap, dir, fn string, d fs.DirEntry) error {
-	if fn == Md5FileName {
+func fakeChecksumForTest(dm DirectoryMap, dir Dirname, fn Fname, d fs.DirEntry) error {
+	if string(fn) == Md5FileName {
 		return nil
 	}
 
@@ -20,13 +20,13 @@ func fakeChecksumForTest(dm DirectoryMap, dir, fn string, d fs.DirEntry) error {
 	if err != nil {
 		return err
 	}
-	fileStruct, err := NewFileStruct(dir, fn)
+	fileStruct, err := NewFileStruct(string(dir), string(fn))
 	if err != nil {
 		return err
 	}
 
 	// Use a fake checksum based on the file path instead of calculating MD5
-	fileStruct.Checksum = fmt.Sprintf("fake-checksum-%s", filepath.Join(dir, fn))
+	fileStruct.Checksum = fmt.Sprintf("fake-checksum-%s", filepath.Join(string(dir), string(fn)))
 	fileStruct.Size = fileInfo.Size()
 	dm.Add(fileStruct)
 	return nil

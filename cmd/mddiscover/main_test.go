@@ -51,7 +51,7 @@ func hasBackupDest(t *testing.T, dir, filename, volumeLabel string) bool {
 	if err != nil {
 		t.Fatalf("Failed to load directory map for %s: %v", dir, err)
 	}
-	fs, ok := dm.Get(filename)
+	fs, ok := dm.Get(core.Fname(filename))
 	if !ok {
 		return false
 	}

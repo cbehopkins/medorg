@@ -95,8 +95,9 @@ func createFile(t *testing.T, dir, name, content string) string {
 
 // helper: get FileStruct by name from Md5File
 func getFileStruct(md5File *core.Md5File, name string) *core.FileStruct {
+	fname := core.Fname(name)
 	for i := range md5File.Files {
-		if md5File.Files[i].Name == name {
+		if md5File.Files[i].Name == fname {
 			return &md5File.Files[i]
 		}
 	}

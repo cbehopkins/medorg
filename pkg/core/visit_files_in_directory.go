@@ -82,8 +82,8 @@ func AutoVisitFilesInDirectoriesWithTokens(
 			return nil
 		}
 	}
-	visitFunc := func(dm DirectoryMap, dir, fn string, d fs.DirEntry) error {
-		if fn == Md5FileName {
+	visitFunc := func(dm DirectoryMap, dir Dirname, fn Fname, d fs.DirEntry) error {
+		if string(fn) == Md5FileName {
 			return nil
 		}
 		fileStruct, ok := dm.Get(fn)
@@ -93,7 +93,7 @@ func AutoVisitFilesInDirectoriesWithTokens(
 			if err != nil {
 				return err
 			}
-			fileStruct, err = fileStruct.FromStat(dir, fn, fileInfo)
+			fileStruct, err = fileStruct.FromStat(string(dir), string(fn), fileInfo)
 			if err != nil {
 				return err
 			}
@@ -104,7 +104,7 @@ func AutoVisitFilesInDirectoriesWithTokens(
 			return err
 		}
 
-		return someVisitFunc(dm, dir, fn, d, fileStruct, fileInfo)
+		return someVisitFunc(dm, string(dir), string(fn), d, fileStruct, fileInfo)
 	}
 
 	makerFunc := func(dir string) (DirectoryTrackerInterface, error) {

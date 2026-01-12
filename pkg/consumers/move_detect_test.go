@@ -82,8 +82,8 @@ func gatherFilesAndDirectories(root string) (files, directories []string) {
 
 var errMissingChecksum = errors.New("missing checksum")
 
-func checkChecksums(dm core.DirectoryMap, directory, fn string, d fs.DirEntry) error {
-	if fn == core.Md5FileName {
+func checkChecksums(dm core.DirectoryMap, directory core.Dirname, fn core.Fname, d fs.DirEntry) error {
+	if string(fn) == core.Md5FileName {
 		return nil
 	}
 	_, ok := dm.Get(fn)

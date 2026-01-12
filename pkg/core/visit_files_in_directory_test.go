@@ -10,15 +10,15 @@ import (
 	"testing"
 )
 
-func recalcForTest(dm DirectoryMap, directory, fn string, d fs.DirEntry) error {
-	if fn == Md5FileName {
+func recalcForTest(dm DirectoryMap, directory Dirname, fn Fname, d fs.DirEntry) error {
+	if string(fn) == Md5FileName {
 		return nil
 	}
 	err := dm.UpdateValues(directory, d)
 	if err != nil {
 		return err
 	}
-	err = dm.UpdateChecksum(directory, fn, false)
+	err = dm.UpdateChecksum(string(directory), string(fn), false)
 	return err
 }
 

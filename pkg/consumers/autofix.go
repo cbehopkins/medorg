@@ -149,8 +149,8 @@ func (af AutoFix) ResolveTwo(fsOne, fsTwo core.FileStruct) (core.FileStruct, boo
 		fmt.Println("Matching Files", fsOne, fsTwo)
 	}
 
-	score1 := scoreName(fsOne.Directory(), fsOne.Name, fsTwo.Directory(), fsTwo.Name)
-	score2 := scoreName(fsTwo.Directory(), fsTwo.Name, fsOne.Directory(), fsOne.Name)
+	score1 := scoreName(fsOne.Directory(), string(fsOne.Name), fsTwo.Directory(), string(fsTwo.Name))
+	score2 := scoreName(fsTwo.Directory(), string(fsTwo.Name), fsOne.Directory(), string(fsOne.Name))
 
 	// log.Println("Score1:", score1,"Score2:", score2)
 
@@ -224,7 +224,7 @@ func (af AutoFix) CheckRename(fs core.FileStruct) (core.FileStruct, bool) {
 
 	// If what we would like to call it already exists
 	// Rewrite the name to be a non-conflicting (n) format
-	base, extension := StripExtension(fs.Name)
+	base, extension := StripExtension(string(fs.Name))
 	if extension == "" {
 		// Do nothing for files we don't recognise
 		return fs, false
@@ -247,7 +247,7 @@ func (af AutoFix) CheckRename(fs core.FileStruct) (core.FileStruct, bool) {
 		return fs, false
 	}
 
-	fsNew.Name = ResolveFnClash(directory, fn1, extension, fs.Name)
+	fsNew.Name = core.Fname(ResolveFnClash(directory, fn1, extension, string(fs.Name)))
 	if fsNew.Name != fs.Name {
 		log.Println("Rename:", fs.Path(), " to ", fsNew.Path())
 		if af.RenameFiles {
@@ -327,7 +327,7 @@ func ResolveFnClash(directory, fn string, extension, orig string) string {
 }
 
 // WkFun Walk function across the supplied directories
-func (af *AutoFix) WkFun(dm core.DirectoryMap, directory, file string, d fs.DirEntry) error {
+func (af *AutoFix) WkFun(dm core.DirectoryMap, directory core.Dirname, file core.Fname, d fs.DirEntry) error {
 	fs, ok := dm.Get(file)
 	if !ok {
 		return errors.New("asked to update a file that does not exist")
@@ -337,7 +337,7 @@ func (af *AutoFix) WkFun(dm core.DirectoryMap, directory, file string, d fs.DirE
 	if fs.Size == 0 {
 		log.Println("Zero Length File")
 		if af.DeleteFiles {
-			err := dm.RmFile(directory, file)
+			err := dm.RmFile(string(directory), file)
 			if err != nil {
 				return err
 			}

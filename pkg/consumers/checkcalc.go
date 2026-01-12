@@ -52,9 +52,9 @@ func RunCheckCalc(directories []string, opts CheckCalcOptions) error {
 	}
 
 	// Visitor function - processes each file in each directory
-	visitor := func(dm core.DirectoryMap, directory, file string, d fs.DirEntry) error {
+	visitor := func(dm core.DirectoryMap, directory core.Dirname, file core.Fname, d fs.DirEntry) error {
 		// Skip the .medorg.xml file itself
-		if file == core.Md5FileName {
+		if string(file) == core.Md5FileName {
 			return nil
 		}
 
@@ -108,7 +108,7 @@ func RunCheckCalc(directories []string, opts CheckCalcOptions) error {
 			}
 
 			// Update file metadata from stat
-			if _, err := fs.FromStat(directory, file, info); err != nil {
+			if _, err := fs.FromStat(string(directory), string(file), info); err != nil {
 				return err
 			}
 
@@ -136,14 +136,14 @@ func RunCheckCalc(directories []string, opts CheckCalcOptions) error {
 		}
 
 		// Execute the file processing function
-		err := dm.RunFsFc(directory, file, fc)
+		err := dm.RunFsFc(string(directory), string(file), fc)
 		if err != nil {
 			return err
 		}
 
 		// Run AutoFix if provided
 		if opts.AutoFix != nil {
-			if err := opts.AutoFix.WkFun(dm, directory, file, d); err != nil {
+			if err := opts.AutoFix.WkFun(dm, core.Dirname(directory), core.Fname(file), d); err != nil {
 				return err
 			}
 		}

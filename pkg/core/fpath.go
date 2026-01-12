@@ -6,17 +6,23 @@ import (
 	"strings"
 )
 
+// Fname is used to indicate we are talking about a filename (not a path)
+type Fname string
+
+// Dirname is used to indicate we are talking about a directory path (not a full file path)
+type Dirname string
+
 // Fpath is used to indicate we are talking about the full file path
 type Fpath string
 
 func (f Fpath) String() string {
 	return string(f)
 }
-func (f Fpath) Dir() string {
-	return filepath.Dir(string(f))
+func (f Fpath) Dir() Dirname {
+	return Dirname(filepath.Dir(string(f)))
 }
-func (f Fpath) Base() string {
-	return filepath.Base(string(f))
+func (f Fpath) Base() Fname {
+	return Fname(filepath.Base(string(f)))
 }
 
 

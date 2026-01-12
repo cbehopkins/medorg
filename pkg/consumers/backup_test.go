@@ -101,15 +101,15 @@ func createTestBackupDirectories(numberOfFiles, numberOfDuplicates int) ([]strin
 	return directoriesCreated, nil
 }
 
-func recalcForTest(dm core.DirectoryMap, directory, fn string, d fs.DirEntry) error {
-	if fn == core.Md5FileName {
+func recalcForTest(dm core.DirectoryMap, directory core.Dirname, fn core.Fname, d fs.DirEntry) error {
+	if string(fn) == core.Md5FileName {
 		return nil
 	}
 	err := dm.UpdateValues(directory, d)
 	if err != nil {
 		return err
 	}
-	err = dm.UpdateChecksum(directory, fn, false)
+	err = dm.UpdateChecksum(string(directory), string(fn), false)
 	if err != nil {
 		return err
 	}
@@ -135,7 +135,7 @@ func (bdm *backupDupeMap) aFile(dm core.DirectoryMap, dir, fn string, d fs.DirEn
 	if fn == core.Md5FileName {
 		return nil
 	}
-	fs, ok := dm.Get(fn)
+	fs, ok := dm.Get(core.Fname(fn))
 	if !ok {
 		return fmt.Errorf("%w:%s", errMissingTestFile, fn)
 	}
@@ -477,7 +477,7 @@ func TestDupeMapConcurrency(t *testing.T) {
 			defer wg.Done()
 			for j := 0; j < filesPerGoroutine; j++ {
 				fs := core.FileStruct{
-					Name:     fmt.Sprintf("file%d_%d.txt", idx, j),
+					Name:     core.Fname(fmt.Sprintf("file%d_%d.txt", idx, j)),
 					Size:     int64(idx*100 + j),
 					Checksum: fmt.Sprintf("hash%d%d", idx, j),
 				}

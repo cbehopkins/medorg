@@ -63,8 +63,8 @@ func TestRename1(t *testing.T) {
 	var mod bool
 	var fs core.FileStruct
 	for _, ts := range testStruct {
-		fn0 := ts.In
-		fn1 := ts.Out
+		fn0 := core.Fname(ts.In)
+		fn1 := core.Fname(ts.Out)
 		// Create a synthetic FileStruct for testing (testMode = true means files don't exist on disk)
 		fs = core.FileStruct{Name: fn0}
 		fs.SetDirectory(".")
@@ -326,7 +326,7 @@ func TestWkFunConcurrentAccess(t *testing.T) {
 	// Add multiple files (start from 1 to avoid size 0)
 	for i := 1; i <= 10; i++ {
 		fs := core.FileStruct{
-			Name:     fmt.Sprintf("file%d.jpg", i),
+			Name:     core.Fname(fmt.Sprintf("file%d.jpg", i)),
 			Size:     int64(i * 100),
 			Checksum: fmt.Sprintf("hash%d", i),
 		}
@@ -345,8 +345,8 @@ func TestWkFunConcurrentAccess(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			fileName := fmt.Sprintf("file%d.jpg", idx)
-			err := af.WkFun(*dm, "/test", fileName, nil)
+			fileName := core.Fname(fmt.Sprintf("file%d.jpg", idx))
+			err := af.WkFun(*dm, core.Dirname("/test"), fileName, nil)
 			if err != nil {
 				errChan <- err
 			}

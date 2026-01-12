@@ -265,7 +265,7 @@ func extractAndCopy(
 			if err := bp.markAsMatched(checksum); err != nil {
 				return err
 			}
-			_, err := updateSourceDirectoryMap(fp.Dir(), fp.Base(), volumeName, fm.Path())
+			_, err := updateSourceDirectoryMap(string(fp.Dir()), string(fp.Base()), volumeName, fm.Path())
 			if err != nil {
 				return err
 			}
@@ -338,7 +338,7 @@ func copyPendingFiles(
 		if err != nil {
 			return err
 		}
-		fs, ok := dmSrc.Get(fn)
+		fs, ok := dmSrc.Get(core.Fname(fn))
 		if !ok {
 			// Try to rebuild the directory entry for the missing file
 			log.Printf("Missing directory entry for %s in %s, attempting to rebuild", fn, dir)
@@ -411,7 +411,7 @@ func updateSourceDirectoryMap(dir, filename, backupLabelName string, srcFile cor
 	if err != nil {
 		return core.FileStruct{}, err
 	}
-	src, ok := dmSrc.Get(filename)
+	src, ok := dmSrc.Get(core.Fname(filename))
 	if !ok {
 		// Try to rebuild the directory entry for the missing file
 		log.Printf("Missing directory entry for %s in %s, attempting to rebuild", filename, dir)

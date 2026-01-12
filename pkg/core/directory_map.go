@@ -21,32 +21,38 @@ var ErrUnimplementedVisitor = errors.New("unimplemented visitor")
 
 var errSelfCheckProblem = errors.New("self check problem")
 
+// Read only Callback
+type DmVisitCallback func(file Fpath, d fs.DirEntry, fs FileStruct) error
+
+// Mutating Callback
+type DmMutCallback func(file Fpath, d fs.DirEntry, fs FileStruct) (FileStruct, error)
+
 // DirectoryMap contains for the directory all the file structs
 type DirectoryMap struct {
-	mp    map[string]FileStruct
+	mp    map[Fname]FileStruct
 	stale *bool
 	// We want to copy the DirectoryMap elsewhere
 	lock *sync.RWMutex
 
-	VisitFunc func(dm DirectoryMap, directory, file string, d fs.DirEntry) error
+	VisitFunc func(dm DirectoryMap, directory Dirname, file Fname, d fs.DirEntry) error
 }
 
 // NewDirectoryMap creates a new dm
 func NewDirectoryMap() *DirectoryMap {
 	itm := new(DirectoryMap)
-	itm.mp = make(map[string]FileStruct)
+	itm.mp = make(map[Fname]FileStruct)
 	itm.stale = new(bool)
 	itm.lock = new(sync.RWMutex)
 	// Does not need to be protected by a lock as it is set once here
 	// Or becomes the responsibility of the user to not moduify it concurrently
-	itm.VisitFunc = func(dm DirectoryMap, directory, file string, d fs.DirEntry) error {
+	itm.VisitFunc = func(dm DirectoryMap, directory Dirname, file Fname, d fs.DirEntry) error {
 		return ErrUnimplementedVisitor
 	}
 	return itm
 }
 
 // SetVisitFunc sets the visitor function with proper synchronization
-func (dm *DirectoryMap) SetVisitFunc(f func(dm DirectoryMap, directory, file string, d fs.DirEntry) error) {
+func (dm *DirectoryMap) SetVisitFunc(f func(dm DirectoryMap, directory Dirname, file Fname, d fs.DirEntry) error) {
 	dm.lock.Lock()
 	defer dm.lock.Unlock()
 	dm.VisitFunc = f
@@ -87,12 +93,6 @@ func (dm DirectoryMap) ToXML(dir string) (output []byte, err error) {
 	return xml.MarshalIndent(m5f, "", "  ")
 }
 
-// ToXMLWithAlias is deprecated - alias is no longer part of Md5File
-// Use ToXML instead
-func (dm DirectoryMap) ToXMLWithAlias(dir, alias string) (output []byte, err error) {
-	return dm.ToXML(dir)
-}
-
 // FromXML unmarshals XML data into the directory map and returns the directory path
 func (dm *DirectoryMap) FromXML(input []byte) (dir string, err error) {
 	var m5f Md5File
@@ -116,7 +116,7 @@ func (dm DirectoryMap) Add(fs FileStruct) {
 }
 
 // rm Removes a filename from the dm
-func (dm DirectoryMap) rm(fn string) {
+func (dm DirectoryMap) rm(fn Fname) {
 	dm.lock.Lock()
 	delete(dm.mp, fn)
 	*dm.stale = true
@@ -124,17 +124,17 @@ func (dm DirectoryMap) rm(fn string) {
 }
 
 // RmFile is similar to rm, but updates the directory
-func (dm DirectoryMap) RmFile(dir, fn string) error {
+func (dm DirectoryMap) RmFile(dir string, fn Fname) error {
 	dm.rm(fn)
 	err := dm.Persist(dir)
 	if err != nil {
 		return err
 	}
-	return RmFilename(NewFpath(dir, fn))
+	return RmFilename(NewFpath(dir, string(fn)))
 }
 
 // Get the struct associated with a filename
-func (dm DirectoryMap) Get(fn string) (FileStruct, bool) {
+func (dm DirectoryMap) Get(fn Fname) (FileStruct, bool) {
 	dm.lock.RLock()
 	fs, ok := dm.mp[fn]
 	dm.lock.RUnlock()
@@ -177,7 +177,7 @@ func DirectoryMapFromDir(directory string) (dm DirectoryMap, err error) {
 		return dm, fmt.Errorf("FromXML error \"%w\" on %s", err, directory)
 	}
 
-	fc := func(fn string, fs FileStruct) (FileStruct, error) {
+	fc := func(fn Fname, fs FileStruct) (FileStruct, error) {
 		fs.directory = directory
 		return fs, nil
 	}
@@ -208,7 +208,7 @@ func DirectoryMapFromDirWithScan(directory string) (DirectoryMap, error) {
 		if entry.IsDir() || entry.Name() == Md5FileName {
 			continue
 		}
-		if _, ok := dm.Get(entry.Name()); ok {
+		if _, ok := dm.Get(Fname(entry.Name())); ok {
 			continue
 		}
 		fs, err := NewFileStruct(directory, entry.Name())
@@ -221,7 +221,7 @@ func DirectoryMapFromDirWithScan(directory string) (DirectoryMap, error) {
 	return dm, nil
 }
 func (dm *DirectoryMap) UpdateAllChecksums() error {
-	fc := func(fn string, fs FileStruct) (FileStruct, error) {
+	fc := func(fn Fname, fs FileStruct) (FileStruct, error) {
 		// FIXME update this to actually do a file query later
 		err := fs.UpdateChecksum(false, false, nil)
 		return fs, err
@@ -240,7 +240,7 @@ func (dm DirectoryMap) Stale() bool {
 
 // GetMetadata retrieves file metadata by filename
 // Returns the metadata and whether it was found
-func (dm DirectoryMap) GetMetadata(fn string) (FileMetadata, bool) {
+func (dm DirectoryMap) GetMetadata(fn Fname) (FileMetadata, bool) {
 	fs, ok := dm.Get(fn)
 	if !ok {
 		return nil, false
@@ -288,7 +288,7 @@ func (dm DirectoryMap) Save(directory string) error {
 // GetFile retrieves metadata for a specific file (implements DirectoryStorage.GetFile)
 func (dm DirectoryMap) GetFile(filename string) (FileMetadata, error) {
 	panic("I think this should be unused")
-	fm, ok := dm.GetMetadata(filename)
+	fm, ok := dm.GetMetadata(Fname(filename))
 	if !ok {
 		return nil, fmt.Errorf("file %s not found in directory map", filename)
 	}
@@ -304,14 +304,14 @@ func (dm DirectoryMap) AddFile(fm FileMetadata) error {
 // RemoveFile removes file metadata (implements DirectoryStorage.RemoveFile)
 func (dm DirectoryMap) RemoveFile(filename string) error {
 	dir, fn := filepath.Split(filename)
-	dm.RmFile(dir, fn)
+	dm.RmFile(dir, Fname(fn))
 	return nil
 }
 
 // ListFiles returns all files in the directory (implements DirectoryStorage.ListFiles)
 func (dm DirectoryMap) ListFiles() []FileMetadata {
 	result := make([]FileMetadata, 0, dm.Len())
-	err := dm.ForEachFile(func(filename string, fm FileMetadata) error {
+	err := dm.ForEachFile(func(filename Fname, fm FileMetadata) error {
 		result = append(result, fm)
 		return nil
 	})
@@ -325,9 +325,9 @@ func (dm DirectoryMap) ListFiles() []FileMetadata {
 // ForEachFile iterates over all files in the directory map
 // The callback receives the filename and file metadata
 // This guarantees that all returned metadata has valid checksums before the visitor is called
-func (dm DirectoryMap) ForEachFile(fn func(string, FileMetadata) error) error {
+func (dm DirectoryMap) ForEachFile(fn func(Fname, FileMetadata) error) error {
 	// Phase 1: Identify files needing checksum calculation (read-only)
-	var needsChecksum []string
+	var needsChecksum []Fname
 	dm.lock.RLock()
 	filesCount := len(dm.mp)
 	for name, fs := range dm.mp {
@@ -343,13 +343,13 @@ func (dm DirectoryMap) ForEachFile(fn func(string, FileMetadata) error) error {
 
 	// Phase 2: Calculate checksums and update map (write lock needed for modifications)
 	if len(needsChecksum) > 0 {
-		updates := make(map[string]FileStruct)
+		updates := make(map[Fname]FileStruct)
 		for _, name := range needsChecksum {
 			dm.lock.RLock()
 			fs := dm.mp[name]
 			dm.lock.RUnlock()
 
-			cks, err := CalcMd5File(fs.directory, fs.Name)
+			cks, err := CalcMd5File(fs.directory, string(fs.Name))
 			if err != nil {
 				// Log but don't fail - allow visitor to handle the empty checksum
 				log.Printf("warning: failed to calculate checksum for %s/%s: %v", fs.directory, fs.Name, err)
@@ -362,9 +362,7 @@ func (dm DirectoryMap) ForEachFile(fn func(string, FileMetadata) error) error {
 		// Apply updates with write lock
 		if len(updates) > 0 {
 			dm.lock.Lock()
-			for name, fs := range updates {
-				dm.mp[name] = fs
-			}
+			maps.Copy(dm.mp, updates)
 			*dm.stale = true
 			dm.lock.Unlock()
 			log.Printf("ForEachFile: updated %d checksums", len(updates))
@@ -389,7 +387,7 @@ func (dm DirectoryMap) ForEachFile(fn func(string, FileMetadata) error) error {
 
 // selfCheck the directory map for obvious errors
 func (dm DirectoryMap) selfCheck(directory string) error {
-	fc := func(fn string, fs FileMetadata) error {
+	fc := func(fn Fname, fs FileMetadata) error {
 		if fs.Directory() != directory {
 			return fmt.Errorf("%w FS has directory of %s for %s/%s", errSelfCheckProblem, fs.Directory(), directory, fn)
 		}
@@ -407,10 +405,10 @@ var (
 
 // RangeMutate range over the map, mutating as needed
 // note one may return specific errors to delete or squash the mutation
-func (dm DirectoryMap) RangeMutate(fc func(string, FileStruct) (FileStruct, error)) error {
+func (dm DirectoryMap) RangeMutate(fc func(Fname, FileStruct) (FileStruct, error)) error {
 	dm.lock.Lock()
 	defer dm.lock.Unlock()
-	deleteList := []string{}
+	deleteList := []Fname{}
 
 	for fn, v := range dm.mp {
 		fs, err := fc(fn, v)
@@ -439,7 +437,7 @@ func (dm DirectoryMap) RangeMutate(fc func(string, FileStruct) (FileStruct, erro
 // RunFsFc lookup the FileStruct for the requested file
 // and run the supplied function
 func (dm DirectoryMap) RunFsFc(directory, file string, fc func(fs *FileStruct) error) error {
-	fs, ok := dm.Get(file)
+	fs, ok := dm.Get(Fname(file))
 	var err error
 	if !ok {
 		fs, err = NewFileStruct(directory, file)
@@ -472,8 +470,8 @@ func (dm DirectoryMap) UpdateChecksum(directory, file string, forceUpdate bool) 
 // DeleteMissingFiles deletes any file entries that are in the dm,
 // but not on the disk
 func (dm DirectoryMap) DeleteMissingFiles() error {
-	fc := func(fileName string, fs FileStruct) (FileStruct, error) {
-		fp := filepath.Join(fs.directory, fileName)
+	fc := func(fileName Fname, fs FileStruct) (FileStruct, error) {
+		fp := filepath.Join(fs.directory, string(fileName))
 		_, err := os.Stat(fp)
 		if errors.Is(err, os.ErrNotExist) {
 			return fs, ErrDeleteThisEntry
@@ -518,7 +516,7 @@ func (dm DirectoryMap) Persist(directory string) error {
 
 // Visitor satisfies DirectoryEntryInterface
 // It's saying, the walker is visiting this file.
-func (dm DirectoryMap) Visitor(directory, file string, d fs.DirEntry) error {
+func (dm DirectoryMap) Visitor(directory Dirname, file Fname, d fs.DirEntry) error {
 	// Note the difference between this and VisitFunc
 	// We pass self in, so that the worker func can be declared once
 	// rather than always having to be a closure
@@ -530,17 +528,17 @@ func (dm DirectoryMap) Visitor(directory, file string, d fs.DirEntry) error {
 }
 
 // UpdateValues in the DirectoryEntry to those found on the fs
-func (dm DirectoryMap) UpdateValues(directory string, d fs.DirEntry) error {
+func (dm DirectoryMap) UpdateValues(directory Dirname, d fs.DirEntry) error {
 	info, err := d.Info()
 	if err != nil {
 		return err
 	}
 	file := d.Name()
-	fs, ok := dm.Get(file)
+	fs, ok := dm.Get(Fname(file))
 	if changed, err := fs.Changed(info); ok && !changed {
 		return err
 	}
-	_, err = fs.FromStat(directory, file, info)
+	_, err = fs.FromStat(string(directory), file, info)
 	if err != nil {
 		return err
 	}
@@ -592,7 +590,7 @@ func (dm0 DirectoryMap) Equal(dm DirectoryEntryInterface) bool {
 
 func (dm DirectoryMap) Revisit(dir string, visitor func(dm DirectoryEntryInterface, directory string, file string, fileStruct FileStruct) error) error {
 	for path, fileStruct := range dm.mp {
-		if err := visitor(dm, dir, path, fileStruct); err != nil {
+		if err := visitor(dm, dir, string(path), fileStruct); err != nil {
 			return fmt.Errorf("visitor error for file %s in directory %s: %w", path, dir, err)
 		}
 	}

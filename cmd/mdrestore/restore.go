@@ -97,7 +97,7 @@ func Run(cfg Config) (int, error) {
 
 		for _, file := range entry.Files {
 			// Check if file exists in destination with correct MD5
-			destFile, exists := destDM.Get(file.Name)
+			destFile, exists := destDM.Get(core.Fname(file.Name))
 			needsCopy := !exists || destFile.Checksum != file.Hash
 
 			if needsCopy {
@@ -257,7 +257,7 @@ func readJournal(path string) (*Journal, error) {
 				for _, fs := range m5f.Files {
 					for _, bd := range fs.BackupDest {
 						entry.Files = append(entry.Files, JournalFile{
-							Name:       fs.Name,
+							Name:       string(fs.Name),
 							Hash:       fs.Checksum,
 							BackupDest: bd,
 						})
@@ -294,7 +294,7 @@ func calculateChecksums(dir string) (*core.DirectoryMap, error) {
 		}
 
 		// Check if we already have this file in the map
-		if _, exists := dm.Get(relPath); !exists {
+		if _, exists := dm.Get(core.Fname(relPath)); !exists {
 			fs, err := core.NewFileStruct(dir, relPath)
 			if err != nil {
 				return err

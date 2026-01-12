@@ -29,10 +29,10 @@ type moveDetect struct {
 // looking for any files which have been deleted
 // And move the FileStruct from the dm into a map
 func (mvd *moveDetect) runMoveDetectFindDeleted(directory string) error {
-	visitFunc := func(dm core.DirectoryMap, dir, fn string, d fs.DirEntry) error {
+	visitFunc := func(dm core.DirectoryMap, dir core.Dirname, fn core.Fname, d fs.DirEntry) error {
 		return nil
 	}
-	fc := func(fn string, fileStruct core.FileStruct) (core.FileStruct, error) {
+	fc := func(fn core.Fname, fileStruct core.FileStruct) (core.FileStruct, error) {
 		_, err := os.Stat(string(fileStruct.Path()))
 		if !errors.Is(err, os.ErrNotExist) {
 			return fileStruct, core.ErrIgnoreThisMutate
@@ -65,8 +65,8 @@ func (mvd *moveDetect) runMoveDetectFindDeleted(directory string) error {
 // looking for any new files and if they exist in the map
 // then populate the entry withou a calculation
 func (mvd *moveDetect) runMoveDetectFindNew(directory string) error {
-	visitFunc := func(dm core.DirectoryMap, dir, fn string, d fs.DirEntry) error {
-		if fn == core.Md5FileName {
+	visitFunc := func(dm core.DirectoryMap, dir core.Dirname, fn core.Fname, d fs.DirEntry) error {
+		if string(fn) == core.Md5FileName {
 			return nil
 		}
 		v, err := mvd.query(d)
@@ -76,7 +76,7 @@ func (mvd *moveDetect) runMoveDetectFindNew(directory string) error {
 		if err != nil {
 			return err
 		}
-		v.SetDirectory(dir)
+		v.SetDirectory(string(dir))
 		dm.Add(v)
 		mvd.delete(v)
 		return dm.UpdateValues(dir, d)
@@ -147,7 +147,7 @@ func (mvd *moveDetect) add(fileStruct core.FileStruct) {
 	if mvd.dupeMap == nil {
 		mvd.dupeMap = make(map[moveKey]core.FileStruct)
 	}
-	mvd.dupeMap[moveKey{fileStruct.Size, fileStruct.Name}] = fileStruct
+	mvd.dupeMap[moveKey{fileStruct.Size, string(fileStruct.Name)}] = fileStruct
 	mvd.Unlock()
 }
 
@@ -156,7 +156,7 @@ func (mvd *moveDetect) delete(fileStruct core.FileStruct) {
 		return
 	}
 	mvd.Lock()
-	delete(mvd.dupeMap, moveKey{fileStruct.Size, fileStruct.Name})
+	delete(mvd.dupeMap, moveKey{fileStruct.Size, string(fileStruct.Name)})
 	mvd.Unlock()
 }
 

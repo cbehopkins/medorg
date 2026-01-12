@@ -9,7 +9,7 @@ import (
 // Helper to create test FileStructs since directory field is unexported
 func makeTestFileStruct(dir, name, checksum string, size int64, backupDest []string) core.FileStruct {
 	fs := core.FileStruct{
-		Name:       name,
+		Name:       core.Fname(name),
 		Checksum:   checksum,
 		Size:       size,
 		BackupDest: backupDest,

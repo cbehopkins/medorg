@@ -5,7 +5,6 @@ import (
 	"crypto/md5"
 	"errors"
 	"fmt"
-	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -275,7 +274,7 @@ func (t *testVolumeLabeler) GetVolumeLabel(destDir string) (string, error) {
 // Helper to compute MD5 checksum (for test setup if needed)
 func computeMD5(data []byte) string {
 	h := md5.New()
-	io.WriteString(h, string(data))
+	h.Write(data)
 	return fmt.Sprintf("%x", h.Sum(nil))
 }
 
@@ -749,10 +748,10 @@ func TestBackupResumeUpdatesMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read directory map after first run: %v", err)
 	}
-	if _, ok := dm.Get(files[0]); !ok {
+	if _, ok := dm.Get(core.Fname(files[0])); !ok {
 		t.Fatalf("expected %s in directory map after first run", files[0])
 	}
-	if _, ok := dm.Get(files[1]); ok {
+	if _, ok := dm.Get(core.Fname(files[1])); ok {
 		t.Fatalf("did not expect %s in directory map after first run", files[1])
 	}
 
@@ -781,7 +780,7 @@ func TestBackupResumeUpdatesMetadata(t *testing.T) {
 		t.Fatalf("read directory map after second run: %v", err)
 	}
 	for _, name := range files {
-		if _, ok := dmFinal.Get(name); !ok {
+		if _, ok := dmFinal.Get(core.Fname(name)); !ok {
 			t.Fatalf("expected %s in directory map after second run", name)
 		}
 	}

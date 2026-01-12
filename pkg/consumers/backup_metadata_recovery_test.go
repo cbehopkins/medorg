@@ -138,7 +138,7 @@ err = BackupRunner(&xc, 2, fc2, dstDir, nil, nil, nil, nil, false, nil, srcDir)
 	}
 
 	for _, fn := range testFiles {
-		fs, ok := dm.Get(fn)
+		fs, ok := dm.Get(core.Fname(fn))
 		if !ok {
 			t.Errorf("File not in rebuilt metadata: %s", fn)
 			continue

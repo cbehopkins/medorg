@@ -16,7 +16,7 @@ type mockDtType struct {
 	errChan chan error
 	lock    *sync.RWMutex
 	closed  *bool
-	visiter func(string, string)
+	visiter func(Dirname, Fname)
 }
 
 func newMockDtType() (mdt mockDtType) {
@@ -43,12 +43,12 @@ func (mdt mockDtType) Close() {
 
 var errTestChanClosed = errors.New("visit called to a closed structure")
 
-func (mdt mockDtType) Visitor(dir, file string, d fs.DirEntry) error {
+func (mdt mockDtType) Visitor(dir Dirname, file Fname, d fs.DirEntry) error {
 	mdt.lock.RLock()
 	closed := *mdt.closed
 	mdt.lock.RUnlock()
 	if closed {
-		return fmt.Errorf("%w at %s/%s", errTestChanClosed, dir, file)
+		return fmt.Errorf("%w at %s/%s", errTestChanClosed, string(dir), string(file))
 	}
 	if mdt.visiter != nil {
 		mdt.visiter(dir, file)
@@ -64,7 +64,7 @@ func (mdt mockDtType) VisitFile(dir, file string, d fs.DirEntry, callback func()
 	mdt.lock.Unlock()
 
 	if mdt.visiter != nil {
-		mdt.visiter(dir, file)
+		mdt.visiter(Dirname(dir), Fname(file))
 	}
 	callback()
 }
@@ -136,7 +136,7 @@ func TestDirectoryTrackerSpawning(t *testing.T) {
 		var cnt uint32
 		ts := tst.cfg
 		testName := fmt.Sprintln("DirectoryTrackerSpawning", ts)
-		visiter := func(dir, file string) {
+		visiter := func(dir Dirname, file Fname) {
 			lk.Lock()
 			activeVisitors++
 			if activeVisitors > NumTrackerOutstanding {

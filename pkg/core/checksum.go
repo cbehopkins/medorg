@@ -47,7 +47,7 @@ func NewChannels() (inputChan chan FileStruct, outputChan chan FileStruct, close
 func md5Calcer(inputChan chan FileStruct, outputChan chan FileStruct, closedChan chan struct{}) {
 	for itm := range inputChan {
 		// Calculate the MD5 here and send it
-		cks, err := CalcMd5File(itm.directory, itm.Name)
+		cks, err := CalcMd5File(itm.directory, string(itm.Name))
 		if err != nil {
 			log.Printf("Calculation error for %s: %v", itm.Name, err)
 			// Skip this file and continue processing
