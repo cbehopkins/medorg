@@ -45,7 +45,7 @@ func createVolumeLabel(t *testing.T, dir string) string {
 }
 
 // Helper: Check if a file has a specific backup destination tag
-func hasBackupDest(t *testing.T, dir, filename, volumeLabel string) bool {
+func hasBackupDest(t *testing.T, dir core.Dirname, filename core.Fname, volumeLabel string) bool {
 	t.Helper()
 	dm, err := core.DirectoryMapFromDir(dir)
 	if err != nil {
@@ -115,10 +115,10 @@ func TestDiscoverBasic(t *testing.T) {
 	}
 
 	// Verify files are tagged
-	if !hasBackupDest(t, sourceDir, "file1.txt", volumeLabel) {
+	if !hasBackupDest(t, core.Dirname(sourceDir), core.Fname("file1.txt"), volumeLabel) {
 		t.Error("file1.txt should be tagged with volume label")
 	}
-	if !hasBackupDest(t, sourceDir, "file2.txt", volumeLabel) {
+	if !hasBackupDest(t, core.Dirname(sourceDir), core.Fname("file2.txt"), volumeLabel) {
 		t.Error("file2.txt should be tagged with volume label")
 	}
 
@@ -180,7 +180,7 @@ func TestDiscoverDryRun(t *testing.T) {
 	}
 
 	// Verify file is NOT tagged (dry run)
-	if hasBackupDest(t, sourceDir, "test.txt", volumeLabel) {
+	if hasBackupDest(t, core.Dirname(sourceDir), core.Fname("test.txt"), volumeLabel) {
 		t.Error("file should NOT be tagged in dry-run mode")
 	}
 
@@ -241,13 +241,13 @@ func TestDiscoverPartialMatch(t *testing.T) {
 	}
 
 	// Verify only file1 is tagged
-	if !hasBackupDest(t, sourceDir, "file1.txt", volumeLabel) {
+	if !hasBackupDest(t, core.Dirname(sourceDir), core.Fname("file1.txt"), volumeLabel) {
 		t.Error("file1.txt should be tagged")
 	}
-	if hasBackupDest(t, sourceDir, "file2.txt", volumeLabel) {
+	if hasBackupDest(t, core.Dirname(sourceDir), core.Fname("file2.txt"), volumeLabel) {
 		t.Error("file2.txt should NOT be tagged")
 	}
-	if hasBackupDest(t, sourceDir, "file3.txt", volumeLabel) {
+	if hasBackupDest(t, core.Dirname(sourceDir), core.Fname("file3.txt"), volumeLabel) {
 		t.Error("file3.txt should NOT be tagged")
 	}
 
@@ -281,12 +281,11 @@ func TestDiscoverAlreadyTagged(t *testing.T) {
 	volumeLabel := createVolumeLabel(t, destDir)
 
 	// Manually tag the source file first
-	dm, _ := core.DirectoryMapFromDir(sourceDir)
-	fs, _ := dm.Get("test.txt")
+	dm, _ := core.DirectoryMapFromDir(core.Dirname(sourceDir))
+	fs, _ := dm.Get(core.Fname("test.txt"))
 	fs.AddTag(volumeLabel)
 	dm.Add(fs)
-	dm.Persist(sourceDir)
-
+	dm.Persist(core.Dirname(sourceDir))
 	// Create config
 	configPath := filepath.Join(tmpDir, "config.xml")
 	xc, _ := core.NewMdConfig(configPath)
@@ -369,10 +368,10 @@ func TestDiscoverSubdirectories(t *testing.T) {
 	}
 
 	// Verify both files are tagged
-	if !hasBackupDest(t, sourceDir, "root.txt", volumeLabel) {
+	if !hasBackupDest(t, core.Dirname(sourceDir), core.Fname("root.txt"), volumeLabel) {
 		t.Error("root.txt should be tagged")
 	}
-	if !hasBackupDest(t, sourceSubdir, "nested.txt", volumeLabel) {
+	if !hasBackupDest(t, core.Dirname(sourceSubdir), core.Fname("nested.txt"), volumeLabel) {
 		t.Error("nested.txt should be tagged")
 	}
 
@@ -475,10 +474,10 @@ func TestDiscoverMultipleSources(t *testing.T) {
 	}
 
 	// Verify both files from different sources are tagged
-	if !hasBackupDest(t, source1, "file1.txt", volumeLabel) {
+	if !hasBackupDest(t, core.Dirname(source1), core.Fname("file1.txt"), volumeLabel) {
 		t.Error("file1.txt should be tagged")
 	}
-	if !hasBackupDest(t, source2, "file2.txt", volumeLabel) {
+	if !hasBackupDest(t, core.Dirname(source2), core.Fname("file2.txt"), volumeLabel) {
 		t.Error("file2.txt should be tagged")
 	}
 

@@ -96,7 +96,7 @@ func checkChecksums(dm core.DirectoryMap, directory core.Dirname, fn core.Fname,
 func checkTestDirectoryChecksums(dir string) error {
 	makerFunc := func(dir string) (core.DirectoryTrackerInterface, error) {
 		mkFk := func(dir string) (core.DirectoryEntryInterface, error) {
-			dm, err := core.DirectoryMapFromDir(dir)
+			dm, err := core.DirectoryMapFromDir(core.Dirname(dir))
 			dm.VisitFunc = checkChecksums
 			return dm, err
 		}

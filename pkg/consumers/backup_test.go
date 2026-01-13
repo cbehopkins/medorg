@@ -13,8 +13,14 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"go.uber.org/goleak"
+
 	"github.com/cbehopkins/medorg/pkg/core"
 )
+
+func TestMain(m *testing.M) {
+	goleak.VerifyTestMain(m)
+}
 
 var (
 	errMissingTestFile  = errors.New("missing file")
@@ -119,7 +125,7 @@ func recalcForTest(dm core.DirectoryMap, directory core.Dirname, fn core.Fname, 
 func recalcTestDirectory(dir string) error {
 	makerFunc := func(dir string) (core.DirectoryTrackerInterface, error) {
 		mkFk := func(dir string) (core.DirectoryEntryInterface, error) {
-			dm, err := core.DirectoryMapFromDir(dir)
+			dm, err := core.DirectoryMapFromDir(core.Dirname(dir))
 			dm.VisitFunc = recalcForTest
 			return dm, err
 		}
@@ -204,7 +210,6 @@ func TestPreExistingBackupTags(t *testing.T) {
 	}
 }
 
-
 // TestBackupChecksumMaintenance verifies that checksums and file metadata are correctly preserved during backup
 func TestBackupChecksumMaintenance(t *testing.T) {
 	srcFiles := 5
@@ -225,8 +230,8 @@ func TestBackupChecksumMaintenance(t *testing.T) {
 	destDir := dirs[1]
 
 	// Collect checksums from source before backup
-	srcChecksums := make(map[string]core.FileStruct)
-	srcVisitor := func(dm core.DirectoryEntryInterface, dir, fn string, fileStruct core.FileStruct) error {
+	srcChecksums := make(map[core.Fname]core.FileStruct)
+	srcVisitor := func(dm core.DirectoryEntryInterface, dir core.Dirname, fn core.Fname, fileStruct core.FileStruct) error {
 		if fn == core.Md5FileName {
 			return nil
 		}
@@ -251,7 +256,7 @@ func TestBackupChecksumMaintenance(t *testing.T) {
 	}
 
 	// Verify destination files have correct metadata
-	destVisitor := func(dm core.DirectoryEntryInterface, dir, fn string, fileStruct core.FileStruct) error {
+	destVisitor := func(dm core.DirectoryEntryInterface, dir core.Dirname, fn core.Fname, fileStruct core.FileStruct) error {
 		if fn == core.Md5FileName {
 			return nil
 		}
@@ -316,11 +321,11 @@ func TestBackupOrphanDetection(t *testing.T) {
 		return core.CopyFile(src, dst)
 	}
 
-err = BackupRunner(&xc, 2, fc, destDir, nil, nil, nil, nil, false, nil, srcDir)
+	err = BackupRunner(&xc, 2, fc, destDir, nil, nil, nil, nil, false, nil, srcDir)
 
 	// Get the list of files now in destination
-	destFilesAfterBackup := make(map[string]struct{})
-	collectFilesVisitor := func(dm core.DirectoryEntryInterface, dir, fn string, fileStruct core.FileStruct) error {
+	destFilesAfterBackup := make(map[core.Fname]struct{})
+	collectFilesVisitor := func(dm core.DirectoryEntryInterface, dir core.Dirname, fn core.Fname, fileStruct core.FileStruct) error {
 		if fn != core.Md5FileName {
 			destFilesAfterBackup[fn] = struct{}{}
 		}
@@ -481,7 +486,7 @@ func TestDupeMapConcurrency(t *testing.T) {
 					Size:     int64(idx*100 + j),
 					Checksum: fmt.Sprintf("hash%d%d", idx, j),
 				}
-				fs.SetDirectory(fmt.Sprintf("/dir%d", idx))
+				fs.SetDirectory(core.Dirname(fmt.Sprintf("/dir%d", idx)))
 				bdm.Add(fs)
 			}
 		}(i)

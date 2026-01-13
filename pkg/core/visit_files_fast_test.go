@@ -37,7 +37,7 @@ func fakeChecksumForTest(dm DirectoryMap, dir Dirname, fn Fname, d fs.DirEntry) 
 func fastRecalcTestDirectory(dir string) error {
 	makerFunc := func(dir string) (DirectoryTrackerInterface, error) {
 		mkFk := func(dir string) (DirectoryEntryInterface, error) {
-			dm, err := DirectoryMapFromDir(dir)
+			dm, err := DirectoryMapFromDir(Dirname(dir))
 			if err != nil {
 				return nil, err
 			}

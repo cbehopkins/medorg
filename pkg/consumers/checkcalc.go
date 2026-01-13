@@ -108,7 +108,7 @@ func RunCheckCalc(directories []string, opts CheckCalcOptions) error {
 			}
 
 			// Update file metadata from stat
-			if _, err := fs.FromStat(string(directory), string(file), info); err != nil {
+			if _, err := fs.FromStat(directory, file, info); err != nil {
 				return err
 			}
 
@@ -155,7 +155,7 @@ func RunCheckCalc(directories []string, opts CheckCalcOptions) error {
 	directoryMaker := func(dir string) (core.DirectoryTrackerInterface, error) {
 		entryMaker := func(dir string) (core.DirectoryEntryInterface, error) {
 			// Load or create DirectoryMap for this directory
-			dm, err := core.DirectoryMapFromDir(dir)
+			dm, err := core.DirectoryMapFromDir(core.Dirname(dir))
 			if err != nil {
 				return dm, err
 			}

@@ -249,7 +249,7 @@ func (dt *DirTracker) directoryWalkerPopulateDircount(path string, d fs.DirEntry
 		if hasSkipfile(path) {
 			return filepath.SkipDir
 		}
-		log.Println("populating dir", path, dt.Total())
+		// log.Println("populating dir", path, dt.Total())
 		atomic.AddInt64(&dt.directoryCountTotal, 1)
 	}
 	return nil
@@ -264,7 +264,7 @@ func (dt *DirTracker) handleDirectory(path string) error {
 	if dt.shouldIgnore != nil && dt.shouldIgnore(path) {
 		return filepath.SkipDir
 	}
-	log.Println("visiting dir", path, dt.Value(), "of", dt.Total())
+	// log.Println("visiting dir", path, dt.Value(), "of", dt.Total())
 	atomic.AddInt64(&dt.directoryCountVisited, 1)
 	closerFunc := func(pt string) {
 		// TODO: Re-enable closerFunc cleanup when preserveStructs is false. Currently disabled
@@ -334,7 +334,7 @@ func (dt *DirTracker) directoryWalker(path string, d fs.DirEntry, err error) err
 func (dt *DirTracker) RevisitAll(
 	dir string,
 	dirVisitor func(dt *DirTracker),
-	fileVisitor func(dm DirectoryEntryInterface, dir, fn string, fileStruct FileStruct) error,
+	fileVisitor func(dm DirectoryEntryInterface, dir Dirname, fn Fname, fileStruct FileStruct) error,
 	closer <-chan struct{},
 ) error {
 	dt.finished.Clear()
@@ -357,7 +357,7 @@ func (dt *DirTracker) RevisitAll(
 		atomic.AddInt64(&dt.directoryCountVisited, 1)
 		entry, ok := de.(DirectoryEntry)
 		if ok {
-			if err := entry.Revisit(path, fileVisitor); err != nil {
+			if err := entry.Revisit(Dirname(path), fileVisitor); err != nil {
 				return fmt.Errorf("RevisitAll: revisit failed for %s: %w", path, err)
 			}
 		} else {

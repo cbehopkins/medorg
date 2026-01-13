@@ -67,7 +67,7 @@ func Run(cfg Config) (int, error) {
 			continue
 		}
 		fmt.Fprintf(cfg.Stdout, "Calculating checksums for %s...\n", destPath)
-		dm, err := calculateChecksums(destPath)
+		dm, err := calculateChecksums(core.Dirname(destPath))
 		if err != nil {
 			fmt.Fprintf(cfg.Stdout, "Warning: failed to calculate checksums for %s: %v\n", destPath, err)
 			continue
@@ -273,14 +273,14 @@ func readJournal(path string) (*Journal, error) {
 }
 
 // calculateChecksums runs check_calc on a directory
-func calculateChecksums(dir string) (*core.DirectoryMap, error) {
+func calculateChecksums(dir core.Dirname) (*core.DirectoryMap, error) {
 	dm, err := core.DirectoryMapFromDir(dir)
 	if err != nil {
 		return nil, err
 	}
 
 	// Walk the directory and compute checksums for all files
-	err = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+	err = filepath.Walk(string(dir), func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -288,14 +288,14 @@ func calculateChecksums(dir string) (*core.DirectoryMap, error) {
 			return nil
 		}
 
-		relPath, err := filepath.Rel(dir, path)
+		relPath, err := filepath.Rel(string(dir), path)
 		if err != nil {
 			return err
 		}
 
 		// Check if we already have this file in the map
 		if _, exists := dm.Get(core.Fname(relPath)); !exists {
-			fs, err := core.NewFileStruct(dir, relPath)
+			fs, err := core.NewFileStruct(string(dir), relPath)
 			if err != nil {
 				return err
 			}

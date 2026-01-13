@@ -40,7 +40,7 @@ type DirectoryStorage interface {
 // PathProvider provides file path information
 type PathProvider interface {
 	// Directory returns the directory containing the file
-	Directory() string
+	Directory() Dirname
 	// Path returns the full file path
 	Path() Fpath
 	// GetName returns the filename

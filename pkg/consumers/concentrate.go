@@ -61,7 +61,7 @@ func (con Concentrator) Visiter(dm core.DirectoryMap, directory, file string, d 
 	if !ok {
 		return errors.New("missing file in concentrator mover")
 	}
-	fileStruct.SetDirectory(con.BaseDir)
+	fileStruct.SetDirectory(core.Dirname(con.BaseDir))
 	con.dm.Add(fileStruct)
 	return nil
 }

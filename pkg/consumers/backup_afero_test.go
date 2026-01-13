@@ -744,7 +744,7 @@ func TestBackupResumeUpdatesMetadata(t *testing.T) {
 		t.Fatalf("first run should fail with ErrNoSpace, got %v", firstErr)
 	}
 
-	dm, err := core.DirectoryMapFromDir(dstDir)
+	dm, err := core.DirectoryMapFromDir(core.Dirname(dstDir))
 	if err != nil {
 		t.Fatalf("read directory map after first run: %v", err)
 	}
@@ -775,7 +775,7 @@ func TestBackupResumeUpdatesMetadata(t *testing.T) {
 		t.Fatalf("second run should succeed, got %v", secondErr)
 	}
 
-	dmFinal, err := core.DirectoryMapFromDir(dstDir)
+	dmFinal, err := core.DirectoryMapFromDir(core.Dirname(dstDir))
 	if err != nil {
 		t.Fatalf("read directory map after second run: %v", err)
 	}

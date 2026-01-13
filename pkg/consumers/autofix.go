@@ -99,22 +99,22 @@ func StripExtension(fn string) (base, extension string) {
 // i.e. we're looking for .../x/...
 // acknowledging we could have .../x
 // or .../xy/... etc
-func isXDirectory(dir, x string) bool {
-	if !strings.Contains(dir, x) {
+func isXDirectory(dir core.Dirname, x string) bool {
+	if !strings.Contains(string(dir), x) {
 		return false
 	}
-	dir = strings.TrimSuffix(dir, "/")
-	if strings.HasSuffix(dir, "/"+x) {
+	dirStr := strings.TrimSuffix(string(dir), "/")
+	if strings.HasSuffix(dirStr, "/"+x) {
 		return true
 	}
-	if strings.Contains(dir, "/"+x+"/") {
+	if strings.Contains(string(dir), "/"+x+"/") {
 		return true
 	}
 	return false
 }
 
 // scoreName for relative merit to another
-func scoreName(dir0, fn0, dir1, fn1 string) (score int) {
+func scoreName(dir0 core.Dirname, fn0 core.Fname, dir1 core.Dirname, fn1 core.Fname) (score int) {
 	// Some rules (+/- indicate good or bad for that file)
 	// A longer directory name implies it is more sorted ++
 	// being in the "to" directory implies it is unsorted --
@@ -149,8 +149,8 @@ func (af AutoFix) ResolveTwo(fsOne, fsTwo core.FileStruct) (core.FileStruct, boo
 		fmt.Println("Matching Files", fsOne, fsTwo)
 	}
 
-	score1 := scoreName(fsOne.Directory(), string(fsOne.Name), fsTwo.Directory(), string(fsTwo.Name))
-	score2 := scoreName(fsTwo.Directory(), string(fsTwo.Name), fsOne.Directory(), string(fsOne.Name))
+	score1 := scoreName(fsOne.Directory(), fsOne.Name, fsTwo.Directory(), fsTwo.Name)
+	score2 := scoreName(fsTwo.Directory(), fsTwo.Name, fsOne.Directory(), fsOne.Name)
 
 	// log.Println("Score1:", score1,"Score2:", score2)
 
@@ -218,16 +218,32 @@ func (af AutoFix) CheckRename(fs core.FileStruct) (core.FileStruct, bool) {
 	var modified bool
 	var mod bool
 	directory := fs.Directory()
-	// Test to see if it matches one of the patterns and modify it
-
 	fsNew := fs
 
-	// If what we would like to call it already exists
-	// Rewrite the name to be a non-conflicting (n) format
-	base, extension := StripExtension(string(fs.Name))
+	// Repeatedly strip extensions to get the true base and remember the first (rightmost) extension
+	base := string(fs.Name)
+	var extension string
+	extensionCount := 0
+	for {
+		b, ext := StripExtension(base)
+		if ext == "" {
+			break
+		}
+		extensionCount++
+		if extension == "" {
+			extension = ext // keep the first (rightmost) stripped extension
+		}
+		base = b
+	}
+
 	if extension == "" {
 		// Do nothing for files we don't recognise
 		return fs, false
+	}
+
+	// If we found multiple extensions, that's a modification
+	if extensionCount > 1 {
+		modified = true
 	}
 
 	fn1, mod := af.stripNumber(base)
@@ -243,11 +259,11 @@ func (af AutoFix) CheckRename(fs core.FileStruct) (core.FileStruct, bool) {
 	modified = modified || lm
 
 	if !modified {
-		// Changed nothing, so go no further
 		return fs, false
 	}
 
-	fsNew.Name = core.Fname(ResolveFnClash(directory, fn1, extension, string(fs.Name)))
+	// Compose the new filename with only the final extension
+	fsNew.Name = core.Fname(ResolveFnClash(directory, core.Fname(fn1), extension, string(fs.Name)))
 	if fsNew.Name != fs.Name {
 		log.Println("Rename:", fs.Path(), " to ", fsNew.Path())
 		if af.RenameFiles {
@@ -273,7 +289,7 @@ func (af AutoFix) CheckRename(fs core.FileStruct) (core.FileStruct, bool) {
 
 func (af AutoFix) stripAllExtension(base string) (string, bool) {
 	var modified bool
-	for base2, ext2 := StripExtension(base); ext2 != ""; base2, ext2 = StripExtension(base) {
+	for base2, ext2 := StripExtension(base); ext2 != ""; base2, ext2 = StripExtension(base2) {
 		base = base2
 		modified = true
 	}
@@ -310,12 +326,12 @@ func (af AutoFix) replaceDoubles(dd string, fn1 string, modified bool) (string, 
 
 // ResolveFnClash Resolve filename clashes by adding a bracketed numeral
 // The numberal is incremented until we don't clash anymore
-func ResolveFnClash(directory, fn string, extension, orig string) string {
-	pfn := fn + extension
-	if _, err := os.Stat(filepath.Join(directory, pfn)); !errors.Is(err, os.ErrNotExist) {
+func ResolveFnClash(directory core.Dirname, fn core.Fname, extension, orig string) string {
+	pfn := string(fn) + extension
+	if _, err := os.Stat(filepath.Join(string(directory), pfn)); !errors.Is(err, os.ErrNotExist) {
 		exist := true
 		for i := 0; exist; i++ {
-			pfn, exist = potentialFilename(directory, fn, extension, i)
+			pfn, exist = potentialFilename(string(directory), string(fn), extension, i)
 			if pfn == orig {
 				// If we are back to our original
 				// break!
@@ -337,7 +353,7 @@ func (af *AutoFix) WkFun(dm core.DirectoryMap, directory core.Dirname, file core
 	if fs.Size == 0 {
 		log.Println("Zero Length File")
 		if af.DeleteFiles {
-			err := dm.RmFile(string(directory), file)
+			err := dm.RmFile(directory, file)
 			if err != nil {
 				return err
 			}

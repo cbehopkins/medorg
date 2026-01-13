@@ -1,6 +1,7 @@
 package core
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,9 +26,34 @@ func (f Fpath) Base() Fname {
 	return Fname(filepath.Base(string(f)))
 }
 
+func NewFpath(parts ...any) Fpath {
+	if len(parts) < 1 || len(parts) > 2 {
+		panic("NewFpath requires 1 or 2 arguments")
+	}
 
-func NewFpath(directory, fn string) Fpath {
-	return Fpath(filepath.Join(directory, fn))
+	// Convert each part to string
+	strs := make([]string, len(parts))
+	for i, part := range parts {
+		switch v := part.(type) {
+		case string:
+			strs[i] = v
+		case Dirname:
+			strs[i] = string(v)
+		case Fname:
+			strs[i] = string(v)
+		case Fpath:
+			strs[i] = string(v)
+		case fmt.Stringer:
+			strs[i] = v.String()
+		default:
+			panic("NewFpath arguments must be string or have a String() method")
+		}
+	}
+
+	if len(strs) == 1 {
+		return Fpath(strs[0])
+	}
+	return Fpath(filepath.Join(strs[0], strs[1]))
 }
 
 func isHiddenDirectory(path string) bool {

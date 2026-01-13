@@ -265,7 +265,7 @@ func extractAndCopy(
 			if err := bp.markAsMatched(checksum); err != nil {
 				return err
 			}
-			_, err := updateSourceDirectoryMap(string(fp.Dir()), string(fp.Base()), volumeName, fm.Path())
+			_, err := updateSourceDirectoryMap(fp.Dir(), core.Fname(fp.Base()), volumeName, fm.Path())
 			if err != nil {
 				return err
 			}
@@ -332,8 +332,8 @@ func copyPendingFiles(
 		if err != nil {
 			return err
 		}
-		dir := filepath.Dir(string(fp))
-		fn := filepath.Base(string(fp))
+		dir := core.Dirname(filepath.Dir(string(fp)))
+		fn := core.Fname(filepath.Base(string(fp)))
 		dmSrc, err := core.DirectoryMapFromDir(dir)
 		if err != nil {
 			return err
@@ -344,14 +344,14 @@ func copyPendingFiles(
 			log.Printf("Missing directory entry for %s in %s, attempting to rebuild", fn, dir)
 
 			// Create a new FileStruct from the actual file
-			fs, err = core.NewFileStruct(dir, fn)
+			fs, err = core.NewFileStruct(string(dir), string(fn))
 			if err != nil {
 				return fmt.Errorf("failed to create directory entry for %s: %w", fp, err)
 			}
 
 			// Calculate checksum if not present
 			if fs.Checksum == "" {
-				cks, err := core.CalcMd5File(dir, fn)
+				cks, err := core.CalcMd5File(string(dir), string(fn))
 				if err != nil {
 					return fmt.Errorf("failed to calculate checksum for %s: %w", fp, err)
 				}
@@ -398,12 +398,12 @@ func findSourceRoot(srcDirs []string, filePath string) (string, bool) {
 
 func tagSourceAsBackedUp(file core.Fpath, backupLabelName string) (core.FileStruct, error) {
 	basename := filepath.Base(string(file))
-	sd := filepath.Dir(string(file))
-	return updateSourceDirectoryMap(sd, basename, backupLabelName, file)
+	sd := file.Dir()
+	return updateSourceDirectoryMap(sd, core.Fname(basename), backupLabelName, file)
 }
 
-func updateSourceDirectoryMap(dir, filename, backupLabelName string, srcFile core.Fpath) (core.FileStruct, error) {
-	srcLock := globalDirLocks.getLock(dir)
+func updateSourceDirectoryMap(dir core.Dirname, filename core.Fname, backupLabelName string, srcFile core.Fpath) (core.FileStruct, error) {
+	srcLock := globalDirLocks.getLock(string(dir))
 	srcLock.Lock()
 	defer srcLock.Unlock()
 
@@ -417,14 +417,14 @@ func updateSourceDirectoryMap(dir, filename, backupLabelName string, srcFile cor
 		log.Printf("Missing directory entry for %s in %s, attempting to rebuild", filename, dir)
 
 		// Create a new FileStruct from the actual file
-		src, err = core.NewFileStruct(dir, filename)
+		src, err = core.NewFileStruct(string(dir), string(filename))
 		if err != nil {
 			return core.FileStruct{}, fmt.Errorf("failed to create directory entry for %s: %w", srcFile, err)
 		}
 
 		// Calculate checksum if not present
 		if src.Checksum == "" {
-			cks, err := core.CalcMd5File(dir, filename)
+			cks, err := core.CalcMd5File(string(dir), string(filename))
 			if err != nil {
 				return core.FileStruct{}, fmt.Errorf("failed to calculate checksum for %s: %w", srcFile, err)
 			}
@@ -489,8 +489,8 @@ func doACopy(
 	// Update the destDir with the checksum from the srcDir
 
 	// Acquire lock for destination directory
-	destDirForLock := filepath.Join(destDir, filepath.Dir(rel))
-	dstLock := globalDirLocks.getLock(destDirForLock)
+	destDirForLock := core.Dirname(filepath.Join(destDir, filepath.Dir(rel)))
+	dstLock := globalDirLocks.getLock(string(destDirForLock))
 	dstLock.Lock()
 	defer dstLock.Unlock()
 

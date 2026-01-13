@@ -16,11 +16,11 @@ var md5WriteTokenChan = MakeTokenChan(4)
 
 // md5FileWrite write to the directory's file
 // deletes the file, if the ba to write is empty
-func md5FileWrite(directory string, ba []byte) error {
+func md5FileWrite(directory Dirname, ba []byte) error {
 	<-md5WriteTokenChan
 	defer func() { md5WriteTokenChan <- struct{}{} }()
 
-	fn := filepath.Join(directory, Md5FileName)
+	fn := filepath.Join(string(directory), Md5FileName)
 	if _, err := os.Stat(fn); !errors.Is(err, os.ErrNotExist) {
 		_ = os.Remove(fn)
 	}

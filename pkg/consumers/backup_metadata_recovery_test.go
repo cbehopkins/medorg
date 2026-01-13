@@ -132,7 +132,7 @@ err = BackupRunner(&xc, 2, fc2, dstDir, nil, nil, nil, nil, false, nil, srcDir)
 	}
 
 	// Verify destination metadata has correct checksums
-	dm, err := core.DirectoryMapFromDir(dstDir)
+	dm, err := core.DirectoryMapFromDir(core.Dirname(dstDir))
 	if err != nil {
 		t.Fatal(err)
 	}

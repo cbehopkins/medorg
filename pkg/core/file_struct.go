@@ -14,7 +14,7 @@ var ErrRecalced = errors.New("File checksum has been recalculated")
 // FileStruct contains all the properties associated with a file
 type FileStruct struct {
 	XMLName   struct{} `xml:"fr"`
-	directory string   // Kept as hidden from the xml as this is used for messaging between agents
+	directory Dirname   // Kept as hidden from the xml as this is used for messaging between agents
 	// and that does not want to end up in the final xml file
 	Name     Fname  `xml:"fname,attr"`
 	Checksum string `xml:"checksum,attr"`
@@ -47,7 +47,7 @@ func (fsa FileStructArray) Less(i, j int) bool {
 func (fs FileStruct) String() string {
 	retStr := "[FileStruct]{"
 	if fs.directory != "" {
-		retStr += "directory:\"" + fs.directory + "\""
+		retStr += "directory:\"" + string(fs.directory) + "\""
 	}
 	retStr += "Name:\"" + string(fs.Name) + "\""
 	retStr += "Checksum:" + fs.Checksum + "\""
@@ -57,12 +57,12 @@ func (fs FileStruct) String() string {
 }
 
 // Directory return the directory the file is in
-func (fs FileStruct) Directory() string {
+func (fs FileStruct) Directory() Dirname {
 	return fs.directory
 }
 
 // SetDirectory sets the directory the file is in
-func (fs *FileStruct) SetDirectory(directory string) {
+func (fs *FileStruct) SetDirectory(directory Dirname) {
 	fs.directory = directory
 }
 
@@ -88,11 +88,11 @@ func NewFileStruct(directory string, fn string) (fs FileStruct, err error) {
 		return fs, err
 	}
 
-	return fs.FromStat(directory, fn, stat)
+	return fs.FromStat(Dirname(directory), Fname(fn), stat)
 }
 
 // FromStat update the file struct from a supplied file structure
-func (fs *FileStruct) FromStat(directory string, fn string, fsi os.FileInfo) (FileStruct, error) {
+func (fs *FileStruct) FromStat(directory Dirname, fn Fname, fsi os.FileInfo) (FileStruct, error) {
 	if changed, err := fs.Changed(fsi); !changed {
 		return *fs, err
 	}
@@ -164,13 +164,13 @@ func (fs *FileStruct) UpdateChecksum(forceUpdate, showProgress bool, callback fu
 	var err error
 
 	if showProgress {
-		cks, err = CalcMd5FileWithProgress(fs.directory, string(fs.Name), func(bytes int64, timestamp time.Time) {
+		cks, err = CalcMd5FileWithProgress(string(fs.directory), string(fs.Name), func(bytes int64, timestamp time.Time) {
 			if callback != nil {
 				callback(bytes)
 			}
 		})
 	} else {
-		cks, err = CalcMd5File(fs.directory, string(fs.Name))
+		cks, err = CalcMd5File(string(fs.directory), string(fs.Name))
 		if callback != nil {
 			// For non-progress case, we still call the callback but only once at the end
 			if err == nil {
@@ -197,13 +197,13 @@ func (fs *FileStruct) ValidateChecksum(showProgress bool, callback func(int64)) 
 	var err error
 
 	if showProgress {
-		cks, err = CalcMd5FileWithProgress(fs.directory, string(fs.Name), func(bytes int64, timestamp time.Time) {
+		cks, err = CalcMd5FileWithProgress(string(fs.directory), string(fs.Name), func(bytes int64, timestamp time.Time) {
 			if callback != nil {
 				callback(bytes)
 			}
 		})
 	} else {
-		cks, err = CalcMd5File(fs.directory, string(fs.Name))
+		cks, err = CalcMd5File(string(fs.directory), string(fs.Name))
 		if callback != nil {
 			// For non-progress case, we still call the callback but only once at the end
 			if err == nil {

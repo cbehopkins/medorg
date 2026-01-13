@@ -28,7 +28,7 @@ func writeDirMap(t *testing.T, dir string, files []string) int {
         dm.Add(fs)
         count++
     }
-    if err := dm.Persist(dir); err != nil {
+    if err := dm.Persist(Dirname(dir)); err != nil {
         t.Fatalf("persist dm for %s: %v", dir, err)
     }
     return count
@@ -45,7 +45,7 @@ func TestDirectoryWalkerVisitsAllFiles(t *testing.T) {
     walker := NewDirectoryWalker(nil)
     visited := make(map[string]struct{})
     walker.FileVisitor = func(name string, fm FileMetadata) error {
-        visited[filepath.Join(fm.Directory(), name)] = struct{}{}
+        visited[filepath.Join(string(fm.Directory()), name)] = struct{}{}
         return nil
     }
 
@@ -69,7 +69,7 @@ func TestDirectoryWalkerHandlesEmptyDirectory(t *testing.T) {
 
     // persist an empty directory map so the walker has metadata to read
     dm := NewDirectoryMap()
-    if err := dm.Persist(dir); err != nil {
+    if err := dm.Persist(Dirname(dir)); err != nil {
         t.Fatalf("persist empty dm: %v", err)
     }
 

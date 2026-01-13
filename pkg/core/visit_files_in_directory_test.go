@@ -25,7 +25,7 @@ func recalcForTest(dm DirectoryMap, directory Dirname, fn Fname, d fs.DirEntry) 
 func recalcTestDirectory(dir string) error {
 	makerFunc := func(dir string) (DirectoryTrackerInterface, error) {
 		mkFk := func(dir string) (DirectoryEntryInterface, error) {
-			dm, err := DirectoryMapFromDir(dir)
+			dm, err := DirectoryMapFromDir(Dirname(dir))
 			dm.VisitFunc = recalcForTest
 			return dm, err
 		}
@@ -203,7 +203,7 @@ func TestVisitFilesInDirectory1(t *testing.T) {
 			}
 
 			var reVisitCount uint32
-			fileVisitFunc := func(dm DirectoryEntryInterface, dir, fn string, fileStruct FileStruct) error {
+			fileVisitFunc := func(dm DirectoryEntryInterface, dir Dirname, fn Fname, fileStruct FileStruct) error {
 				log.Println("Visit 1", dir, fn)
 				atomic.AddUint32(&reVisitCount, 1)
 				return nil

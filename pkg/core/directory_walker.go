@@ -16,7 +16,7 @@ import (
 type directoryWalker struct {
 	shouldIgnore func(path string) bool // Optional function to check if path should be ignored
 	WorkTokens   chan struct{}
-	DirectoryVisitor func(path string, d fs.DirEntry, err error) error
+	DirectoryVisitor func(path Dirname, d fs.DirEntry, err error) error
 	cancelChan   chan struct{}
 }
 type DirectoryWalker struct {
@@ -95,7 +95,7 @@ func (dw *directoryWalker) walkVisitor(path string, d fs.DirEntry, err error) er
 	}
 	if d.IsDir() {
 		if dw.DirectoryVisitor != nil {
-			return dw.DirectoryVisitor(path, d, err)
+			return dw.DirectoryVisitor(Dirname(path), d, err)
 		}
 		return nil
 	} 
@@ -104,7 +104,7 @@ func (dw *directoryWalker) walkVisitor(path string, d fs.DirEntry, err error) er
 }
 
 // Note: this is DirectoryWalker and therefore we will now visit all files in the directory
-func (dw *DirectoryWalker) dirVisitor(path string, d fs.DirEntry, err error) error {
+func (dw *DirectoryWalker) dirVisitor(path Dirname, d fs.DirEntry, err error) error {
 	log.Printf("dirVisitor called for %s", path)
 	// FIXME could we throw this into a worker pool?
 	dw.grabWorkToken()
@@ -162,14 +162,14 @@ func NewProgressableDirectoryWalker(WorkTokens chan struct{}, path string) *Prog
 		cancelChan:   pdw.DirectoryWalker.directoryWalker.cancelChan,
 		shouldIgnore: pdw.DirectoryWalker.directoryWalker.shouldIgnore,
 	}
-	pdw.dirCount.DirectoryVisitor = func(path string, d fs.DirEntry, err error) error {
+	pdw.dirCount.DirectoryVisitor = func(path Dirname, d fs.DirEntry, err error) error {
 		pdw.Progress.total.Add(1)
 		return nil
 	}
 
 	// Wrap the primary DirectoryVisitor to record progress as directories are processed.
 	baseVisitor := pdw.DirectoryWalker.directoryWalker.DirectoryVisitor
-	pdw.DirectoryWalker.directoryWalker.DirectoryVisitor = func(path string, d fs.DirEntry, err error) error {
+	pdw.DirectoryWalker.directoryWalker.DirectoryVisitor = func(path Dirname, d fs.DirEntry, err error) error {
 		pdw.Progress.value.Add(1)
 		return baseVisitor(path, d, err)
 	}

@@ -18,17 +18,17 @@ type DirectoryVisitorFunc func(dm DirectoryEntryInterface, directory string, fil
 
 // DirectoryEntryInterface any directory object needs to support this
 type DirectoryEntryInterface interface {
-	Persist(string) error
+	Persist(Dirname) error
 	Visitor(directory Dirname, file Fname, d fs.DirEntry) error
-	Revisit(dir string, visitor func(dm DirectoryEntryInterface, directory string, file string, fileStruct FileStruct) error) error
+	Revisit(dir Dirname, visitor func(dm DirectoryEntryInterface, directory Dirname, file Fname, fileStruct FileStruct) error) error
 }
 
 // DirectoryEntryJournalableInterface if you want to store all info
 // to a journal, support this
 type DirectoryEntryJournalableInterface interface {
 	DirectoryEntryInterface
-	ToXML(dir string) (output []byte, err error)
-	FromXML(input []byte) (dir string, err error)
+	ToXML(dir Dirname) (output []byte, err error)
+	FromXML(input []byte) (dir Dirname, err error)
 	Equal(DirectoryEntryInterface) bool
 	Len() int
 	Copy() DirectoryEntryJournalableInterface
@@ -127,10 +127,10 @@ func (de DirectoryEntry) worker() {
 		}(wi.dir, wi.file, wi.d)
 	}
 	de.activeFiles.Wait()
-	de.errorChan <- de.Dm.Persist(de.Dir)
+	de.errorChan <- de.Dm.Persist(Dirname(de.Dir))
 	close(de.errorChan)
 }
 
-func (de DirectoryEntry) Revisit(dir string, visitor func(dm DirectoryEntryInterface, directory string, file string, fileStruct FileStruct) error) error {
+func (de DirectoryEntry) Revisit(dir Dirname, visitor func(dm DirectoryEntryInterface, directory Dirname, file Fname, fileStruct FileStruct) error) error {
 	return de.Dm.Revisit(dir, visitor)
 }

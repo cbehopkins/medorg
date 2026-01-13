@@ -220,7 +220,7 @@ func (jo *Journal) PopulateFromDirectories(directory string, alias string) error
 	// This captures the DirectoryMap and adds it to the journal
 	makerFunc := func(dir string) (core.DirectoryTrackerInterface, error) {
 		mkFk := func(dir string) (core.DirectoryEntryInterface, error) {
-			dm, err := core.DirectoryMapFromDir(dir)
+			dm, err := core.DirectoryMapFromDir(core.Dirname(dir))
 			if err != nil {
 				return &dm, err
 			}

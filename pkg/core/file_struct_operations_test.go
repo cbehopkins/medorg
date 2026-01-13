@@ -205,7 +205,7 @@ func TestUpdateChecksumWithoutForce(t *testing.T) {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
 
-	fs := FileStruct{directory: tmpDir, Name: "test.txt", Checksum: "existing"}
+	fs := FileStruct{directory: Dirname(tmpDir), Name: "test.txt", Checksum: "existing"}
 
 	// Without force, should skip if checksum exists
 	err := fs.UpdateChecksum(false, false, nil)
@@ -227,7 +227,7 @@ func TestUpdateChecksumWithForce(t *testing.T) {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
 
-	fs := FileStruct{directory: tmpDir, Name: "test.txt", Checksum: "old"}
+	fs := FileStruct{directory: Dirname(tmpDir), Name: "test.txt", Checksum: "old"}
 
 	// With force, should recalculate
 	err := fs.UpdateChecksum(true, false, nil)
@@ -250,7 +250,7 @@ func TestUpdateChecksumClearsBackupDest(t *testing.T) {
 	}
 
 	fs := FileStruct{
-		directory:  tmpDir,
+		directory:  Dirname(tmpDir),
 		Name:       "test.txt",
 		Checksum:   "old_checksum",
 		BackupDest: []string{"backup1", "backup2"},
@@ -276,13 +276,13 @@ func TestValidateChecksumMatch(t *testing.T) {
 	}
 
 	// Calculate correct checksum
-	fs := FileStruct{directory: tmpDir, Name: "test.txt", Checksum: ""}
+	fs := FileStruct{directory: Dirname(tmpDir), Name: "test.txt", Checksum: ""}
 	_ = fs.UpdateChecksum(true, false, nil)
 	correctChecksum := fs.Checksum
 
 	// Create new struct with correct checksum
 	fs2 := FileStruct{
-		directory:  tmpDir,
+		directory:  Dirname(tmpDir),
 		Name:       "test.txt",
 		Checksum:   correctChecksum,
 		BackupDest: []string{"backup1"},
@@ -311,7 +311,7 @@ func TestValidateChecksumMismatch(t *testing.T) {
 	}
 
 	fs := FileStruct{
-		directory:  tmpDir,
+		directory:  Dirname(tmpDir),
 		Name:       "test.txt",
 		Checksum:   "wrong_checksum_value",
 		BackupDest: []string{"backup1", "backup2"},
@@ -493,8 +493,8 @@ func TestNewFileStruct(t *testing.T) {
 		t.Errorf("Size: got %d, want %d", fs.Size, expectedSize)
 	}
 
-	if fs.Directory() != tmpDir {
-		t.Errorf("Directory: got %q, want %q", fs.Directory(), tmpDir)
+	if fs.Directory() != Dirname(tmpDir) {
+		t.Errorf("Directory: got %q, want %q", fs.Directory(), Dirname(tmpDir))
 	}
 
 	if fs.Checksum != "" {
@@ -516,7 +516,7 @@ func TestFromStat(t *testing.T) {
 	stat, _ := os.Stat(testFile)
 	fs := FileStruct{}
 
-	result, err := fs.FromStat(tmpDir, "test.txt", stat)
+	result, err := fs.FromStat(Dirname(tmpDir), "test.txt", stat)
 	if err != nil {
 		t.Fatalf("FromStat returned error: %v", err)
 	}
@@ -529,8 +529,8 @@ func TestFromStat(t *testing.T) {
 		t.Errorf("Size: got %d, want %d", result.Size, stat.Size())
 	}
 
-	if result.Directory() != tmpDir {
-		t.Errorf("Directory: got %q, want %q", result.Directory(), tmpDir)
+	if result.Directory() != Dirname(tmpDir) {
+		t.Errorf("Directory: got %q, want %q", result.Directory(), Dirname(tmpDir))
 	}
 }
 

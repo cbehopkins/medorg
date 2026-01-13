@@ -10,12 +10,11 @@ import (
 // file entries that exist in the DirectoryMap but not on disk
 func TestDeleteMissingFiles(t *testing.T) {
 	// Create a temporary directory for testing
-	tmpDir := t.TempDir()
+	tmpDir := Dirname(t.TempDir())
 
 	// Create some test files on disk
-	file1 := filepath.Join(tmpDir, "file1.txt")
-	file2 := filepath.Join(tmpDir, "file2.txt")
-
+	file1 := filepath.Join(string(tmpDir), "file1.txt")
+	file2 := filepath.Join(string(tmpDir), "file2.txt")
 	// Create the actual files on disk
 	for _, f := range []string{file1, file2} {
 		if err := os.WriteFile(f, []byte("test content"), 0o644); err != nil {
@@ -81,12 +80,11 @@ func TestDeleteMissingFilesEmpty(t *testing.T) {
 // TestDeleteMissingFilesAllExist verifies that DeleteMissingFiles preserves
 // all files when they all exist on disk
 func TestDeleteMissingFilesAllExist(t *testing.T) {
-	tmpDir := t.TempDir()
+	tmpDir := Dirname(t.TempDir())
 
 	// Create test files on disk
-	file1 := filepath.Join(tmpDir, "file1.txt")
-	file2 := filepath.Join(tmpDir, "file2.txt")
-
+	file1 := filepath.Join(string(tmpDir), "file1.txt")
+	file2 := filepath.Join(string(tmpDir), "file2.txt")
 	for _, f := range []string{file1, file2} {
 		if err := os.WriteFile(f, []byte("test content"), 0o644); err != nil {
 			t.Fatalf("failed to create test file: %v", err)
@@ -125,7 +123,7 @@ func TestDeleteMissingFilesAllExist(t *testing.T) {
 // TestDeleteMissingFilesAllMissing verifies that DeleteMissingFiles removes
 // all files when none exist on disk
 func TestDeleteMissingFilesAllMissing(t *testing.T) {
-	tmpDir := t.TempDir()
+	tmpDir := Dirname(t.TempDir())
 
 	// Create a DirectoryMap with files that don't exist on disk
 	dm := NewDirectoryMap()
