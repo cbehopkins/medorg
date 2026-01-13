@@ -16,16 +16,27 @@ type Dirname string
 // Fpath is used to indicate we are talking about the full file path
 type Fpath struct {
 	string
+	dir  *Dirname
+	base *Fname
 }
 
 func (f Fpath) String() string {
 	return f.string
 }
 func (f Fpath) Dir() Dirname {
-	return Dirname(filepath.Dir(f.string))
+	if f.dir == nil {
+		d := Dirname(filepath.Dir(f.string))
+		f.dir = &d
+	}
+
+	return *f.dir
 }
 func (f Fpath) Base() Fname {
-	return Fname(filepath.Base(f.string))
+	if f.base == nil {
+		b := Fname(filepath.Base(f.string))
+		f.base = &b
+	}
+	return *f.base
 }
 
 func NewFpath(parts ...any) Fpath {
@@ -53,9 +64,9 @@ func NewFpath(parts ...any) Fpath {
 	}
 
 	if len(strs) == 1 {
-		return Fpath{strs[0]}
+		return Fpath{string: strs[0]}
 	}
-	return Fpath{filepath.Join(strs[0], strs[1])}
+	return Fpath{string: filepath.Join(strs[0], strs[1])}
 }
 
 func isHiddenDirectory(path string) bool {

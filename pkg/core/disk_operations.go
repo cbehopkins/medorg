@@ -206,7 +206,7 @@ func HomeDir() Fpath {
 		// Using panic here as this is called during initialization and there's no recovery
 		panic(fmt.Sprintf("unable to get user home directory: %v", err))
 	}
-	return Fpath{usr.HomeDir}
+	return NewFpath(usr.HomeDir)
 }
 
 func ConfigPath(file string) string {
