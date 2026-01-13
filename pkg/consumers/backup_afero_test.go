@@ -190,12 +190,12 @@ func TestBackupWithAFeroMemFS(t *testing.T) {
 	memFS := afero.NewMemMapFs()
 	copyOps := []string{}
 
-	// Copier that writes to memfs, simulating disk full after N copies
+	// Copier that writes to memfs, simulating disk full after the second copy
 	limitedCopier := func(src, dst core.Fpath) error {
 		copyOps = append(copyOps, filepath.Base(string(src)))
 
-		// Simulate disk full after 2 files
-		if len(copyOps) > 2 {
+		// Simulate disk full on the second copy attempt
+		if len(copyOps) > 1 {
 			return ErrNoSpace
 		}
 
