@@ -4,7 +4,6 @@ import (
 	crand "crypto/rand"
 	"errors"
 	"fmt"
-	"io/fs"
 	"log"
 	"math/rand"
 	"os"
@@ -108,26 +107,11 @@ func createTestBackupDirectories(numberOfFiles, numberOfDuplicates int) ([]strin
 	return directoriesCreated, nil
 }
 
-func recalcForTest(dm core.DirectoryMap, directory core.Dirname, fn core.Fname, d fs.DirEntry) error {
-	if string(fn) == core.Md5FileName {
-		return nil
-	}
-	err := dm.UpdateValues(directory, d)
-	if err != nil {
-		return err
-	}
-	err = dm.UpdateChecksum(string(directory), string(fn), false)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
 func recalcTestDirectory(dir string) error {
 	makerFunc := func(dir string) (core.DirectoryTrackerInterface, error) {
 		mkFk := func(dir string) (core.DirectoryEntryInterface, error) {
 			dm, err := core.DirectoryMapFromDir(core.Dirname(dir))
-			dm.VisitFunc = recalcForTest
+			dm.UpdateAllChecksums()
 			return dm, err
 		}
 		return core.NewDirectoryEntry(dir, mkFk)
@@ -138,20 +122,20 @@ func recalcTestDirectory(dir string) error {
 	return nil
 }
 
-func (bdm *backupDupeMap) aFile(dm core.DirectoryMap, dir, fn string, d fs.DirEntry) error {
-	if fn == core.Md5FileName {
-		return nil
-	}
-	fs, ok := dm.Get(core.Fname(fn))
-	if !ok {
-		return fmt.Errorf("%w:%s", errMissingTestFile, fn)
-	}
-	if fs.Checksum == "" {
-		return fmt.Errorf("Empty checksum %w:%s", errSelfCheckProblem, fn)
-	}
-	bdm.Add(fs)
-	return nil
-}
+// func (bdm *backupDupeMap) aFile(dm core.DirectoryMap, dir, fn string, d fs.DirEntry) error {
+// 	if fn == core.Md5FileName {
+// 		return nil
+// 	}
+// 	fs, ok := dm.Get(core.Fname(fn))
+// 	if !ok {
+// 		return fmt.Errorf("%w:%s", errMissingTestFile, fn)
+// 	}
+// 	if fs.Checksum == "" {
+// 		return fmt.Errorf("Empty checksum %w:%s", errSelfCheckProblem, fn)
+// 	}
+// 	bdm.Add(fs)
+// 	return nil
+// }
 
 // TestPreExistingBackupTags verifies that BackupRunner skips files that already have backup tags
 func TestPreExistingBackupTags(t *testing.T) {

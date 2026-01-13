@@ -95,7 +95,7 @@ func (de DirectoryEntry) Close() {
 // VisitFile satisfy the DirectoryTrackerInterface
 // this type is visiting this file
 func (de DirectoryEntry) VisitFile(dir, file string, d fs.DirEntry, callback func()) {
-	// Random thought: Could this test if the worker has been started, ad start if needed?
+	// Random thought: Could this test if the worker has been started, and start if needed?
 	de.activeFiles.Add(1)
 	de.workItems <- workItem{dir, file, d, callback}
 }

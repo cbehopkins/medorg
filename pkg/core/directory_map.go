@@ -27,6 +27,7 @@ type DmVisitCallback func(file Fpath, d fs.DirEntry, fs FileStruct) error
 // Mutating Callback
 type DmMutCallback func(file Fpath, d fs.DirEntry, fs FileStruct) (FileStruct, error)
 
+type VisitFuncType func(dm DirectoryMap, directory Dirname, file Fname, d fs.DirEntry) error
 // DirectoryMap contains for the directory all the file structs
 type DirectoryMap struct {
 	mp    map[Fname]FileStruct
@@ -34,7 +35,19 @@ type DirectoryMap struct {
 	// We want to copy the DirectoryMap elsewhere
 	lock *sync.RWMutex
 
-	VisitFunc func(dm DirectoryMap, directory Dirname, file Fname, d fs.DirEntry) error
+	visitFunc VisitFuncType
+}
+
+func updateDirEntry(dm DirectoryMap, directory Dirname, fn Fname, d fs.DirEntry) error {
+	if string(fn) == Md5FileName {
+		return nil
+	}
+	err := dm.UpdateValues(directory, d)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // NewDirectoryMap creates a new dm
@@ -43,19 +56,19 @@ func NewDirectoryMap() *DirectoryMap {
 	itm.mp = make(map[Fname]FileStruct)
 	itm.stale = new(bool)
 	itm.lock = new(sync.RWMutex)
-	// Does not need to be protected by a lock as it is set once here
-	// Or becomes the responsibility of the user to not moduify it concurrently
-	itm.VisitFunc = func(dm DirectoryMap, directory Dirname, file Fname, d fs.DirEntry) error {
-		return ErrUnimplementedVisitor
-	}
+	itm.visitFunc = updateDirEntry
 	return itm
 }
 
 // SetVisitFunc sets the visitor function with proper synchronization
-func (dm *DirectoryMap) SetVisitFunc(f func(dm DirectoryMap, directory Dirname, file Fname, d fs.DirEntry) error) {
+// The visit func is called during directory traversal for each file
+// It runs early in the process and is quite integral to the DirectoryMap construction
+// One typically only overrides this for test purposes
+
+func (dm *DirectoryMap) SetVisitFunc(f VisitFuncType) {
 	dm.lock.Lock()
 	defer dm.lock.Unlock()
-	dm.VisitFunc = f
+	dm.visitFunc = f
 }
 
 // Len gth of the directoty map
@@ -221,6 +234,7 @@ func DirectoryMapFromDirWithScan(directory Dirname) (DirectoryMap, error) {
 
 	return dm, nil
 }
+
 func (dm *DirectoryMap) UpdateAllChecksums() error {
 	fc := func(fn Fname, fs FileStruct) (FileStruct, error) {
 		// FIXME update this to actually do a file query later
@@ -522,7 +536,7 @@ func (dm DirectoryMap) Visitor(directory Dirname, file Fname, d fs.DirEntry) err
 	// rather than always having to be a closure
 	// This is slightly odd, but requires fewer closures - and the costs associated
 	dm.lock.RLock()
-	visitFunc := dm.VisitFunc
+	visitFunc := dm.visitFunc
 	dm.lock.RUnlock()
 	return visitFunc(dm, directory, file, d)
 }
@@ -550,10 +564,10 @@ func (dm DirectoryMap) Copy() DirectoryEntryJournalableInterface {
 	cp := NewDirectoryMap()
 	dm.lock.RLock()
 	maps.Copy(cp.mp, dm.mp)
-	visitFunc := dm.VisitFunc
+	visitFunc := dm.visitFunc
 	dm.lock.RUnlock()
 	cp.lock.Lock()
-	cp.VisitFunc = visitFunc
+	cp.visitFunc = visitFunc
 	cp.lock.Unlock()
 	return cp
 }

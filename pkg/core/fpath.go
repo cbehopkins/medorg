@@ -7,6 +7,19 @@ import (
 	"strings"
 )
 
+// Md5FileName is the filename we use to save the data in
+const (
+	/// The File Names for:
+	Md5FileName     = ".medorg.xml"    // md5 checksum/backupdest/tag data
+	ConfigFileName  = ".mdcfg.xml"     // medorg configuration data
+	JournalPathName = ".mdjournal.xml" // journal data
+	VolumePathName  = ".mdbackup.xml"  // volume backup data - i.e. what is written in the root of a backup volume
+	SkipDirFile	= ".mdSkipDir"    		// presence of this file causes medorg to skip the directory
+)
+
+func IsMetadataFile(fn string) bool {
+	return fn == Md5FileName || fn == ConfigFileName || fn == JournalPathName
+}
 // Fname is used to indicate we are talking about a filename (not a path)
 type Fname string
 
@@ -19,7 +32,9 @@ type Fpath struct {
 	dir  *Dirname
 	base *Fname
 }
-
+func (f Fpath) Is(name string) bool {
+	return strings.EqualFold(string(f.Base()), name)
+}
 func (f Fpath) String() string {
 	return f.string
 }
@@ -37,6 +52,9 @@ func (f Fpath) Base() Fname {
 		f.base = &b
 	}
 	return *f.base
+}
+func (f Fpath) IsMetadataFile() bool {
+	return IsMetadataFile(string(f.Base()))
 }
 
 func NewFpath(parts ...any) Fpath {
@@ -91,7 +109,7 @@ func isHiddenDirectory(path string) bool {
 	return false
 }
 func hasSkipfile(directory string) bool {
-	skipFilePath := filepath.Join(directory, ".mdSkipDir")
+	skipFilePath := filepath.Join(directory, SkipDirFile)
 	if _, err := os.Stat(skipFilePath); !os.IsNotExist(err) {
 		return true
 	}

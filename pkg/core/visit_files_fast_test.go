@@ -40,7 +40,7 @@ func fastRecalcTestDirectory(dir string) error {
 			if err != nil {
 				return nil, err
 			}
-			dm.VisitFunc = fakeChecksumForTest
+			dm.SetVisitFunc(fakeChecksumForTest)
 			return dm, err
 		}
 		return NewDirectoryEntry(dir, mkFk)

@@ -303,8 +303,8 @@ func (dt *DirTracker) directoryWalker(path string, d fs.DirEntry, err error) err
 		return dt.handleDirectory(path)
 	}
 	dir, file := filepath.Split(path)
-	if file == ".mdSkipDir" {
-		log.Println("Skipping:", dir)
+	if file == SkipDirFile {
+		// log.Println("Skipping:", dir)
 		return filepath.SkipDir
 	}
 	if dir == "" {

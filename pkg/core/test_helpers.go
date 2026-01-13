@@ -11,23 +11,10 @@ import (
 	"testing"
 )
 
-func recalcForTest(dm DirectoryMap, directory Dirname, fn Fname, d fs.DirEntry) error {
-	if string(fn) == Md5FileName {
-		return nil
-	}
-	err := dm.UpdateValues(directory, d)
-	if err != nil {
-		return err
-	}
-	err = dm.UpdateChecksum(string(directory), string(fn), false)
-	return err
-}
-
 func recalcTestDirectory(dir string) error {
 	makerFunc := func(dir string) (DirectoryTrackerInterface, error) {
 		mkFk := func(dir string) (DirectoryEntryInterface, error) {
 			dm, err := DirectoryMapFromDir(Dirname(dir))
-			dm.VisitFunc = recalcForTest
 			return dm, err
 		}
 		return NewDirectoryEntry(dir, mkFk)
@@ -40,7 +27,7 @@ func recalcTestDirectory(dir string) error {
 
 func createTestDirectories(root string, cnt int) ([]string, error) {
 	directoriesCreated := make([]string, cnt)
-	for i := 0; i < cnt; i++ {
+	for i := range cnt {
 		name := filepath.Join(root, RandStringBytesMaskImprSrcSB(8))
 		err := os.Mkdir(name, 0o755)
 		if err != nil {
@@ -68,7 +55,7 @@ func makeFile(directory string) string {
 	return tmpfile.Name()
 }
 func createTestFiles(directory string, numberOfFiles int) {
-	for i := 0; i < numberOfFiles; i++ {
+	for range numberOfFiles {
 		_ = makeFile(directory)
 	}
 }
@@ -126,13 +113,13 @@ func createTestDirectoriesWithFs(root string, numberOfDirectoriesWide, numberOfD
 
 // makeTestFilesAndDirectoriesWithFs recursively creates test files and subdirectories.
 func makeTestFilesAndDirectoriesWithFs(directory string, numberOfDirectoriesWide, numberOfDirectoriesDeep, numberOfFiles int) error {
-	for i := 0; i < numberOfDirectoriesWide; i++ {
+	for i := range numberOfDirectoriesWide {
 		dirName := filepath.Join(directory, fmt.Sprintf("dir_%d", i))
 		if err := makeDir(dirName); err != nil {
 			return err
 		}
 
-		for j := 0; j < numberOfFiles; j++ {
+		for j := range numberOfFiles {
 			fileName := filepath.Join(dirName, fmt.Sprintf("file_%d.txt", j))
 			content := []byte(fmt.Sprintf("test content for file %d in dir %d", j, i))
 			if err := writeFile(fileName, content); err != nil {
