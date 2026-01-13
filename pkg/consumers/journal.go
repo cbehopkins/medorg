@@ -226,7 +226,7 @@ func (jo *Journal) PopulateFromDirectories(directory string, alias string) error
 			}
 
 			// Set a no-op visitor function
-			dm.SetVisitFunc(func(dm core.DirectoryMap, directory core.Dirname, file core.Fname, d fs.DirEntry) error {
+			dm.SetVisitFunc(func(dm core.DirectoryMap, path core.Fpath, d fs.DirEntry) error {
 				return nil
 			})
 

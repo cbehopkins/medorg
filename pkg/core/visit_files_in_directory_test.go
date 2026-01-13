@@ -47,7 +47,7 @@ func TestVisitFilesInDirectory(t *testing.T) {
 			var visitedFiles uint32
 			expectedVisitCount := moveDetectDirCreationCount(ts[0], ts[1], ts[2])
 
-			someVisitFunc := func(dm DirectoryMap, dir, fn string, d fs.DirEntry, fileStruct FileStruct, fileInfo fs.FileInfo) error {
+			someVisitFunc := func(dm DirectoryMap, path Fpath, d fs.DirEntry, fileStruct FileStruct, fileInfo fs.FileInfo) error {
 				atomic.AddUint32(&visitedFiles, 1)
 				return nil
 			}
@@ -102,8 +102,8 @@ func TestVisitFilesInDirectory1(t *testing.T) {
 			var visitedFiles uint32
 			expectedVisitCount := moveDetectDirCreationCount(ts[0], ts[1], ts[2])
 
-			someVisitFunc := func(dm DirectoryMap, dir, fn string, d fs.DirEntry, fileStruct FileStruct, fileInfo fs.FileInfo) error {
-				log.Println("Visit 0", dir, fn)
+			someVisitFunc := func(dm DirectoryMap, path Fpath, d fs.DirEntry, fileStruct FileStruct, fileInfo fs.FileInfo) error {
+				log.Println("Visit 0", path)
 				atomic.AddUint32(&visitedFiles, 1)
 				return nil
 			}

@@ -52,9 +52,9 @@ func RunCheckCalc(directories []string, opts CheckCalcOptions) error {
 	}
 
 	// Visitor function - processes each file in each directory
-	visitor := func(dm core.DirectoryMap, directory core.Dirname, file core.Fname, d fs.DirEntry) error {
+	visitor := func(dm core.DirectoryMap, path core.Fpath, d fs.DirEntry) error {
 		// Skip the .medorg.xml file itself
-		if string(file) == core.Md5FileName {
+		if path.Is(core.Md5FileName) {
 			return nil
 		}
 
@@ -76,7 +76,7 @@ func RunCheckCalc(directories []string, opts CheckCalcOptions) error {
 				if len(fs.BackupDest) > 0 {
 					changed = true
 					fs.BackupDest = []string{}
-					fmt.Println("Scrubbed tags from:", file)
+					fmt.Println("Scrubbed tags from:", fs.Name)
 				}
 			}
 
@@ -108,7 +108,7 @@ func RunCheckCalc(directories []string, opts CheckCalcOptions) error {
 			}
 
 			// Update file metadata from stat
-			if _, err := fs.FromStat(directory, file, info); err != nil {
+			if _, err := fs.FromStat(path.Dir(), path.Base(), info); err != nil {
 				return err
 			}
 
@@ -136,14 +136,14 @@ func RunCheckCalc(directories []string, opts CheckCalcOptions) error {
 		}
 
 		// Execute the file processing function
-		err := dm.RunFsFc(string(directory), string(file), fc)
+		err := dm.RunFsFc(path, fc)
 		if err != nil {
 			return err
 		}
 
 		// Run AutoFix if provided
 		if opts.AutoFix != nil {
-			if err := opts.AutoFix.WkFun(dm, core.Dirname(directory), core.Fname(file), d); err != nil {
+			if err := opts.AutoFix.WkFun(dm, path.Dir(), path.Base(), d); err != nil {
 				return err
 			}
 		}

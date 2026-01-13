@@ -29,7 +29,7 @@ type moveDetect struct {
 // looking for any files which have been deleted
 // And move the FileStruct from the dm into a map
 func (mvd *moveDetect) runMoveDetectFindDeleted(directory string) error {
-	visitFunc := func(dm core.DirectoryMap, dir core.Dirname, fn core.Fname, d fs.DirEntry) error {
+	visitFunc := func(dm core.DirectoryMap, path core.Fpath, d fs.DirEntry) error {
 		return nil
 	}
 	fc := func(fn core.Fname, fileStruct core.FileStruct) (core.FileStruct, error) {
@@ -65,8 +65,8 @@ func (mvd *moveDetect) runMoveDetectFindDeleted(directory string) error {
 // looking for any new files and if they exist in the map
 // then populate the entry withou a calculation
 func (mvd *moveDetect) runMoveDetectFindNew(directory string) error {
-	visitFunc := func(dm core.DirectoryMap, dir core.Dirname, fn core.Fname, d fs.DirEntry) error {
-		if string(fn) == core.Md5FileName {
+	visitFunc := func(dm core.DirectoryMap, path core.Fpath, d fs.DirEntry) error {
+		if path.Is(core.Md5FileName) {
 			return nil
 		}
 		v, err := mvd.query(d)
@@ -76,10 +76,10 @@ func (mvd *moveDetect) runMoveDetectFindNew(directory string) error {
 		if err != nil {
 			return err
 		}
-		v.SetDirectory(dir)
+		v.SetDirectory(path.Dir())
 		dm.Add(v)
 		mvd.delete(v)
-		return dm.UpdateValues(dir, d)
+		return dm.UpdateValues(path.Dir(), d)
 	}
 	makerFunc := func(dir string) (core.DirectoryTrackerInterface, error) {
 		mkFk := func(dir string) (core.DirectoryEntryInterface, error) {

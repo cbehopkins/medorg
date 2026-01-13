@@ -19,7 +19,7 @@ type DirectoryVisitorFunc func(dm DirectoryEntryInterface, directory string, fil
 // DirectoryEntryInterface any directory object needs to support this
 type DirectoryEntryInterface interface {
 	Persist(Dirname) error
-	Visitor(directory Dirname, file Fname, d fs.DirEntry) error
+	Visitor(path Fpath, d fs.DirEntry) error
 	Revisit(dir Dirname, visitor func(dm DirectoryEntryInterface, directory Dirname, file Fname, fileStruct FileStruct) error) error
 }
 
@@ -120,7 +120,7 @@ func (de DirectoryEntry) worker() {
 					de.fileProcessTokens <- struct{}{}
 				}
 			}()
-			err := de.Dm.Visitor(Dirname(dir), Fname(file), d)
+			err := de.Dm.Visitor(NewFpath(dir, file), d)
 			de.errorChan <- err
 			wi.callback()
 			de.activeFiles.Done()

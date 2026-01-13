@@ -26,7 +26,7 @@ func createTestDirectories(root string, cnt int) ([]string, error) {
 }
 
 func createTestFiles(directory string, numberOfFiles int) {
-	for i := 0; i < numberOfFiles; i++ {
+	for range numberOfFiles {
 		_ = makeFile(directory)
 	}
 }
@@ -82,13 +82,13 @@ func gatherFilesAndDirectories(root string) (files, directories []string) {
 
 var errMissingChecksum = errors.New("missing checksum")
 
-func checkChecksums(dm core.DirectoryMap, directory core.Dirname, fn core.Fname, d fs.DirEntry) error {
-	if string(fn) == core.Md5FileName {
+func checkChecksums(dm core.DirectoryMap, path core.Fpath, d fs.DirEntry) error {
+	if path.Is(core.Md5FileName) {
 		return nil
 	}
-	_, ok := dm.Get(fn)
+	_, ok := dm.Get(path.Base())
 	if !ok {
-		return fmt.Errorf("%w::%s", errMissingChecksum, fn)
+		return fmt.Errorf("%w::%s", errMissingChecksum, path)
 	}
 	return nil
 }

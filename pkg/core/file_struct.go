@@ -81,6 +81,7 @@ func (fs FileStruct) Equal(ca FileStruct) bool {
 
 // NewFileStruct returns a populated file struct with
 // the file properties set as read from file
+// FIXME to take in a path
 func NewFileStruct(directory string, fn string) (fs FileStruct, err error) {
 	fp := filepath.Join(directory, fn)
 	stat, err := os.Stat(fp)

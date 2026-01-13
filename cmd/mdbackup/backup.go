@@ -239,7 +239,7 @@ func runStatsSimple(directories []string, setMessage func(string), logFunc func(
 		totalArray[i] = 0
 	}
 
-	visitFunc := func(dm core.DirectoryMap, dir, fn string, d fs.DirEntry, fileStruct core.FileStruct, fileInfo fs.FileInfo) error {
+	visitFunc := func(dm core.DirectoryMap, path core.Fpath, d fs.DirEntry, fileStruct core.FileStruct, fileInfo fs.FileInfo) error {
 		lenArchive := len(fileStruct.BackupDest)
 		lenNeedesAdding := (lenArchive + 1) - len(totalArray)
 

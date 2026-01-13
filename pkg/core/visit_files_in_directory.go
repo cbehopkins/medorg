@@ -16,8 +16,8 @@ func VisitFilesWithInterface(
 	visitor ExtendedDirectoryVisitor,
 ) <-chan error {
 	// Wrap the interface visitor to work with the legacy implementation
-	legacyVisitor := func(dm DirectoryMap, dir, fn string, d fs.DirEntry, fileStruct FileStruct, fileInfo fs.FileInfo) error {
-		return visitor.Visit(&dm, dir, fn, d, &fileStruct, fileInfo)
+	legacyVisitor := func(dm DirectoryMap, path Fpath, d fs.DirEntry, fileStruct FileStruct, fileInfo fs.FileInfo) error {
+		return visitor.Visit(&dm, path, d, &fileStruct, fileInfo)
 	}
 	return VisitFilesInDirectories(directories, factory, legacyVisitor)
 }
@@ -31,7 +31,7 @@ func VisitFilesWithInterface(
 func VisitFilesInDirectories(
 	directories []string,
 	factory *pb.PoolProgressFactory,
-	someVisitFunc func(dm DirectoryMap, dir, fn string, d fs.DirEntry, fileStruct FileStruct, fileInfo fs.FileInfo) error,
+	someVisitFunc func(dm DirectoryMap, path Fpath, d fs.DirEntry, fileStruct FileStruct, fileInfo fs.FileInfo) error,
 ) <-chan error {
 	dts := AutoVisitFilesInDirectories(directories, someVisitFunc)
 	return errHandler(dts, factory)
@@ -75,25 +75,25 @@ func errHandler(
 func AutoVisitFilesInDirectoriesWithTokens(
 	directories []string,
 	fileProcessTokens chan struct{},
-	someVisitFunc func(dm DirectoryMap, dir, fn string, d fs.DirEntry, fileStruct FileStruct, fileInfo fs.FileInfo) error,
+	someVisitFunc func(dm DirectoryMap, path Fpath, d fs.DirEntry, fileStruct FileStruct, fileInfo fs.FileInfo) error,
 ) []*DirTracker {
 	if someVisitFunc == nil {
-		someVisitFunc = func(dm DirectoryMap, dir, fn string, d fs.DirEntry, fileStruct FileStruct, fileInfo fs.FileInfo) error {
+		someVisitFunc = func(dm DirectoryMap, path Fpath, d fs.DirEntry, fileStruct FileStruct, fileInfo fs.FileInfo) error {
 			return nil
 		}
 	}
-	visitFunc := func(dm DirectoryMap, dir Dirname, fn Fname, d fs.DirEntry) error {
-		if string(fn) == Md5FileName {
+	visitFunc := func(dm DirectoryMap, path Fpath, d fs.DirEntry) error {
+		if path.Is(Md5FileName) {
 			return nil
 		}
-		fileStruct, ok := dm.Get(fn)
+		fileStruct, ok := dm.Get(path.Base())
 		if !ok {
 			// Use the DirEntry to get file info instead of redundant os.Stat
 			fileInfo, err := d.Info()
 			if err != nil {
 				return err
 			}
-			fileStruct, err = fileStruct.FromStat(dir, fn, fileInfo)
+			fileStruct, err = fileStruct.FromStat(path.Dir(), path.Base(), fileInfo)
 			if err != nil {
 				return err
 			}
@@ -104,7 +104,7 @@ func AutoVisitFilesInDirectoriesWithTokens(
 			return err
 		}
 
-		return someVisitFunc(dm, string(dir), string(fn), d, fileStruct, fileInfo)
+		return someVisitFunc(dm, path, d, fileStruct, fileInfo)
 	}
 
 	makerFunc := func(dir string) (DirectoryTrackerInterface, error) {
@@ -127,7 +127,7 @@ func AutoVisitFilesInDirectoriesWithTokens(
 
 func AutoVisitFilesInDirectories(
 	directories []string,
-	someVisitFunc func(dm DirectoryMap, dir, fn string, d fs.DirEntry, fileStruct FileStruct, fileInfo fs.FileInfo) error,
+	someVisitFunc func(dm DirectoryMap, path Fpath, d fs.DirEntry, fileStruct FileStruct, fileInfo fs.FileInfo) error,
 ) []*DirTracker {
 	return AutoVisitFilesInDirectoriesWithTokens(directories, nil, someVisitFunc)
 }

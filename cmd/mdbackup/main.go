@@ -186,7 +186,7 @@ func poolCopier(src, dst core.Fpath, pool *pb.Pool, wg *sync.WaitGroup) error {
 }
 
 func visitFilesUpdatingProgressBar(pool *pb.Pool, directories []string,
-	someVisitFunc func(dm core.DirectoryMap, dir, fn string, d fs.DirEntry, fileStruct core.FileStruct, fileInfo fs.FileInfo) error,
+	someVisitFunc func(dm core.DirectoryMap, path core.Fpath, d fs.DirEntry, fileStruct core.FileStruct, fileInfo fs.FileInfo) error,
 ) {
 	factory := pb.NewPoolProgressFactory(pool)
 	errChan := core.VisitFilesInDirectories(directories, factory, someVisitFunc)
@@ -208,7 +208,7 @@ func runStats(pool *pb.Pool, messageBar *pb.ProgressBar, directories []string) {
 	for i := range totalArray {
 		totalArray[i] = 0
 	}
-	visitFunc := func(dm core.DirectoryMap, dir, fn string, d fs.DirEntry, fileStruct core.FileStruct, fileInfo fs.FileInfo) error {
+	visitFunc := func(dm core.DirectoryMap, path core.Fpath, d fs.DirEntry, fileStruct core.FileStruct, fileInfo fs.FileInfo) error {
 		lenArchive := len(fileStruct.BackupDest)
 		lenNeedesAdding := (lenArchive + 1) - len(totalArray)
 

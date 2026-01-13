@@ -17,7 +17,7 @@ type FileVisitor interface {
 // This is more detailed than the DirectoryVisitor in types.go
 type ExtendedDirectoryVisitor interface {
 	// Visit is called for each file with directory and entry information
-	Visit(storage DirectoryStorage, dir, filename string, entry fs.DirEntry, metadata FileMetadata, fileInfo fs.FileInfo) error
+	Visit(storage DirectoryStorage, path Fpath, entry fs.DirEntry, metadata FileMetadata, fileInfo fs.FileInfo) error
 }
 type FileVisitorCallback func(dm DirectoryMap, dir, fn string, d fs.DirEntry, fileStruct FileStruct, fileInfo fs.FileInfo) error
 
