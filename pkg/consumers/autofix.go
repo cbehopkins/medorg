@@ -274,7 +274,7 @@ func (af AutoFix) CheckRename(fs core.FileStruct) (core.FileStruct, bool) {
 					return fs, false
 				}
 				fp := fsNew.Path()
-				fss, err := os.Stat(string(fp))
+			fss, err := os.Stat(fp.String())
 				if os.IsNotExist(err) {
 					log.Printf("Error: file we moved to does not exist: %s", fp)
 					return fs, false

@@ -3,7 +3,6 @@ package core
 import (
 	"fmt"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"sync/atomic"
 	"testing"
@@ -69,14 +68,13 @@ func TestVisitFilesInDirectoryFast(t *testing.T) {
 		testName := fmt.Sprintln("TestVisitFilesInDirectoryFast", ts)
 
 		t.Run(testName, func(t *testing.T) {
-			root, err := createTestMoveDetectDirectories(ts[0], ts[1], ts[2])
-			if err != nil {
-				t.Error("Error creating test directories", err)
+			t.Parallel()
+			root := t.TempDir()
+			if err := createTestDirectoriesWithFs(root, ts[0], ts[1], ts[2]); err != nil {
+				t.Fatal("Error creating test directories", err)
 			}
-			defer os.RemoveAll(root)
-			err = fastRecalcTestDirectory(root)
-			if err != nil {
-				t.Error("Error calculating initial checksums for directories", err)
+			if err := fastRecalcTestDirectory(root); err != nil {
+				t.Fatal("Error calculating initial checksums for directories", err)
 			}
 			var visitedFiles uint32
 			expectedVisitCount := moveDetectDirCreationCount(ts[0], ts[1], ts[2])

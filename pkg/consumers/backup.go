@@ -127,7 +127,7 @@ func (bdm *backupDupeMap) Add(fs core.FileStruct) {
 	if bdm.dupeMap == nil {
 		bdm.dupeMap = make(map[backupKey]core.Fpath)
 	}
-	bdm.dupeMap[key] = core.Fpath(fs.Path())
+	bdm.dupeMap[key] = fs.Path()
 	bdm.Unlock()
 }
 
@@ -138,7 +138,7 @@ func (bdm *backupDupeMap) AddMetadata(fm core.FileMetadata) {
 	if bdm.dupeMap == nil {
 		bdm.dupeMap = make(map[backupKey]core.Fpath)
 	}
-	bdm.dupeMap[key] = core.Fpath(fm.Path())
+	bdm.dupeMap[key] = fm.Path()
 	bdm.Unlock()
 }
 
@@ -164,7 +164,7 @@ func (bdm *backupDupeMap) Remove(key backupKey) {
 // Get an item from the map
 func (bdm *backupDupeMap) Get(key backupKey) (core.Fpath, bool) {
 	if bdm.dupeMap == nil {
-		return "", false
+		return core.Fpath{}, false
 	}
 	bdm.Lock()
 	defer bdm.Unlock()
@@ -248,7 +248,7 @@ func extractAndCopy(
 
 		// Check if file should be ignored
 		fp := fm.Path()
-		if ignoreFunc != nil && ignoreFunc(string(fp)) {
+		if ignoreFunc != nil && ignoreFunc(fp.String()) {
 			return nil
 		}
 
@@ -311,12 +311,12 @@ func copyPendingFiles(
 	next, _ := bp.prioritizedSrcFiles()
 	for fp, ok := next(); ok; fp, ok = next() {
 		// Determine which source root this file belongs to
-		srcRoot, found := findSourceRoot(srcDirs, string(fp))
+		srcRoot, found := findSourceRoot(srcDirs, fp.String())
 		if !found {
 			return fmt.Errorf("unable to determine source root for %s", fp)
 		}
 
-		if ignoreFunc != nil && ignoreFunc(string(fp)) {
+		if ignoreFunc != nil && ignoreFunc(fp.String()) {
 			continue
 		}
 
@@ -328,12 +328,12 @@ func copyPendingFiles(
 			return err
 		}
 
-		rel, err := filepath.Rel(srcRoot, string(fp))
+		rel, err := filepath.Rel(srcRoot, fp.String())
 		if err != nil {
 			return err
 		}
-		dir := core.Dirname(filepath.Dir(string(fp)))
-		fn := core.Fname(filepath.Base(string(fp)))
+		dir := core.Dirname(filepath.Dir(fp.String()))
+		fn := core.Fname(filepath.Base(fp.String()))
 		dmSrc, err := core.DirectoryMapFromDir(dir)
 		if err != nil {
 			return err
@@ -397,7 +397,7 @@ func findSourceRoot(srcDirs []string, filePath string) (string, bool) {
 }
 
 func tagSourceAsBackedUp(file core.Fpath, backupLabelName string) (core.FileStruct, error) {
-	basename := filepath.Base(string(file))
+	basename := filepath.Base(file.String())
 	sd := file.Dir()
 	return updateSourceDirectoryMap(sd, core.Fname(basename), backupLabelName, file)
 }
@@ -465,7 +465,7 @@ func doACopy(
 	// Workout the new path the target file should have
 	// this is relative to the srcdir so that
 	// the dst dir keeps the hierarchy
-	rel, err := filepath.Rel(srcDir, string(file))
+	rel, err := filepath.Rel(srcDir, file.String())
 	if err != nil {
 		return err
 	}
@@ -623,7 +623,7 @@ func BackupRunner(
 	if orphanFunc != nil {
 		logFunc("Reporting orphaned destination files")
 		for _, orphan := range bp.getOrphanFiles() {
-			if err := orphanFunc(string(orphan)); err != nil {
+			if err := orphanFunc(orphan.String()); err != nil {
 				return err
 			}
 		}

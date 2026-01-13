@@ -61,6 +61,6 @@ func buildPriorityKey(fd fileData) priorityKey {
 	return priorityKey{
 		DestCount: len(fd.BackupDest),
 		InvSize:   ^uint64(fd.Size),
-		Path:      string(fd.Fpath),
+		Path:      fd.Fpath.String(),
 	}
 }

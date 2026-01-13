@@ -321,13 +321,13 @@ func (bp *BackupProcessor) checkDstFileExists(checksum string) (core.Fpath, bool
 		// Try base64 format
 		key, err = treap.Md5KeyFromBase64String(checksum)
 		if err != nil {
-			return "", false
+			return core.Fpath{}, false
 		}
 	}
 
 	node := bp.dstFileCollection.Search(&key)
 	if node == nil || node.IsNil() {
-		return "", false
+		return core.Fpath{}, false
 	}
 	return node.GetPayload().Fpath, true
 }
@@ -437,7 +437,7 @@ func (bp *BackupProcessor) prioritizedSrcFiles() (func() (core.Fpath, bool), err
 	idx := 0
 	next := func() (core.Fpath, bool) {
 		if idx >= len(ordered) {
-			return core.Fpath(""), false
+			return core.NewFpath(""), false
 		}
 		fp := ordered[idx]
 		idx++
@@ -517,13 +517,13 @@ func (bp *inMemoryBackupProcessor) prioritizedSrcFiles() (func() (core.Fpath, bo
 		if entries[i].Size != entries[j].Size {
 			return entries[i].Size > entries[j].Size
 		}
-		return entries[i].Fpath < entries[j].Fpath
+		return entries[i].Fpath.String() < entries[j].Fpath.String()
 	})
 
 	idx := 0
 	next := func() (core.Fpath, bool) {
 		if idx >= len(entries) {
-			return core.Fpath(""), false
+			return core.NewFpath(""), false
 		}
 		fp := entries[idx].Fpath
 		idx++

@@ -1,7 +1,6 @@
 package core
 
 import (
-	"crypto/rand"
 	"encoding/xml"
 	"log"
 	"os"
@@ -38,22 +37,4 @@ func TestB2B(t *testing.T) {
 	if err != nil {
 		t.Fatal("um error", err)
 	}
-}
-
-func makeFile(directory string) string {
-	buff := make([]byte, 75000)
-	if _, err := rand.Read(buff); err != nil {
-		panic(err)
-	}
-	tmpfile, err := os.CreateTemp(directory, "example")
-	if err != nil {
-		panic(err)
-	}
-	if _, err := tmpfile.Write(buff); err != nil {
-		panic(err)
-	}
-	if err := tmpfile.Close(); err != nil {
-		panic(err)
-	}
-	return tmpfile.Name()
 }

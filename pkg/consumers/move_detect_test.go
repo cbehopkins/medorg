@@ -138,7 +138,7 @@ func moveNfiles(cnt int, files, directories []string) error {
 		for seekCandidateDir(selectedFile) {
 		}
 		selectedDirectory := directories[directoryPointer]
-		if err := core.MoveFile(core.Fpath(selectedFile), core.NewFpath(selectedDirectory, filepath.Base(selectedFile))); err != nil {
+		if err := core.MoveFile(core.NewFpath(filepath.Dir(selectedFile), filepath.Base(selectedFile)), core.NewFpath(selectedDirectory, filepath.Base(selectedFile))); err != nil {
 			return err
 		}
 		incrementDirectory()

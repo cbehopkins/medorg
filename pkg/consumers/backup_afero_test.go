@@ -66,7 +66,7 @@ func TestOrphansDeletedBeforeCopyOnNoSpace(t *testing.T) {
 
 	// Failover copier: fails with ErrNoSpace after 1 copy
 	failingCopier := func(src, dst core.Fpath) error {
-		callOrder = append(callOrder, fmt.Sprintf("copy(%s)", filepath.Base(string(src))))
+		callOrder = append(callOrder, fmt.Sprintf("copy(%s)", filepath.Base(src.String())))
 		copyCount++
 		// Second copy (or any beyond first) fails with no space
 		if copyCount > 1 {
@@ -192,7 +192,7 @@ func TestBackupWithAFeroMemFS(t *testing.T) {
 
 	// Copier that writes to memfs, simulating disk full after the second copy
 	limitedCopier := func(src, dst core.Fpath) error {
-		copyOps = append(copyOps, filepath.Base(string(src)))
+		copyOps = append(copyOps, filepath.Base(src.String()))
 
 		// Simulate disk full on the second copy attempt
 		if len(copyOps) > 1 {
@@ -200,11 +200,11 @@ func TestBackupWithAFeroMemFS(t *testing.T) {
 		}
 
 		// Read from real src, write to memfs (simulating copy)
-		data, err := os.ReadFile(string(src))
+		data, err := os.ReadFile(src.String())
 		if err != nil {
 			return err
 		}
-		dstPath := string(dst)
+		dstPath := dst.String()
 		if err := afero.WriteFile(memFS, dstPath, data, 0o644); err != nil {
 			return err
 		}
@@ -551,7 +551,7 @@ func TestLargeFileHandlingWithMemFS(t *testing.T) {
 	copier := func(src, dst core.Fpath) error {
 		copiesProcessed++
 		// Verify we can read the source file
-		data, err := os.ReadFile(string(src))
+		data, err := os.ReadFile(src.String())
 		if err != nil {
 			return err
 		}

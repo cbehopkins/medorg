@@ -333,7 +333,7 @@ func copyFileImpl(src, dst string) error {
 	// Best effort cleanup of any stale temp file
 	_ = os.Remove(tmp)
 
-	if err := core.CopyFile(core.Fpath(src), core.Fpath(tmp)); err != nil {
+	if err := core.CopyFile(core.NewFpath(src), core.NewFpath(tmp)); err != nil {
 		_ = os.Remove(tmp)
 		return fmt.Errorf("failed to copy to temp file: %w", err)
 	}

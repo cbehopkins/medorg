@@ -20,34 +20,34 @@ func TestPriorityKeyOrdering(t *testing.T) {
 		{
 			name: "single file",
 			files: []fileData{
-				{Size: 1000, Fpath: core.Fpath("/file.txt"), BackupDest: []string{"dest1"}},
+				{Size: 1000, Fpath: core.NewFpath("/file.txt"), BackupDest: []string{"dest1"}},
 			},
 			expected: []string{"/file.txt"},
 		},
 		{
 			name: "fewest destinations first",
 			files: []fileData{
-				{Size: 1000, Fpath: core.Fpath("/a.txt"), BackupDest: []string{"dest1", "dest2"}},
-				{Size: 1000, Fpath: core.Fpath("/b.txt"), BackupDest: []string{"dest1"}},
-				{Size: 1000, Fpath: core.Fpath("/c.txt"), BackupDest: []string{"dest1", "dest2", "dest3"}},
+				{Size: 1000, Fpath: core.NewFpath("/a.txt"), BackupDest: []string{"dest1", "dest2"}},
+				{Size: 1000, Fpath: core.NewFpath("/b.txt"), BackupDest: []string{"dest1"}},
+				{Size: 1000, Fpath: core.NewFpath("/c.txt"), BackupDest: []string{"dest1", "dest2", "dest3"}},
 			},
 			expected: []string{"/b.txt", "/a.txt", "/c.txt"},
 		},
 		{
 			name: "larger files first when same destCount",
 			files: []fileData{
-				{Size: 100, Fpath: core.Fpath("/small.txt"), BackupDest: []string{"dest1"}},
-				{Size: 5000, Fpath: core.Fpath("/large.txt"), BackupDest: []string{"dest1"}},
-				{Size: 1000, Fpath: core.Fpath("/medium.txt"), BackupDest: []string{"dest1"}},
+				{Size: 100, Fpath: core.NewFpath("/small.txt"), BackupDest: []string{"dest1"}},
+				{Size: 5000, Fpath: core.NewFpath("/large.txt"), BackupDest: []string{"dest1"}},
+				{Size: 1000, Fpath: core.NewFpath("/medium.txt"), BackupDest: []string{"dest1"}},
 			},
 			expected: []string{"/large.txt", "/medium.txt", "/small.txt"},
 		},
 		{
 			name: "path ordering when destCount and size equal",
 			files: []fileData{
-				{Size: 1000, Fpath: core.Fpath("/zebra.txt"), BackupDest: []string{"dest1"}},
-				{Size: 1000, Fpath: core.Fpath("/apple.txt"), BackupDest: []string{"dest1"}},
-				{Size: 1000, Fpath: core.Fpath("/monkey.txt"), BackupDest: []string{"dest1"}},
+				{Size: 1000, Fpath: core.NewFpath("/zebra.txt"), BackupDest: []string{"dest1"}},
+				{Size: 1000, Fpath: core.NewFpath("/apple.txt"), BackupDest: []string{"dest1"}},
+				{Size: 1000, Fpath: core.NewFpath("/monkey.txt"), BackupDest: []string{"dest1"}},
 			},
 			expected: []string{"/apple.txt", "/monkey.txt", "/zebra.txt"},
 		},
@@ -55,17 +55,17 @@ func TestPriorityKeyOrdering(t *testing.T) {
 			name: "comprehensive ordering test",
 			files: []fileData{
 				// destCount=2, size=500
-				{Size: 500, Fpath: core.Fpath("/z_two_small.txt"), BackupDest: []string{"d1", "d2"}},
+				{Size: 500, Fpath: core.NewFpath("/z_two_small.txt"), BackupDest: []string{"d1", "d2"}},
 				// destCount=1, size=100
-				{Size: 100, Fpath: core.Fpath("/z_one_tiny.txt"), BackupDest: []string{"d1"}},
+				{Size: 100, Fpath: core.NewFpath("/z_one_tiny.txt"), BackupDest: []string{"d1"}},
 				// destCount=3, size=5000
-				{Size: 5000, Fpath: core.Fpath("/a_three_large.txt"), BackupDest: []string{"d1", "d2", "d3"}},
+				{Size: 5000, Fpath: core.NewFpath("/a_three_large.txt"), BackupDest: []string{"d1", "d2", "d3"}},
 				// destCount=1, size=5000
-				{Size: 5000, Fpath: core.Fpath("/a_one_large.txt"), BackupDest: []string{"d1"}},
+				{Size: 5000, Fpath: core.NewFpath("/a_one_large.txt"), BackupDest: []string{"d1"}},
 				// destCount=1, size=100
-				{Size: 100, Fpath: core.Fpath("/a_one_tiny.txt"), BackupDest: []string{"d1"}},
+				{Size: 100, Fpath: core.NewFpath("/a_one_tiny.txt"), BackupDest: []string{"d1"}},
 				// destCount=2, size=5000
-				{Size: 5000, Fpath: core.Fpath("/m_two_large.txt"), BackupDest: []string{"d1", "d2"}},
+				{Size: 5000, Fpath: core.NewFpath("/m_two_large.txt"), BackupDest: []string{"d1", "d2"}},
 			},
 			expected: []string{
 				"/a_one_large.txt",   // destCount=1, size=5000 (larger size first)
@@ -109,9 +109,9 @@ func TestPriorityKeyOrdering(t *testing.T) {
 // These should have the highest priority (destCount=0).
 func TestPriorityKeyEmptyBackups(t *testing.T) {
 	files := []fileData{
-		{Size: 100, Fpath: core.Fpath("/backed_up.txt"), BackupDest: []string{"dest1"}},
-		{Size: 5000, Fpath: core.Fpath("/never_backed_up.txt"), BackupDest: []string{}},
-		{Size: 1000, Fpath: core.Fpath("/partially_backed.txt"), BackupDest: []string{"dest1", "dest2"}},
+		{Size: 100, Fpath: core.NewFpath("/backed_up.txt"), BackupDest: []string{"dest1"}},
+		{Size: 5000, Fpath: core.NewFpath("/never_backed_up.txt"), BackupDest: []string{}},
+		{Size: 1000, Fpath: core.NewFpath("/partially_backed.txt"), BackupDest: []string{"dest1", "dest2"}},
 	}
 
 	keys := make([]priorityKey, len(files))
@@ -137,9 +137,9 @@ func TestPriorityKeyEmptyBackups(t *testing.T) {
 func TestPriorityKeyDuplicatePaths(t *testing.T) {
 	// Note: In real usage, the same path shouldn't have different sizes, but we test the ordering logic
 	files := []fileData{
-		{Size: 1000, Fpath: core.Fpath("/important.doc"), BackupDest: []string{"dest1", "dest2", "dest3"}},
-		{Size: 1000, Fpath: core.Fpath("/important.doc"), BackupDest: []string{"dest1"}},
-		{Size: 1000, Fpath: core.Fpath("/important.doc"), BackupDest: []string{"dest1", "dest2"}},
+		{Size: 1000, Fpath: core.NewFpath("/important.doc"), BackupDest: []string{"dest1", "dest2", "dest3"}},
+		{Size: 1000, Fpath: core.NewFpath("/important.doc"), BackupDest: []string{"dest1"}},
+		{Size: 1000, Fpath: core.NewFpath("/important.doc"), BackupDest: []string{"dest1", "dest2"}},
 	}
 
 	keys := make([]priorityKey, len(files))
@@ -174,21 +174,21 @@ func TestBuildPriorityKey(t *testing.T) {
 	}{
 		{
 			name:          "no backup destinations",
-			fd:            fileData{Size: 1000, Fpath: core.Fpath("/file.txt"), BackupDest: []string{}},
+			fd:            fileData{Size: 1000, Fpath: core.NewFpath("/file.txt"), BackupDest: []string{}},
 			expectedCount: 0,
 			expectedSize:  ^uint64(1000),
 			expectedPath:  "/file.txt",
 		},
 		{
 			name:          "multiple destinations",
-			fd:            fileData{Size: 5000, Fpath: core.Fpath("/data.bin"), BackupDest: []string{"d1", "d2", "d3"}},
+			fd:            fileData{Size: 5000, Fpath: core.NewFpath("/data.bin"), BackupDest: []string{"d1", "d2", "d3"}},
 			expectedCount: 3,
 			expectedSize:  ^uint64(5000),
 			expectedPath:  "/data.bin",
 		},
 		{
 			name:          "large file",
-			fd:            fileData{Size: 1_000_000_000, Fpath: core.Fpath("/huge.iso"), BackupDest: []string{"external"}},
+			fd:            fileData{Size: 1_000_000_000, Fpath: core.NewFpath("/huge.iso"), BackupDest: []string{"external"}},
 			expectedCount: 1,
 			expectedSize:  ^uint64(1_000_000_000),
 			expectedPath:  "/huge.iso",
@@ -321,18 +321,18 @@ func TestPriorityKeyBackupPriority(t *testing.T) {
 	// Simulating a backup scenario with various files in different states
 	files := []fileData{
 		// User's important documents - never backed up
-		{Size: 50_000, Fpath: core.Fpath("/home/user/documents/resume.pdf"), BackupDest: []string{}},
-		{Size: 30_000, Fpath: core.Fpath("/home/user/documents/tax_return.pdf"), BackupDest: []string{}},
+		{Size: 50_000, Fpath: core.NewFpath("/home/user/documents/resume.pdf"), BackupDest: []string{}},
+		{Size: 30_000, Fpath: core.NewFpath("/home/user/documents/tax_return.pdf"), BackupDest: []string{}},
 
 		// Media files - partially backed up
-		{Size: 5_000_000, Fpath: core.Fpath("/media/video.mp4"), BackupDest: []string{"usb_drive"}},
-		{Size: 3_000_000, Fpath: core.Fpath("/media/photos.zip"), BackupDest: []string{"cloud"}},
+		{Size: 5_000_000, Fpath: core.NewFpath("/media/video.mp4"), BackupDest: []string{"usb_drive"}},
+		{Size: 3_000_000, Fpath: core.NewFpath("/media/photos.zip"), BackupDest: []string{"cloud"}},
 
 		// Source code - already backed up everywhere
-		{Size: 100_000, Fpath: core.Fpath("/code/project.tar.gz"), BackupDest: []string{"github", "gitlab", "local_backup"}},
+		{Size: 100_000, Fpath: core.NewFpath("/code/project.tar.gz"), BackupDest: []string{"github", "gitlab", "local_backup"}},
 
 		// Log files - backed up in one place
-		{Size: 10_000, Fpath: core.Fpath("/var/log/app.log"), BackupDest: []string{"backup_server"}},
+		{Size: 10_000, Fpath: core.NewFpath("/var/log/app.log"), BackupDest: []string{"backup_server"}},
 	}
 
 	keys := make([]priorityKey, len(files))
@@ -368,9 +368,9 @@ func TestPriorityKeyBackupPriority(t *testing.T) {
 // This ensures the priority key works correctly with Windows path conventions.
 func TestPriorityKeyWindowsPaths(t *testing.T) {
 	files := []fileData{
-		{Size: 100, Fpath: core.Fpath(`C:\Users\John\Documents\file.txt`), BackupDest: []string{}},
-		{Size: 5000, Fpath: core.Fpath(`D:\Media\Video.mp4`), BackupDest: []string{"backup1"}},
-		{Size: 1000, Fpath: core.Fpath(`C:\Users\Jane\file.txt`), BackupDest: []string{}},
+		{Size: 100, Fpath: core.NewFpath(`C:\Users\John\Documents\file.txt`), BackupDest: []string{}},
+		{Size: 5000, Fpath: core.NewFpath(`D:\Media\Video.mp4`), BackupDest: []string{"backup1"}},
+		{Size: 1000, Fpath: core.NewFpath(`C:\Users\Jane\file.txt`), BackupDest: []string{}},
 	}
 
 	keys := make([]priorityKey, len(files))
@@ -399,9 +399,9 @@ func TestPriorityKeyWindowsPaths(t *testing.T) {
 // TestPriorityKeyUNCPaths tests UNC network paths (\\server\share format).
 func TestPriorityKeyUNCPaths(t *testing.T) {
 	files := []fileData{
-		{Size: 1000, Fpath: core.Fpath(`\\server1\share\file.txt`), BackupDest: []string{"local"}},
-		{Size: 2000, Fpath: core.Fpath(`\\server2\backup\data.zip`), BackupDest: []string{}},
-		{Size: 500, Fpath: core.Fpath(`\\server1\share\readme.md`), BackupDest: []string{"cloud"}},
+		{Size: 1000, Fpath: core.NewFpath(`\\server1\share\file.txt`), BackupDest: []string{"local"}},
+		{Size: 2000, Fpath: core.NewFpath(`\\server2\backup\data.zip`), BackupDest: []string{}},
+		{Size: 500, Fpath: core.NewFpath(`\\server1\share\readme.md`), BackupDest: []string{"cloud"}},
 	}
 
 	keys := make([]priorityKey, len(files))
@@ -427,15 +427,15 @@ func TestPriorityKeyUNCPaths(t *testing.T) {
 func TestPriorityKeyWindowsSpecialCharacters(t *testing.T) {
 	files := []fileData{
 		// File with spaces (very common on Windows)
-		{Size: 1000, Fpath: core.Fpath(`C:\My Documents\My File.txt`), BackupDest: []string{}},
+		{Size: 1000, Fpath: core.NewFpath(`C:\My Documents\My File.txt`), BackupDest: []string{}},
 		// File with multiple dots
-		{Size: 2000, Fpath: core.Fpath(`C:\backup.2024.01.05.tar.gz`), BackupDest: []string{}},
+		{Size: 2000, Fpath: core.NewFpath(`C:\backup.2024.01.05.tar.gz`), BackupDest: []string{}},
 		// File with parentheses and brackets
-		{Size: 500, Fpath: core.Fpath(`C:\data\[important](final).xlsx`), BackupDest: []string{"dest1"}},
+		{Size: 500, Fpath: core.NewFpath(`C:\data\[important](final).xlsx`), BackupDest: []string{"dest1"}},
 		// File with @ and # symbols
-		{Size: 1500, Fpath: core.Fpath(`C:\mail\user@domain#2024.eml`), BackupDest: []string{}},
+		{Size: 1500, Fpath: core.NewFpath(`C:\mail\user@domain#2024.eml`), BackupDest: []string{}},
 		// File with ampersand and dash
-		{Size: 800, Fpath: core.Fpath(`C:\code\my-library_v2.0 & utils.dll`), BackupDest: []string{"backup"}},
+		{Size: 800, Fpath: core.NewFpath(`C:\code\my-library_v2.0 & utils.dll`), BackupDest: []string{"backup"}},
 	}
 
 	keys := make([]priorityKey, len(files))
@@ -479,9 +479,9 @@ func TestPriorityKeyWindowsReservedNames(t *testing.T) {
 	// (CON, PRN, AUX, NUL, COM1-COM9, LPT1-LPT9), but we test that the ordering logic
 	// handles them consistently if they somehow exist in the system being backed up
 	files := []fileData{
-		{Size: 1000, Fpath: core.Fpath(`C:\System\CON.bak`), BackupDest: []string{}},
-		{Size: 2000, Fpath: core.Fpath(`C:\System\PRN.tmp`), BackupDest: []string{}},
-		{Size: 500, Fpath: core.Fpath(`C:\System\AUX.log`), BackupDest: []string{"archive"}},
+		{Size: 1000, Fpath: core.NewFpath(`C:\System\CON.bak`), BackupDest: []string{}},
+		{Size: 2000, Fpath: core.NewFpath(`C:\System\PRN.tmp`), BackupDest: []string{}},
+		{Size: 500, Fpath: core.NewFpath(`C:\System\AUX.log`), BackupDest: []string{"archive"}},
 	}
 
 	keys := make([]priorityKey, len(files))
@@ -511,9 +511,9 @@ func TestPriorityKeyWindowsReservedNames(t *testing.T) {
 // While unusual, medorg should handle this gracefully.
 func TestPriorityKeyMixedPathFormats(t *testing.T) {
 	files := []fileData{
-		{Size: 1000, Fpath: core.Fpath(`C:\Users\file.txt`), BackupDest: []string{}},
-		{Size: 2000, Fpath: core.Fpath(`/home/user/file.txt`), BackupDest: []string{}},
-		{Size: 1500, Fpath: core.Fpath(`C:/Users/alternative/file.txt`), BackupDest: []string{"dest1"}},
+		{Size: 1000, Fpath: core.NewFpath(`C:\Users\file.txt`), BackupDest: []string{}},
+		{Size: 2000, Fpath: core.NewFpath(`/home/user/file.txt`), BackupDest: []string{}},
+		{Size: 1500, Fpath: core.NewFpath(`C:/Users/alternative/file.txt`), BackupDest: []string{"dest1"}},
 	}
 
 	keys := make([]priorityKey, len(files))
@@ -544,9 +544,9 @@ func TestPriorityKeyWindowsLongPaths(t *testing.T) {
 	longPath3 := `D:\MediaLibrary\Movies\2024\Hollywood\Dramas\ActionFilms\Director_Unknown\movie_file_version_1_with_commentary_and_subtitles_english_french.mkv`
 
 	files := []fileData{
-		{Size: 50000, Fpath: core.Fpath(longPath1), BackupDest: []string{}},
-		{Size: 100000, Fpath: core.Fpath(longPath2), BackupDest: []string{"external_drive"}},
-		{Size: 75000, Fpath: core.Fpath(longPath3), BackupDest: []string{}},
+		{Size: 50000, Fpath: core.NewFpath(longPath1), BackupDest: []string{}},
+		{Size: 100000, Fpath: core.NewFpath(longPath2), BackupDest: []string{"external_drive"}},
+		{Size: 75000, Fpath: core.NewFpath(longPath3), BackupDest: []string{}},
 	}
 
 	keys := make([]priorityKey, len(files))
@@ -586,9 +586,9 @@ func TestPriorityKeyWindowsLongPaths(t *testing.T) {
 // (case-sensitive ordering, though Windows filesystem is case-insensitive).
 func TestPriorityKeyWindowsCaseInsensitivity(t *testing.T) {
 	files := []fileData{
-		{Size: 1000, Fpath: core.Fpath(`C:\Users\Zebra.txt`), BackupDest: []string{}},
-		{Size: 1000, Fpath: core.Fpath(`C:\Users\apple.txt`), BackupDest: []string{}},
-		{Size: 1000, Fpath: core.Fpath(`C:\Users\Banana.txt`), BackupDest: []string{}},
+		{Size: 1000, Fpath: core.NewFpath(`C:\Users\Zebra.txt`), BackupDest: []string{}},
+		{Size: 1000, Fpath: core.NewFpath(`C:\Users\apple.txt`), BackupDest: []string{}},
+		{Size: 1000, Fpath: core.NewFpath(`C:\Users\Banana.txt`), BackupDest: []string{}},
 	}
 
 	keys := make([]priorityKey, len(files))

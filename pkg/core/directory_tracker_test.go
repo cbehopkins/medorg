@@ -1,77 +1,13 @@
 package core
 
 import (
-	"errors"
 	"fmt"
-	"io/fs"
 	"math/rand"
-	"os"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 )
-
-type mockDtType struct {
-	errChan chan error
-	lock    *sync.RWMutex
-	closed  *bool
-	visiter func(Dirname, Fname)
-}
-
-func newMockDtType() (mdt mockDtType) {
-	mdt.errChan = make(chan error)
-	mdt.lock = new(sync.RWMutex)
-	mdt.closed = new(bool)
-	return
-}
-
-func (mdt mockDtType) ErrChan() <-chan error {
-	return mdt.errChan
-}
-
-func (mdt mockDtType) Start() error {
-	return nil
-}
-
-func (mdt mockDtType) Close() {
-	mdt.lock.Lock()
-	*mdt.closed = true
-	mdt.lock.Unlock()
-	close(mdt.errChan)
-}
-
-var errTestChanClosed = errors.New("visit called to a closed structure")
-
-func (mdt mockDtType) Visitor(dir Dirname, file Fname, d fs.DirEntry) error {
-	mdt.lock.RLock()
-	closed := *mdt.closed
-	mdt.lock.RUnlock()
-	if closed {
-		return fmt.Errorf("%w at %s/%s", errTestChanClosed, string(dir), string(file))
-	}
-	if mdt.visiter != nil {
-		mdt.visiter(dir, file)
-	}
-	return nil
-}
-
-func (mdt mockDtType) VisitFile(dir, file string, d fs.DirEntry, callback func()) {
-	mdt.lock.Lock()
-	if *mdt.closed {
-		mdt.errChan <- fmt.Errorf("%w at %s/%s", errTestChanClosed, dir, file)
-	}
-	mdt.lock.Unlock()
-
-	if mdt.visiter != nil {
-		mdt.visiter(Dirname(dir), Fname(file))
-	}
-	callback()
-}
-
-func (dt mockDtType) Revisit(dir string, fileVisitor func(dm DirectoryEntryInterface, dir, fn string, fileStruct FileStruct) error) error {
-	return nil
-}
 
 func TestDirectoryTrackerAgainstMock(t *testing.T) {
 	type testSet struct {
@@ -92,11 +28,13 @@ func TestDirectoryTrackerAgainstMock(t *testing.T) {
 		testName := fmt.Sprintln("DirectoryTrackerMock", ts)
 
 		t.Run(testName, func(t *testing.T) {
-			root, err := createTestMoveDetectDirectories(ts[0], ts[1], ts[2])
+			t.Parallel()
+			// Use t.TempDir() for automatic cleanup
+			root := t.TempDir()
+			err := createTestDirectoriesWithFs(root, ts[0], ts[1], ts[2])
 			if err != nil {
 				t.Error("Error creating test directories", err)
 			}
-			defer os.RemoveAll(root)
 
 			makerFunc := func(dir string) (DirectoryTrackerInterface, error) {
 				return newMockDtType(), nil
@@ -129,40 +67,43 @@ func TestDirectoryTrackerSpawning(t *testing.T) {
 		{cfg: []int{3, 1, 2}, prob: 50},  // Reduced from 4,2,8 with prob 500
 		{cfg: []int{5, 1, 1}, prob: 10},  // Reduced from 10,2,1 with prob 10
 	}
-	var activeVisitors int
-	var lk sync.Mutex
-
 	for _, tst := range testSet0 {
-		var cnt uint32
-		ts := tst.cfg
-		testName := fmt.Sprintln("DirectoryTrackerSpawning", ts)
-		visiter := func(dir Dirname, file Fname) {
-			lk.Lock()
-			activeVisitors++
-			if activeVisitors > NumTrackerOutstanding {
-				t.Error("Too many visitors", dir, file)
-			}
-			if tst.prob != 0 {
-				pb := rand.Intn(tst.prob)
-				// Reduced sleep duration from 1 second to 100ms for faster tests
-				if pb < 2 {
-					lk.Unlock()
-					atomic.AddUint32(&cnt, 1)
-					time.Sleep(100 * time.Millisecond)
-
-					lk.Lock()
-				}
-			}
-			activeVisitors--
-			lk.Unlock()
-		}
+		ts := tst
+		testName := fmt.Sprintln("DirectoryTrackerSpawning", ts.cfg)
 
 		t.Run(testName, func(t *testing.T) {
-			root, err := createTestMoveDetectDirectories(ts[0], ts[1], ts[2])
-			if err != nil {
+			t.Parallel()
+			var cnt uint32
+			var activeVisitors int
+			var lk sync.Mutex
+			prob := ts.prob
+
+			visiter := func(dir Dirname, file Fname) {
+				lk.Lock()
+				activeVisitors++
+				if activeVisitors > NumTrackerOutstanding {
+					t.Error("Too many visitors", dir, file)
+				}
+				if prob != 0 {
+					pb := rand.Intn(prob)
+					// Reduced sleep duration from 1 second to 100ms for faster tests
+					if pb < 2 {
+						lk.Unlock()
+						atomic.AddUint32(&cnt, 1)
+						time.Sleep(100 * time.Millisecond)
+
+						lk.Lock()
+					}
+				}
+				activeVisitors--
+				lk.Unlock()
+			}
+
+			// Use t.TempDir() for automatic cleanup
+			root := t.TempDir()
+			if err := createTestDirectoriesWithFs(root, ts.cfg[0], ts.cfg[1], ts.cfg[2]); err != nil {
 				t.Error("Error creating test directories", err)
 			}
-			defer os.RemoveAll(root)
 
 			makerFunc := func(dir string) (DirectoryTrackerInterface, error) {
 				mdt := newMockDtType()
@@ -173,7 +114,7 @@ func TestDirectoryTrackerSpawning(t *testing.T) {
 			for err := range errChan {
 				t.Error(err)
 			}
+			t.Log("Slept:", cnt, " times")
 		})
-		t.Log("Slept:", cnt, " times")
 	}
 }

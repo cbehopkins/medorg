@@ -33,7 +33,7 @@ func (mvd *moveDetect) runMoveDetectFindDeleted(directory string) error {
 		return nil
 	}
 	fc := func(fn core.Fname, fileStruct core.FileStruct) (core.FileStruct, error) {
-		_, err := os.Stat(string(fileStruct.Path()))
+		_, err := os.Stat(fileStruct.Path().String())
 		if !errors.Is(err, os.ErrNotExist) {
 			return fileStruct, core.ErrIgnoreThisMutate
 		}

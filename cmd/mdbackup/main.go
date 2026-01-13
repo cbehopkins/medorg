@@ -82,17 +82,17 @@ func sizeOfBytes(fn string) int64 {
 // poolCopier copies a file while updating a progress bar using bytes written
 func poolCopier(src, dst core.Fpath, pool *pb.Pool, wg *sync.WaitGroup) error {
 	myBar := new(pb.ProgressBar)
-	myBar.Set("prefix", fmt.Sprint(string(src), ":"))
+	myBar.Set("prefix", fmt.Sprint(src.String(), ":"))
 	myBar.Set(pb.Bytes, true)
-	total := sizeOfBytes(string(src))
+	total := sizeOfBytes(src.String())
 	myBar.SetTotal(total)
 
 	pool.Add(myBar)
 	myBar.Start()
 
 	// Replicate core.CopyFile with progress-enabled copy path
-	srcs := string(src)
-	dsts := string(dst)
+	srcs := src.String()
+	dsts := dst.String()
 	sfi, err := os.Stat(srcs)
 	if err != nil {
 		myBar.Finish()

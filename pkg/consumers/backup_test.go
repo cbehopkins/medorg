@@ -99,7 +99,8 @@ func createTestBackupDirectories(numberOfFiles, numberOfDuplicates int) ([]strin
 		stem := filepath.Base(selectedFilename)
 		dstFile := core.NewFpath(directoriesCreated[1], stem)
 		log.Println("Pretending to backup", dstFile)
-		err := core.CopyFile(core.Fpath(selectedFilename), dstFile)
+		srcFile := core.NewFpath(selectedFilename)
+		err := core.CopyFile(srcFile, dstFile)
 		if err != nil {
 			return nil, err
 		}
@@ -427,7 +428,7 @@ func TestDupeMapOperations(t *testing.T) {
 	if !ok {
 		t.Error("Expected to find added file")
 	}
-	expectedPath := core.Fpath(filepath.Join("/test", "test1.txt"))
+	expectedPath := core.NewFpath("/test", "test1.txt")
 	if path != expectedPath {
 		t.Errorf("Expected path '%s', got '%s'", expectedPath, path)
 	}
@@ -450,7 +451,7 @@ func TestDupeMapOperations(t *testing.T) {
 	if !ok {
 		t.Error("Expected to find file after duplicate add")
 	}
-	expectedPath2 := core.Fpath(filepath.Join("/test2", "test2.txt"))
+	expectedPath2 := core.NewFpath("/test2", "test2.txt")
 	if path != expectedPath2 {
 		t.Errorf("Expected updated path '%s', got '%s'", expectedPath2, path)
 	}
@@ -555,7 +556,7 @@ func TestAddMetadataInterface(t *testing.T) {
 	if !ok {
 		t.Error("Expected to find file added via AddMetadata")
 	}
-	expectedPath := core.Fpath(filepath.Join("/testdir", "test.txt"))
+	expectedPath := core.NewFpath("/testdir", "test.txt")
 	if path != expectedPath {
 		t.Errorf("Expected path '%s', got '%s'", expectedPath, path)
 	}

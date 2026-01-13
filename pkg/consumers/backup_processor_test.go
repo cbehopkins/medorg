@@ -87,7 +87,7 @@ func TestAddFile(t *testing.T) {
 			md5Key := "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4" // Valid 32-char hex MD5
 			size := int64(1024)
 			backupDest := []string{"dest1", "dest2"}
-			fpath := core.Fpath("/path/to/file.txt")
+			fpath := core.NewFpath("/path/to/file.txt")
 
 			err := bp.addSrcFile(md5Key, size, backupDest, fpath)
 			if err != nil {
@@ -140,13 +140,13 @@ func TestAddFileOverwrite(t *testing.T) {
 	md5Key := "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"
 
 	// Add first file
-	err := bp.addSrcFile(md5Key, 100, []string{"dest1"}, core.Fpath("/file1.txt"))
+	err := bp.addSrcFile(md5Key, 100, []string{"dest1"}, core.NewFpath("/file1.txt"))
 	if err != nil {
 		t.Fatalf("first addFile failed: %v", err)
 	}
 
 	// Add second file with same key (should overwrite)
-	err = bp.addSrcFile(md5Key, 200, []string{"dest2", "dest3"}, core.Fpath("/file2.txt"))
+	err = bp.addSrcFile(md5Key, 200, []string{"dest2", "dest3"}, core.NewFpath("/file2.txt"))
 	if err != nil {
 		t.Fatalf("second addFile failed: %v", err)
 	}
@@ -161,7 +161,7 @@ func TestAddFileOverwrite(t *testing.T) {
 	if !ok {
 		t.Fatal("expected one file from iterator")
 	}
-	if string(fp) != "/file1.txt" {
+	if fp.String() != "/file1.txt" {
 		t.Errorf("expected /file1.txt (fewest backups retained), got %s", fp)
 	}
 }
@@ -196,7 +196,7 @@ func TestPrioritizedFilesSingleFile(t *testing.T) {
 			defer tp.cleanup()
 			bp := tp.processor
 
-			fpath := core.Fpath("/single/file.txt")
+			fpath := core.NewFpath("/single/file.txt")
 			err := bp.addSrcFile("a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4", 500, []string{"dest1"}, fpath)
 			if err != nil {
 				t.Fatalf("addFile failed: %v", err)
@@ -233,25 +233,25 @@ func TestPrioritizedFilesOrdering(t *testing.T) {
 			bp := tp.processor
 
 			// Add files with different BackupDest lengths (use unique MD5s)
-			file0 := core.Fpath("/file0.txt")
+			file0 := core.NewFpath("/file0.txt")
 			err := bp.addSrcFile("00000000000000000000000000000000", 100, []string{}, file0)
 			if err != nil {
 				t.Fatalf("addFile failed: %v", err)
 			}
 
-			file3 := core.Fpath("/file3.txt")
+			file3 := core.NewFpath("/file3.txt")
 			err = bp.addSrcFile("33333333333333333333333333333333", 400, []string{"d1", "d2", "d3"}, file3)
 			if err != nil {
 				t.Fatalf("addFile failed: %v", err)
 			}
 
-			file1 := core.Fpath("/file1.txt")
+			file1 := core.NewFpath("/file1.txt")
 			err = bp.addSrcFile("11111111111111111111111111111111", 200, []string{"dest1"}, file1)
 			if err != nil {
 				t.Fatalf("addFile failed: %v", err)
 			}
 
-			file2 := core.Fpath("/file2.txt")
+			file2 := core.NewFpath("/file2.txt")
 			err = bp.addSrcFile("22222222222222222222222222222222", 300, []string{"dest1", "dest2"}, file2)
 			if err != nil {
 				t.Fatalf("addFile failed: %v", err)
@@ -291,8 +291,8 @@ func TestPrioritizedFilesSkipAlreadyBackedUp(t *testing.T) {
 			defer tp.cleanup()
 			bp := tp.processor
 
-			missingPath := core.Fpath("/missing.txt")
-			backedPath := core.Fpath("/backed.txt")
+			missingPath := core.NewFpath("/missing.txt")
+			backedPath := core.NewFpath("/backed.txt")
 
 			if err := bp.addSrcFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 200, []string{"d1"}, missingPath); err != nil {
 				t.Fatalf("addSrcFile missing failed: %v", err)
@@ -338,10 +338,10 @@ func TestPrioritizedFilesBucketAndSizeOrdering(t *testing.T) {
 				dests []string
 				path  core.Fpath
 			}{
-				{md5: generateMD5Key("a"), size: 300, dests: []string{}, path: core.Fpath("/len0_big.dat")},
-				{md5: generateMD5Key("b"), size: 100, dests: []string{}, path: core.Fpath("/len0_small.dat")},
-				{md5: generateMD5Key("c"), size: 400, dests: []string{"d1"}, path: core.Fpath("/len1_big.dat")},
-				{md5: generateMD5Key("d"), size: 50, dests: []string{"d1"}, path: core.Fpath("/len1_small.dat")},
+				{md5: generateMD5Key("a"), size: 300, dests: []string{}, path: core.NewFpath("/len0_big.dat")},
+				{md5: generateMD5Key("b"), size: 100, dests: []string{}, path: core.NewFpath("/len0_small.dat")},
+				{md5: generateMD5Key("c"), size: 400, dests: []string{"d1"}, path: core.NewFpath("/len1_big.dat")},
+				{md5: generateMD5Key("d"), size: 50, dests: []string{"d1"}, path: core.NewFpath("/len1_small.dat")},
 			}
 
 			for _, c := range cases {
@@ -356,10 +356,10 @@ func TestPrioritizedFilesBucketAndSizeOrdering(t *testing.T) {
 			}
 
 			expected := []core.Fpath{
-				core.Fpath("/len0_big.dat"),
-				core.Fpath("/len0_small.dat"),
-				core.Fpath("/len1_big.dat"),
-				core.Fpath("/len1_small.dat"),
+				core.NewFpath("/len0_big.dat"),
+				core.NewFpath("/len0_small.dat"),
+				core.NewFpath("/len1_big.dat"),
+				core.NewFpath("/len1_small.dat"),
 			}
 
 			for idx, want := range expected {
@@ -387,9 +387,9 @@ func TestPrioritizedFilesSameBackupLength(t *testing.T) {
 			defer tp.cleanup()
 			bp := tp.processor
 
-			file1 := core.Fpath("/file1.txt")
-			file2 := core.Fpath("/file2.txt")
-			file3 := core.Fpath("/file3.txt")
+			file1 := core.NewFpath("/file1.txt")
+			file2 := core.NewFpath("/file2.txt")
+			file3 := core.NewFpath("/file3.txt")
 
 			err := bp.addSrcFile(generateMD5Key("key1"), 100, []string{"d1", "d2"}, file1)
 			if err != nil {
@@ -439,7 +439,7 @@ func TestPrioritizedFilesMultipleCalls(t *testing.T) {
 			defer tp.cleanup()
 			bp := tp.processor
 
-			file1 := core.Fpath("/file1.txt")
+			file1 := core.NewFpath("/file1.txt")
 			err := bp.addSrcFile(generateMD5Key("key1"), 100, []string{}, file1)
 			if err != nil {
 				t.Fatalf("addFile failed: %v", err)
@@ -482,7 +482,7 @@ func TestPrioritizedFilesWithManyFiles(t *testing.T) {
 		for j := 0; j < backupCount; j++ {
 			backupDest[j] = string(rune('x' + j))
 		}
-		fpath := core.Fpath(fmt.Sprintf("/file_%03d", i))
+		fpath := core.NewFpath(fmt.Sprintf("/file_%03d", i))
 		err := bp.addSrcFile(md5Key, int64(i*100), backupDest, fpath)
 		if err != nil {
 			t.Fatalf("addFile failed for file %d: %v", i, err)

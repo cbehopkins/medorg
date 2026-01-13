@@ -50,8 +50,8 @@ func createDestDirectoryAsNeeded(dst string) error {
 // the same, then return success. Otherise, attempt to create a hard link
 // between the two files. If that fail, copy the file contents from src to dst.
 func CopyFile(src, dst Fpath) (err error) {
-	srcs := string(src)
-	dsts := string(dst)
+	srcs := src.string
+	dsts := dst.string
 	sfi, err := os.Stat(srcs)
 	if err != nil {
 		return fmt.Errorf("error in CopyFile src file status %w %s", err, srcs)
@@ -86,7 +86,7 @@ func CopyFile(src, dst Fpath) (err error) {
 
 // RmFilename removes a file if it exists
 func RmFilename(fn Fpath) error {
-	fns := string(fn)
+	fns := fn.string
 	if _, err := os.Stat(fns); err == nil {
 		return os.Remove(fns)
 	}
@@ -97,8 +97,8 @@ func RmFilename(fn Fpath) error {
 // The inbuilt functions can struggle if hard links won't work
 // i.e. you want to move between mount points
 func MoveFile(src, dst Fpath) (err error) {
-	srcs := string(src)
-	dsts := string(dst)
+	srcs := src.string
+	dsts := dst.string
 	if _, err := os.Stat(srcs); os.IsNotExist(err) {
 		return err
 	}
@@ -206,12 +206,12 @@ func HomeDir() Fpath {
 		// Using panic here as this is called during initialization and there's no recovery
 		panic(fmt.Sprintf("unable to get user home directory: %v", err))
 	}
-	return Fpath(usr.HomeDir)
+	return Fpath{usr.HomeDir}
 }
 
 func ConfigPath(file string) string {
 	if _, err := os.Stat(file); os.IsNotExist(err) {
-		return filepath.Join(string(HomeDir()), file)
+		return filepath.Join(HomeDir().String(), file)
 	}
 	return file
 }

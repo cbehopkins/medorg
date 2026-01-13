@@ -145,7 +145,7 @@ func Run(cfg Config) (int, error) {
 	if cfg.DummyMode {
 		log.Println("Configuring for dummy copy mode")
 		copyer = func(src, dst core.Fpath) error {
-			if fileSkipper(string(src)) {
+			if fileSkipper(src.String()) {
 				return nil
 			}
 			log.Println("Copy from:", src, " to ", dst)
@@ -154,7 +154,7 @@ func Run(cfg Config) (int, error) {
 	} else if cfg.UseProgressBar {
 		log.Println("Using Progress bar style copy")
 		copyer = func(src, dst core.Fpath) error {
-			if fileSkipper(string(src)) {
+			if fileSkipper(src.String()) {
 				return nil
 			}
 			return poolCopier(src, dst, pool, &wg)
@@ -162,7 +162,7 @@ func Run(cfg Config) (int, error) {
 	} else {
 		log.Println("Configuring for default copy mode")
 		copyer = func(src, dst core.Fpath) error {
-			if fileSkipper(string(src)) {
+			if fileSkipper(src.String()) {
 				return nil
 			}
 			log.Println("Copying:", src, "to", dst)
