@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"log"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
@@ -327,42 +326,5 @@ func (dt *DirTracker) directoryWalker(path string, d fs.DirEntry, err error) err
 		return fmt.Errorf("missing directory entry for %s: %w", path, errorMissingDe)
 	}
 	de.VisitFile(dir, file, d, returnToken)
-	return nil
-}
-
-// RevisitAll allows you to walk through all tracked directories in the DirTracker
-func (dt *DirTracker) RevisitAll(
-	dir string,
-	dirVisitor func(dt *DirTracker),
-	fileVisitor func(dm DirectoryEntryInterface, dir Dirname, fn Fname, fileStruct FileStruct) error,
-	closer <-chan struct{},
-) error {
-	dt.finished.Clear()
-	defer dt.finished.Set()
-	atomic.StoreInt64(&dt.directoryCountVisited, 0)
-	if dirVisitor != nil {
-		dirVisitor(dt)
-	}
-	for path, de := range dt.dm {
-		if closer != nil {
-			select {
-			case _, ok := <-closer:
-				if !ok {
-					log.Println("RevisitAll saw a closer")
-					return nil
-				}
-			default:
-			}
-		}
-		atomic.AddInt64(&dt.directoryCountVisited, 1)
-		entry, ok := de.(DirectoryEntry)
-		if ok {
-			if err := entry.Revisit(Dirname(path), fileVisitor); err != nil {
-				return fmt.Errorf("RevisitAll: revisit failed for %s: %w", path, err)
-			}
-		} else {
-			panic(fmt.Sprintf("RevisitAll: entry for path %s is not of type DirectoryEntry (type: %T) - this is a fundamental design error", path, de))
-		}
-	}
 	return nil
 }

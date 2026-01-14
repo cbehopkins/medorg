@@ -25,35 +25,24 @@ type moveDetect struct {
 	dupeMap map[moveKey]core.FileStruct
 }
 
-// runMoveDetectFindDeleted will run through the directory
-// looking for any files which have been deleted
-// And move the FileStruct from the dm into a map
+// runMoveDetectFindDeleted will visit all directories looking for files which have been deleted
+// Collects deleted file properties for matching in the second pass
 func (mvd *moveDetect) runMoveDetectFindDeleted(directory string) error {
-	visitFunc := func(dm core.DirectoryMap, path core.Fpath, d fs.DirEntry) error {
+	visitFunc := func(dm core.DirectoryMap, path core.Fpath, d fs.DirEntry, fileStruct core.FileStruct, fileInfo os.FileInfo) error {
+		if path.Is(core.Md5FileName) {
+			return nil
+		}
+		// Check if the file still exists on disk
+		_, err := os.Stat(path.String())
+		if errors.Is(err, os.ErrNotExist) {
+			// File doesn't exist, add to move detect map for later matching
+			mvd.add(fileStruct)
+		}
 		return nil
 	}
-	fc := func(file core.Fpath, d os.FileInfo, fs core.FileStruct) (core.FileStruct, error) {
-		_, err := os.Stat(fs.Path().String())
-		if !errors.Is(err, os.ErrNotExist) {
-			return fs, core.ErrIgnoreThisMutate
-		}
-		// The file does not exist on the disk, so
-		// add it to our list of files
-		mvd.add(fs)
-		return fs, core.ErrDeleteThisEntry
-	}
-	makerFunc := func(dir string) (core.DirectoryTrackerInterface, error) {
-		mkFk := func(dir string) (core.DirectoryEntryInterface, error) {
-			dm, err := core.DirectoryMapFromDir(core.Dirname(dir))
-			if err != nil {
-				return dm, err
-			}
-			dm.SetVisitFunc(visitFunc)
-			return dm, dm.RangeMutate(fc)
-		}
-		return core.NewDirectoryEntry(dir, mkFk)
-	}
-	for err := range core.NewDirTracker(false, directory, makerFunc).ErrChan() {
+
+	errChan := core.VisitFilesInDirectories([]string{directory}, nil, visitFunc)
+	for err := range errChan {
 		if err != nil {
 			return err
 		}
@@ -61,41 +50,35 @@ func (mvd *moveDetect) runMoveDetectFindDeleted(directory string) error {
 	return nil
 }
 
-// runMoveDetectFindNew will run through the directory
-// looking for any new files and if they exist in the map
-// then populate the entry withou a calculation
+// runMoveDetectFindNew will visit all directories looking for new files
+// If they match deleted files (by size and name), adds them to the map
 func (mvd *moveDetect) runMoveDetectFindNew(directory string) error {
-	visitFunc := func(dm core.DirectoryMap, path core.Fpath, d fs.DirEntry) error {
+	visitFunc := func(dm core.DirectoryMap, path core.Fpath, d fs.DirEntry, fileStruct core.FileStruct, fileInfo os.FileInfo) error {
 		if path.Is(core.Md5FileName) {
 			return nil
 		}
-		v, err := mvd.query(d)
+
+		// Check if this file matches any deleted file by size and name
+		v, err := mvd.query(fileInfo)
 		if err == errMvdQueryFailed {
+			// No match found, skip
 			return nil
 		}
 		if err != nil {
 			return err
 		}
+
+		// Found a match! Update the file with the deleted file's metadata
 		v.SetDirectory(path.Dir())
 		dm.Add(v)
 		mvd.delete(v)
+
+		// Update the file values in the map
 		return dm.UpdateValues(path.Dir(), d)
 	}
-	makerFunc := func(dir string) (core.DirectoryTrackerInterface, error) {
-		mkFk := func(dir string) (core.DirectoryEntryInterface, error) {
-			dm, err := core.DirectoryMapFromDir(core.Dirname(dir))
-			if err != nil {
-				return dm, err
-			}
-			dm.SetVisitFunc(visitFunc)
-			return dm, nil
-		}
-		return core.NewDirectoryEntry(dir, mkFk)
-	}
-	errChan := core.NewDirTracker(false, directory, makerFunc).ErrChan()
+
+	errChan := core.VisitFilesInDirectories([]string{directory}, nil, visitFunc)
 	for err := range errChan {
-		for range errChan {
-		}
 		if err != nil {
 			return err
 		}
@@ -161,17 +144,13 @@ func (mvd *moveDetect) delete(fileStruct core.FileStruct) {
 }
 
 // query if the file struct (equivalent) is in the move detect array
-func (mvd *moveDetect) query(d fs.DirEntry) (core.FileStruct, error) {
-	info, err := d.Info()
-	if err != nil {
-		return core.FileStruct{}, err
-	}
+func (mvd *moveDetect) query(fi os.FileInfo) (core.FileStruct, error) {
 	mvd.RLock()
 	defer mvd.RUnlock()
 	if mvd.dupeMap == nil {
 		return core.FileStruct{}, errMvdQueryFailed
 	}
-	key := moveKey{info.Size(), info.Name()}
+	key := moveKey{fi.Size(), fi.Name()}
 	v, ok := mvd.dupeMap[key]
 	if !ok {
 		return core.FileStruct{}, errMvdQueryFailed

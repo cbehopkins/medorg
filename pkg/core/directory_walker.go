@@ -22,8 +22,11 @@ type directoryWalker struct {
 type DirectoryWalker struct {
 	directoryWalker
 	fileVisitors []ForEachCallback
+	fileMutators  []DmMutCallback
 }
-
+func (dw *DirectoryWalker) AddFileMutator(fm DmMutCallback) {
+	dw.fileMutators = append(dw.fileMutators, fm)
+}
 func (dw *DirectoryWalker) AddFileVisitor(fv ForEachCallback) {
 	dw.fileVisitors = append(dw.fileVisitors, fv)
 }
@@ -51,6 +54,7 @@ func NewDirectoryWalker(WorkTokens chan struct{}) *DirectoryWalker {
 	}
 	dw.directoryWalker.DirectoryVisitor = dw.dirVisitor
 	dw.fileVisitors = make([]ForEachCallback, 0)
+	dw.fileMutators = make([]DmMutCallback, 0)
 	return dw
 }
 func (dw *directoryWalker) Cancel() {
@@ -140,6 +144,21 @@ func (dw *DirectoryWalker) dirVisitor(path Dirname, d fs.DirEntry, err error) er
 				}
 			}
 			return nil
+		})
+		if err != nil {
+			return err
+		}
+	}
+	if len(dw.fileMutators) > 0 {
+		err:= dm.RangeMutate(func(file Fpath, d os.FileInfo, fs FileStruct) (FileStruct, error){
+			for _, fm := range dw.fileMutators {
+				var err error
+				fs, err = fm(file, d, fs)
+				if err != nil {
+					return fs, err
+				}
+			}
+			return fs, nil
 		})
 		if err != nil {
 			return err
