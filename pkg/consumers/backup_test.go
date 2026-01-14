@@ -215,16 +215,16 @@ func TestBackupChecksumMaintenance(t *testing.T) {
 	destDir := dirs[1]
 
 	// Collect checksums from source before backup
-	srcChecksums := make(map[core.Fname]core.FileStruct)
-	srcVisitor := func(dm core.DirectoryEntryInterface, dir core.Dirname, fn core.Fname, fileStruct core.FileStruct) error {
-		if fn == core.Md5FileName {
+	srcChecksums := make(map[core.Fname]core.FileMetadata)
+	srcVisitor := func(fn core.Fname, fm core.FileMetadata, fi os.FileInfo) error {
+		if fn == core.Md5FileName || fn == core.VolumePathName {
 			return nil
 		}
-		srcChecksums[fn] = fileStruct
-		if fileStruct.Checksum == "" {
+		srcChecksums[fn] = fm
+		if fm.GetChecksum() == "" {
 			t.Errorf("Source file %s has empty checksum before backup", fn)
 		}
-		if fileStruct.Size == 0 {
+		if fm.GetSize() == 0 {
 			t.Errorf("Source file %s has zero size", fn)
 		}
 		return nil
@@ -241,8 +241,8 @@ func TestBackupChecksumMaintenance(t *testing.T) {
 	}
 
 	// Verify destination files have correct metadata
-	destVisitor := func(dm core.DirectoryEntryInterface, dir core.Dirname, fn core.Fname, fileStruct core.FileStruct) error {
-		if fn == core.Md5FileName {
+	destVisitor := func(fn core.Fname, fm core.FileMetadata, fi os.FileInfo) error {
+		if fn == core.Md5FileName || fn == core.VolumePathName {
 			return nil
 		}
 
@@ -253,31 +253,39 @@ func TestBackupChecksumMaintenance(t *testing.T) {
 		}
 
 		// Check size matches
-		if fileStruct.Size != srcFile.Size {
-			t.Errorf("File %s: size mismatch. Source=%d, Dest=%d", fn, srcFile.Size, fileStruct.Size)
+		if fm.GetSize() != srcFile.GetSize() {
+			t.Errorf("File %s: size mismatch. Source=%d, Dest=%d", fn, srcFile.GetSize(), fm.GetSize())
 		}
 
 		// Check checksum matches
-		if fileStruct.Checksum != srcFile.Checksum {
-			t.Errorf("File %s: checksum mismatch. Source=%s, Dest=%s", fn, srcFile.Checksum, fileStruct.Checksum)
+		if fm.GetChecksum() != srcFile.GetChecksum() {
+			t.Errorf("File %s: checksum mismatch. Source=%s, Dest=%s", fn, srcFile.GetChecksum(), fm.GetChecksum())
 		}
 
 		// Check checksum is non-empty
-		if fileStruct.Checksum == "" {
+		if fm.GetChecksum() == "" {
 			t.Errorf("Destination file %s has empty checksum after backup", fn)
 		}
 
 		return nil
 	}
 
-	dt := core.AutoVisitFilesInDirectories([]string{srcDir}, nil)
-	if err := dt[0].RevisitAll(srcDir, nil, srcVisitor, nil); err != nil {
-		t.Fatalf("RevisitAll src error: %v", err)
+	// Use DirectoryWalker to visit source files
+	dw := core.NewDirectoryWalker(core.MakeTokenChan(core.NumTrackerOutstanding))
+	dw.AddFileVisitor(func(fn core.Fname, fm core.FileMetadata, fi os.FileInfo) error {
+		return srcVisitor(fn, fm, fi)
+	})
+	if err := dw.Walk(srcDir); err != nil {
+		t.Fatalf("DirectoryWalker src error: %v", err)
 	}
 
-	dtDest := core.AutoVisitFilesInDirectories([]string{destDir}, nil)
-	if err := dtDest[0].RevisitAll(destDir, nil, destVisitor, nil); err != nil {
-		t.Fatalf("RevisitAll dest error: %v", err)
+	// Use DirectoryWalker to visit destination files
+	dwDest := core.NewDirectoryWalker(core.MakeTokenChan(core.NumTrackerOutstanding))
+	dwDest.AddFileVisitor(func(fn core.Fname, fm core.FileMetadata, fi os.FileInfo) error {
+		return destVisitor(fn, fm, fi)
+	})
+	if err := dwDest.Walk(destDir); err != nil {
+		t.Fatalf("DirectoryWalker dest error: %v", err)
 	}
 }
 
@@ -316,9 +324,13 @@ func TestBackupOrphanDetection(t *testing.T) {
 		}
 		return nil
 	}
-	dtDest := core.AutoVisitFilesInDirectories([]string{destDir}, nil)
-	if err := dtDest[0].RevisitAll(destDir, nil, collectFilesVisitor, nil); err != nil {
-		t.Fatalf("RevisitAll dest collect error: %v", err)
+	// Use DirectoryWalker to collect destination files
+	dwDest := core.NewDirectoryWalker(core.MakeTokenChan(core.NumTrackerOutstanding))
+	dwDest.AddFileVisitor(func(fn core.Fname, fm core.FileMetadata, fi os.FileInfo) error {
+		return collectFilesVisitor(nil, core.Dirname(destDir), fn, *fm.(*core.FileStruct))
+	})
+	if err := dwDest.Walk(destDir); err != nil {
+		t.Fatalf("DirectoryWalker collect error: %v", err)
 	}
 
 	if len(destFilesAfterBackup) == 0 {
@@ -378,16 +390,6 @@ func TestBackupOrphanDetection(t *testing.T) {
 	} else {
 		t.Logf("✓ Orphan detection working: %d orphaned files detected", orphanCount)
 	}
-}
-
-// TestStaleTagRemoval_DISABLED - disabled because it uses the removed backScanner struct
-func TestStaleTagRemoval_DISABLED(t *testing.T) {
-	t.Skip("Test disabled due to removal of backScanner struct")
-}
-
-// TestPartialStaleTagRemoval_DISABLED - disabled because it uses the removed backScanner struct
-func TestPartialStaleTagRemoval_DISABLED(t *testing.T) {
-	t.Skip("Test disabled due to removal of backScanner struct")
 }
 
 // TestDupeMapOperations tests the backupDupeMap basic operations
@@ -461,7 +463,7 @@ func TestDupeMapConcurrency(t *testing.T) {
 	numGoroutines := 10
 	filesPerGoroutine := 5
 
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
@@ -510,11 +512,6 @@ func TestDupeMapConcurrency(t *testing.T) {
 	for err := range errChan {
 		t.Error("Concurrent read error:", err)
 	}
-}
-
-// TestNewSrcVisitorTagCorrection_DISABLED - disabled because it uses the removed backScanner struct
-func TestNewSrcVisitorTagCorrection_DISABLED(t *testing.T) {
-	t.Skip("Test disabled due to removal of backScanner struct")
 }
 
 // TestAddMetadataInterface tests the FileMetadata interface-based Add method

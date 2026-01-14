@@ -62,6 +62,14 @@ func (dw *directoryWalker) Walk(root string) error {
 	// This would make doing the checkcalc much faster as we only need a single pass
 	return filepath.WalkDir(root, dw.walkVisitor)
 }
+func(dw *directoryWalker) WalkMulti(roots []string) error {
+	for _, root := range roots {
+		if err := dw.Walk(root); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 func (dw *directoryWalker) shouldSkipDir(path string, d fs.DirEntry) error {
 
@@ -117,10 +125,6 @@ func (dw *DirectoryWalker) dirVisitor(path Dirname, d fs.DirEntry, err error) er
 
 	dm, err := DirectoryMapFromDirWithScan(path)
 	if err != nil {
-		return err
-	}
-
-	if err := dm.UpdateAllChecksums(); err != nil {
 		return err
 	}
 

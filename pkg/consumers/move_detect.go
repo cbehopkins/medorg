@@ -32,15 +32,15 @@ func (mvd *moveDetect) runMoveDetectFindDeleted(directory string) error {
 	visitFunc := func(dm core.DirectoryMap, path core.Fpath, d fs.DirEntry) error {
 		return nil
 	}
-	fc := func(fn core.Fname, fileStruct core.FileStruct) (core.FileStruct, error) {
-		_, err := os.Stat(fileStruct.Path().String())
+	fc := func(file core.Fpath, d os.FileInfo, fs core.FileStruct) (core.FileStruct, error) {
+		_, err := os.Stat(fs.Path().String())
 		if !errors.Is(err, os.ErrNotExist) {
-			return fileStruct, core.ErrIgnoreThisMutate
+			return fs, core.ErrIgnoreThisMutate
 		}
 		// The file does not exist on the disk, so
 		// add it to our list of files
-		mvd.add(fileStruct)
-		return fileStruct, core.ErrDeleteThisEntry
+		mvd.add(fs)
+		return fs, core.ErrDeleteThisEntry
 	}
 	makerFunc := func(dir string) (core.DirectoryTrackerInterface, error) {
 		mkFk := func(dir string) (core.DirectoryEntryInterface, error) {

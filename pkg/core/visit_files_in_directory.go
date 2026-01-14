@@ -2,25 +2,10 @@ package core
 
 import (
 	"io/fs"
-	"log"
-	"sync"
+	"os"
 
 	pb "github.com/cbehopkins/pb/v3"
 )
-
-// VisitFilesWithInterface: Interface-based visitor for decoupled code
-// Uses FileMetadata and DirectoryStorage interfaces instead of concrete types
-func VisitFilesWithInterface(
-	directories []string,
-	factory *pb.PoolProgressFactory,
-	visitor ExtendedDirectoryVisitor,
-) <-chan error {
-	// Wrap the interface visitor to work with the legacy implementation
-	legacyVisitor := func(dm DirectoryMap, path Fpath, d fs.DirEntry, fileStruct FileStruct, fileInfo fs.FileInfo) error {
-		return visitor.Visit(&dm, path, d, &fileStruct, fileInfo)
-	}
-	return VisitFilesInDirectories(directories, factory, legacyVisitor)
-}
 
 // VisitFilesInDirectories: You should default to using this utility function where you can
 // It's probably what you want!
@@ -33,103 +18,34 @@ func VisitFilesInDirectories(
 	factory *pb.PoolProgressFactory,
 	someVisitFunc func(dm DirectoryMap, path Fpath, d fs.DirEntry, fileStruct FileStruct, fileInfo fs.FileInfo) error,
 ) <-chan error {
-	dts := AutoVisitFilesInDirectories(directories, someVisitFunc)
-	return errHandler(dts, factory)
-}
+	// Implemented with DirectoryWalker to leverage DirectoryMapFromDirWithScan internally
+	// and avoid redundant per-file stats. We bridge the legacy visitor signature here.
+	errChan := make(chan error, 1)
 
-func errHandler(
-	dts []*DirTracker,
-	factory *pb.PoolProgressFactory,
-) <-chan error {
-	errChan := make(chan error, len(dts)) // Buffer with capacity = number of senders
-	var wg sync.WaitGroup
-	wg.Add(len(dts))
-	for _, ndt := range dts {
-		if factory != nil {
-			if err := factory.Register(ndt); err != nil {
-				log.Printf("failed to register progress: %v", err)
-			}
-		}
-		go func(ndt *DirTracker) {
-			for err := range ndt.ErrChan() {
-				log.Println("Error received", err)
-				if err != nil {
-					errChan <- err
-				}
-			}
-			wg.Done()
-		}(ndt)
-	}
-	go func() {
-		wg.Wait()
-		if factory != nil && factory.Wg != nil {
-			factory.Wg.Wait()
-		}
-		close(errChan)
-	}()
-	return errChan
-}
-
-// AutoVisitFilesInDirectoriesWithTokens is like AutoVisitFilesInDirectories but accepts a shared token channel
-// for global concurrency control across all directories
-func AutoVisitFilesInDirectoriesWithTokens(
-	directories []string,
-	fileProcessTokens chan struct{},
-	someVisitFunc func(dm DirectoryMap, path Fpath, d fs.DirEntry, fileStruct FileStruct, fileInfo fs.FileInfo) error,
-) []*DirTracker {
-	if someVisitFunc == nil {
-		someVisitFunc = func(dm DirectoryMap, path Fpath, d fs.DirEntry, fileStruct FileStruct, fileInfo fs.FileInfo) error {
-			return nil
-		}
-	}
-	visitFunc := func(dm DirectoryMap, path Fpath, d fs.DirEntry) error {
-		if path.Is(Md5FileName) {
-			return nil
-		}
-		fileStruct, ok := dm.Get(path.Base())
+	dw := NewDirectoryWalker(MakeTokenChan(NumTrackerOutstanding))
+	dw.AddFileVisitor(func(fn Fname, fm FileMetadata, fi os.FileInfo) error {
+		// Reconstruct path and concrete FileStruct for the legacy visitor
+		fsPtr, ok := fm.(*FileStruct)
 		if !ok {
-			// Use the DirEntry to get file info instead of redundant os.Stat
-			fileInfo, err := d.Info()
-			if err != nil {
-				return err
-			}
-			fileStruct, err = fileStruct.FromStat(path.Dir(), path.Base(), fileInfo)
-			if err != nil {
-				return err
-			}
-			dm.Add(fileStruct)
+			return nil
 		}
-		fileInfo, err := d.Info()
-		if err != nil {
-			return err
-		}
+		fp := NewFpath(string(fsPtr.directory), string(fn))
+		// We don't have a concrete fs.DirEntry per-file in this walker; pass nil.
+		// The DirectoryMap is managed inside the walker; pass zero value for compatibility.
+		return someVisitFunc(DirectoryMap{}, fp, nil, *fsPtr, fi)
+	})
 
-		return someVisitFunc(dm, path, d, fileStruct, fileInfo)
-	}
-
-	makerFunc := func(dir string) (DirectoryTrackerInterface, error) {
-		mkFk := func(dir string) (DirectoryEntryInterface, error) {
-			dm, err := DirectoryMapFromDir(Dirname(dir))
-			if err == nil {
-				dm.SetVisitFunc(visitFunc)
+	go func() {
+		defer close(errChan)
+		// Equivalent to WalkMulti to avoid method set quirks on embedded types
+		for _, root := range directories {
+			if err := (&dw.directoryWalker).Walk(root); err != nil {
+				errChan <- err
+				return
 			}
-			return dm, err
 		}
-		de, err := NewDirectoryEntryWithTokens(dir, mkFk, fileProcessTokens)
-		return de, err
-	}
-	retArray := make([]*DirTracker, len(directories))
-	for i, targetDir := range directories {
-		retArray[i] = NewDirTrackerWithTokens(true, targetDir, makerFunc)
-	}
-	return retArray
-}
-// So this is just a concenience function for
-// Running some visit function on all files in all directories
-// FIXME Can we remove  d fs.FileInfo (Since it comes from fs.DirEntry) & dm???
-func AutoVisitFilesInDirectories(
-	directories []string,
-	someVisitFunc func(dm DirectoryMap, path Fpath, d fs.DirEntry, fileStruct FileStruct, fileInfo fs.FileInfo) error,
-) []*DirTracker {
-	return AutoVisitFilesInDirectoriesWithTokens(directories, nil, someVisitFunc)
+	}()
+
+	// Progress factory not integrated in this walker-based path to keep API stable.
+	return errChan
 }

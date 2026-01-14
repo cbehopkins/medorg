@@ -21,11 +21,9 @@ var ErrUnimplementedVisitor = errors.New("unimplemented visitor")
 
 var errSelfCheckProblem = errors.New("self check problem")
 
-// Read only Callback
-type DmVisitCallback func(file Fpath, d fs.DirEntry, fs FileStruct) error
-
 // Mutating Callback
-type DmMutCallback func(file Fpath, d fs.DirEntry, fs FileStruct) (FileStruct, error)
+type DmMutCallback func(file Fpath, d os.FileInfo, fs FileStruct) (FileStruct, error)
+// Read only Callback
 type DmVisitFuncType func(dm DirectoryMap, path Fpath, d fs.DirEntry) error
 type ForEachCallback func(Fname, FileMetadata, os.FileInfo) error
 
@@ -36,6 +34,7 @@ type FsFunc func(fs *FileStruct) error
 // DirectoryMap contains for the directory all the file structs
 type DirectoryMap struct {
 	mp    map[Fname]FileStruct
+	fi    map[Fname]os.FileInfo
 	stale *bool
 	// We want to copy the DirectoryMap elsewhere
 	lock *sync.RWMutex
@@ -60,6 +59,7 @@ func updateDirEntry(dm DirectoryMap, path Fpath, d fs.DirEntry) error {
 func NewDirectoryMap() *DirectoryMap {
 	itm := new(DirectoryMap)
 	itm.mp = make(map[Fname]FileStruct)
+	itm.fi = make(map[Fname]os.FileInfo)
 	itm.stale = new(bool)
 	itm.lock = new(sync.RWMutex)
 	itm.visitFunc = updateDirEntry
@@ -70,7 +70,6 @@ func NewDirectoryMap() *DirectoryMap {
 // The visit func is called during directory traversal for each file
 // It runs early in the process and is quite integral to the DirectoryMap construction
 // One typically only overrides this for test purposes
-
 func (dm *DirectoryMap) SetVisitFunc(f DmVisitFuncType) {
 	dm.lock.Lock()
 	defer dm.lock.Unlock()
@@ -138,6 +137,7 @@ func (dm DirectoryMap) Add(fs FileStruct) {
 func (dm DirectoryMap) rm(fn Fname) {
 	dm.lock.Lock()
 	delete(dm.mp, fn)
+	delete(dm.fi, fn)
 	*dm.stale = true
 	dm.lock.Unlock()
 }
@@ -163,6 +163,7 @@ func (dm DirectoryMap) Get(fn Fname) (FileStruct, bool) {
 
 // DirectoryMapFromDir reads in the dirmap from the supplied dir
 // It does not check anything or compute anythiing
+// Literally just loads the file from disk (or creates an empty one)
 func DirectoryMapFromDir(directory Dirname) (dm DirectoryMap, err error) {
 	// Read in the xml structure to a map/array
 	dm = *NewDirectoryMap()
@@ -198,7 +199,7 @@ func DirectoryMapFromDir(directory Dirname) (dm DirectoryMap, err error) {
 		return dm, fmt.Errorf("FromXML error \"%w\" on %s", err, directory)
 	}
 
-	fc := func(fn Fname, fs FileStruct) (FileStruct, error) {
+	fc := func(file Fpath, d os.FileInfo, fs FileStruct) (FileStruct, error) {
 		fs.directory = directory
 		return fs, nil
 	}
@@ -216,34 +217,64 @@ func DirectoryMapFromDirWithScan(directory Dirname) (DirectoryMap, error) {
 		return dm, err
 	}
 
-	// Drop entries whose files no longer exist
-	if err := dm.DeleteMissingFiles(); err != nil {
-		return dm, err
-	}
-
 	entries, err := os.ReadDir(string(directory))
 	if err != nil {
 		return dm, err
 	}
-	for _, entry := range entries {
-		if entry.IsDir() || entry.Name() == Md5FileName {
-			continue
-		}
-		if _, ok := dm.Get(Fname(entry.Name())); ok {
-			continue
-		}
-		fs, err := NewFileStruct(string(directory), entry.Name())
-		if err != nil {
-			continue
-		}
-		dm.Add(fs)
+	dm.lock.Lock()
+	defer dm.lock.Unlock()
+	err = dm.updateFromDirEntry(directory, entries)
+	if err != nil {
+		return dm, err
 	}
-
+	// Any entries that have a dm, but no corresponding file info, must be stale
+	for fname := range dm.mp {
+		if _, ok := dm.fi[fname]; !ok {
+			delete(dm.mp, fname)
+			delete(dm.fi, fname)
+			*dm.stale = true
+		}
+	}
 	return dm, nil
 }
 
+// updateFromDirEntry updates the DirectoryMap from the provided os.DirEntry slice
+// This critically should allow us to do the directory read once
+// and update everything from that single read
+// significantly reducing our IO
+func (dm *DirectoryMap) updateFromDirEntry(directory Dirname, entries []os.DirEntry) error {
+	for _, entry := range entries {
+		fname := Fname(entry.Name())
+		fi, err := entry.Info()
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				dm.rm(fname)
+				continue
+			}
+			return err
+		}
+
+		if entry.IsDir() || entry.Name() == Md5FileName {
+			continue
+		}
+		dm.fi[fname] = fi
+		if _, ok := dm.mp[fname]; ok {
+			continue
+		}
+		// Use FromStat directly with the FileInfo we already have instead of NewFileStruct
+		var fs FileStruct
+		fs, err = fs.FromStat(directory, fname, fi)
+		if err != nil {
+			continue
+		}
+		dm.mp[fname] = fs
+		*dm.stale = true
+	}
+	return nil
+}
+
 func (dm *DirectoryMap) UpdateAllChecksums() error {
-	fc := func(fn Fname, fs FileStruct) (FileStruct, error) {
+	fc := func(file Fpath, d os.FileInfo, fs FileStruct) (FileStruct, error) {
 		// FIXME update this to actually do a file query later
 		err := fs.UpdateChecksum(false, false, nil)
 		if errors.Is(err, os.ErrNotExist) {
@@ -393,19 +424,28 @@ func (dm DirectoryMap) ForEachFile(fn ForEachCallback) error {
 	}
 
 	// Phase 3: Visit files with guaranteed valid checksums (read-only)
-	dm.lock.RLock()
-	defer dm.lock.RUnlock()
-
 	for name, fs := range dm.mp {
 		fsCopy := fs // Create a copy to avoid pointer issues
-		fi, err := os.Stat(filepath.Join(string(fs.directory), string(fs.Name)))
-		if err != nil {
-			// If file doesn't exist, skip it - it may have been moved/deleted
-			if errors.Is(err, os.ErrNotExist) {
-				continue
+		dm.lock.RLock()
+		fi, ok := dm.fi[name]
+		dm.lock.RUnlock()
+		if !ok {
+			// FIXME I REALLY don't want to do this - it should be removed.
+			statPath := filepath.Join(string(fs.directory), string(fs.Name))
+			fi, err := os.Stat(statPath)
+			if err != nil {
+				// If the file no longer exists (e.g., moved/deleted after scan), skip it
+				if errors.Is(err, os.ErrNotExist) {
+					continue
+				}
+				return err
 			}
-			return err
+			dm.lock.Lock()
+			dm.fi[name] = fi
+			dm.lock.Unlock()
+			// return fmt.Errorf("internal error: missing FileInfo for %s", name)
 		}
+
 		if err := fn(name, &fsCopy, fi); err != nil {
 			return err
 		}
@@ -433,13 +473,18 @@ var (
 
 // RangeMutate range over the map, mutating as needed
 // note one may return specific errors to delete or squash the mutation
-func (dm DirectoryMap) RangeMutate(fc func(Fname, FileStruct) (FileStruct, error)) error {
+func (dm DirectoryMap) RangeMutate(fc DmMutCallback) error {
 	dm.lock.Lock()
 	defer dm.lock.Unlock()
 	deleteList := []Fname{}
 
 	for fn, v := range dm.mp {
-		fs, err := fc(fn, v)
+		fi, ok := dm.fi[fn]
+		if !ok {
+			// FIXME this should do a lookup....
+			fi = nil
+		}
+		fs, err := fc(NewFpath(fn), fi, v)
 		switch err {
 		case nil:
 			dm.mp[fn] = fs
@@ -485,8 +530,8 @@ func (dm DirectoryMap) RunFsFc(path Fpath, fc FsFunc) error {
 // DeleteMissingFiles deletes any file entries that are in the dm,
 // but not on the disk
 func (dm DirectoryMap) DeleteMissingFiles() error {
-	fc := func(fileName Fname, fs FileStruct) (FileStruct, error) {
-		fp := filepath.Join(string(fs.directory), string(fileName))
+	fc := func(file Fpath, d os.FileInfo, fs FileStruct) (FileStruct, error) {
+		fp := filepath.Join(string(fs.directory), string(file.Base()))
 		_, err := os.Stat(fp)
 		if errors.Is(err, os.ErrNotExist) {
 			return fs, ErrDeleteThisEntry
@@ -554,6 +599,9 @@ func (dm DirectoryMap) UpdateValues(directory Dirname, d fs.DirEntry) error {
 		return err
 	}
 	file := d.Name()
+	dm.lock.Lock()
+	dm.fi[Fname(file)] = info
+	dm.lock.Unlock()
 	fs, ok := dm.Get(Fname(file))
 	if changed, err := fs.Changed(info); ok && !changed {
 		return err

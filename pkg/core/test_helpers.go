@@ -14,7 +14,7 @@ import (
 func recalcTestDirectory(dir string) error {
 	makerFunc := func(dir string) (DirectoryTrackerInterface, error) {
 		mkFk := func(dir string) (DirectoryEntryInterface, error) {
-			dm, err := DirectoryMapFromDir(Dirname(dir))
+			dm, err := DirectoryMapFromDirWithScan(Dirname(dir))
 			return dm, err
 		}
 		return NewDirectoryEntry(dir, mkFk)

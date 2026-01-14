@@ -94,23 +94,31 @@ func checkChecksums(dm core.DirectoryMap, path core.Fpath, d fs.DirEntry) error 
 }
 
 func checkTestDirectoryChecksums(dir string) error {
-	makerFunc := func(dir string) (core.DirectoryTrackerInterface, error) {
-		mkFk := func(dir string) (core.DirectoryEntryInterface, error) {
-			dm, err := core.DirectoryMapFromDir(core.Dirname(dir))
-			dm.SetVisitFunc(checkChecksums)
-			return dm, err
-		}
-		return core.NewDirectoryEntry(dir, mkFk)
-	}
-	errChan := core.NewDirTracker(false, dir, makerFunc).ErrChan()
-	for err := range errChan {
-		for range errChan {
-		}
+	// Walk the filesystem and check each file against the loaded DirectoryMap
+	walker := func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
+		if d.IsDir() {
+			return nil
+		}
+		_, file := filepath.Split(path)
+		if file == core.Md5FileName {
+			return nil
+		}
+		
+		// Load the directory map for this file's directory
+		dirPath := filepath.Dir(path)
+		dm, loadErr := core.DirectoryMapFromDir(core.Dirname(dirPath))
+		if loadErr != nil {
+			return loadErr
+		}
+		
+		// Check if the file has a checksum entry
+		fp := core.NewFpath(dirPath, file)
+		return checkChecksums(dm, fp, d)
 	}
-	return nil
+	return filepath.WalkDir(dir, walker)
 }
 
 func moveNfiles(cnt int, files, directories []string) error {
