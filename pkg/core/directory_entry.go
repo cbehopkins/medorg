@@ -20,7 +20,6 @@ type workItem struct {
 type DirectoryEntryInterface interface {
 	Persist(Dirname) error
 	Visitor(path Fpath, d fs.DirEntry) error
-	Revisit(dir Dirname, visitor func(dm DirectoryEntryInterface, directory Dirname, file Fname, fileStruct FileStruct) error) error
 }
 
 // DirectoryEntryJournalableInterface if you want to store all info
@@ -129,8 +128,4 @@ func (de DirectoryEntry) worker() {
 	de.activeFiles.Wait()
 	de.errorChan <- de.Dm.Persist(Dirname(de.Dir))
 	close(de.errorChan)
-}
-
-func (de DirectoryEntry) Revisit(dir Dirname, visitor func(dm DirectoryEntryInterface, directory Dirname, file Fname, fileStruct FileStruct) error) error {
-	return de.Dm.Revisit(dir, visitor)
 }

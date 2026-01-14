@@ -216,43 +216,54 @@ func (jo *Journal) PopulateFromDirectories(directory string, alias string) error
 		return ErrAliasRequired
 	}
 
-	// Create a maker function that will be called for each directory
-	// This captures the DirectoryMap and adds it to the journal
-	makerFunc := func(dir string) (core.DirectoryTrackerInterface, error) {
-		mkFk := func(dir string) (core.DirectoryEntryInterface, error) {
-			dm, err := core.DirectoryMapFromDir(core.Dirname(dir))
-			if err != nil {
-				return &dm, err
-			}
-
-			// Set a no-op visitor function
-			dm.SetVisitFunc(func(dm core.DirectoryMap, path core.Fpath, d fs.DirEntry) error {
-				return nil
-			})
-
-			// Add this directory's map to the journal
-			appendErr := jo.Append(dm, dir, alias)
-			if appendErr != nil {
-				// Log but don't fail - we still want to continue walking
-				fmt.Fprintf(io.Discard, "Warning: failed to append directory %s to journal: %v\n", dir, appendErr)
-			}
-
-			return &dm, nil
-		}
-		return core.NewDirectoryEntry(dir, mkFk)
-	}
-
-	dt := core.NewDirTrackerWithIgnore(false, directory, makerFunc, func(path string) bool {
-		return jo.shouldIgnore(path)
-	})
-	// Wait for completion and collect errors
-	for err := range dt.ErrChan() {
+	// Walk directories and process each one
+	return filepath.WalkDir(directory, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-	}
 
-	return nil
+		// Only process directories
+		if !d.IsDir() {
+			return nil
+		}
+
+		// Check if directory should be ignored by user patterns
+		if jo.shouldIgnore(path) {
+			return filepath.SkipDir
+		}
+
+		// Skip hidden directories (directories with . prefix in any path component)
+		cleanPath := filepath.Clean(path)
+		pathComponents := strings.Split(cleanPath, string(filepath.Separator))
+		for _, component := range pathComponents {
+			if strings.HasPrefix(component, ".") && component != "." && component != ".." {
+				return filepath.SkipDir
+			}
+		}
+
+		// Skip directories with skip file
+		skipFilePath := filepath.Join(path, core.SkipDirFile)
+		if _, err := os.Stat(skipFilePath); err == nil {
+			return filepath.SkipDir
+		}
+
+		// Load the DirectoryMap for this directory
+		dm, err := core.DirectoryMapFromDir(core.Dirname(path))
+		if err != nil {
+			// Log but don't fail - we still want to continue walking
+			fmt.Fprintf(io.Discard, "Warning: failed to load directory map for %s: %v\n", path, err)
+			return nil
+		}
+
+		// Add this directory's map to the journal
+		appendErr := jo.Append(dm, path, alias)
+		if appendErr != nil {
+			// Log but don't fail - we still want to continue walking
+			fmt.Fprintf(io.Discard, "Warning: failed to append directory %s to journal: %v\n", path, appendErr)
+		}
+
+		return nil
+	})
 }
 
 // ToWriter writes the journal to XML format:

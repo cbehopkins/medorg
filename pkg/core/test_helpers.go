@@ -4,137 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"math/rand"
 	"os"
 	"path/filepath"
 	"sync"
 	"testing"
 )
-
-func recalcTestDirectory(dir string) error {
-	makerFunc := func(dir string) (DirectoryTrackerInterface, error) {
-		mkFk := func(dir string) (DirectoryEntryInterface, error) {
-			dm, err := DirectoryMapFromDirWithScan(Dirname(dir))
-			return dm, err
-		}
-		return NewDirectoryEntry(dir, mkFk)
-	}
-	for err := range NewDirTracker(false, dir, makerFunc).ErrChan() {
-		return fmt.Errorf("Error received on closing:%w", err)
-	}
-	return nil
-}
-
-func createTestDirectories(root string, cnt int) ([]string, error) {
-	directoriesCreated := make([]string, cnt)
-	for i := range cnt {
-		name := filepath.Join(root, RandStringBytesMaskImprSrcSB(8))
-		err := os.Mkdir(name, 0o755)
-		if err != nil {
-			return []string{}, err
-		}
-		directoriesCreated[i] = name
-	}
-	return directoriesCreated, nil
-}
-func makeFile(directory string) string {
-	buff := make([]byte, 75000)
-	if _, err := rand.Read(buff); err != nil {
-		panic(err)
-	}
-	tmpfile, err := os.CreateTemp(directory, "example")
-	if err != nil {
-		panic(err)
-	}
-	if _, err := tmpfile.Write(buff); err != nil {
-		panic(err)
-	}
-	if err := tmpfile.Close(); err != nil {
-		panic(err)
-	}
-	return tmpfile.Name()
-}
-func createTestFiles(directory string, numberOfFiles int) {
-	for range numberOfFiles {
-		_ = makeFile(directory)
-	}
-}
-
-func createTestMoveDetectDirectories(numberOfDirectoriesWide, numberOfDirectoriesDeep, numberOfFiles int) (string, error) {
-	dir, err := os.MkdirTemp("", "tstDir")
-	if err != nil {
-		return "", err
-	}
-	return dir, makeTestFilesAndDirectories(dir, numberOfDirectoriesWide, numberOfDirectoriesDeep, numberOfFiles)
-}
-func makeTestFilesAndDirectories(directory string, numberOfDirectoriesWide, numberOfDirectoriesDeep, numberOfFiles int) error {
-	directoriesCreated, err := createTestDirectories(directory, numberOfDirectoriesWide)
-	if err != nil {
-		return err
-	}
-
-	for _, v := range directoriesCreated {
-		createTestFiles(v, numberOfFiles)
-		if numberOfDirectoriesDeep > 0 {
-			err := makeTestFilesAndDirectories(v, numberOfDirectoriesWide, numberOfDirectoriesDeep-1, numberOfFiles)
-			if err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-func moveDetectDirCreationCount(numberOfDirectoriesWide, numberOfDirectoriesDeep, numberOfFiles int) int {
-	runningCnt := 0
-	for range numberOfDirectoriesWide {
-		runningCnt += numberOfFiles
-		if numberOfDirectoriesDeep > 0 {
-			runningCnt += moveDetectDirCreationCount(numberOfDirectoriesWide, numberOfDirectoriesDeep-1, numberOfFiles)
-		}
-	}
-	return runningCnt
-}
-
-// makeDir creates a directory (including parents) with standard permissions.
-func makeDir(path string) error {
-	return os.MkdirAll(path, 0o755)
-}
-
-// writeFile writes content to a file with standard permissions.
-func writeFile(path string, content []byte) error {
-	return os.WriteFile(path, content, 0o644)
-}
-
-// createTestDirectoriesWithFs builds a deterministic test tree at root.
-// It creates dir_{i} children and file_{j}.txt files under each.
-func createTestDirectoriesWithFs(root string, numberOfDirectoriesWide, numberOfDirectoriesDeep, numberOfFiles int) error {
-	return makeTestFilesAndDirectoriesWithFs(root, numberOfDirectoriesWide, numberOfDirectoriesDeep, numberOfFiles)
-}
-
-// makeTestFilesAndDirectoriesWithFs recursively creates test files and subdirectories.
-func makeTestFilesAndDirectoriesWithFs(directory string, numberOfDirectoriesWide, numberOfDirectoriesDeep, numberOfFiles int) error {
-	for i := range numberOfDirectoriesWide {
-		dirName := filepath.Join(directory, fmt.Sprintf("dir_%d", i))
-		if err := makeDir(dirName); err != nil {
-			return err
-		}
-
-		for j := range numberOfFiles {
-			fileName := filepath.Join(dirName, fmt.Sprintf("file_%d.txt", j))
-			content := []byte(fmt.Sprintf("test content for file %d in dir %d", j, i))
-			if err := writeFile(fileName, content); err != nil {
-				return err
-			}
-		}
-
-		if numberOfDirectoriesDeep > 0 {
-			if err := makeTestFilesAndDirectoriesWithFs(dirName, numberOfDirectoriesWide, numberOfDirectoriesDeep-1, numberOfFiles); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
 
 // helper to create files and persist a directory map for a directory
 func writeDirMap(t *testing.T, dir string, files []string) int {
@@ -218,8 +92,4 @@ func (mdt mockDtType) VisitFile(dir, file string, d fs.DirEntry, callback func()
 		mdt.visiter(Dirname(dir), Fname(file))
 	}
 	callback()
-}
-
-func (dt mockDtType) Revisit(dir string, fileVisitor func(dm DirectoryEntryInterface, dir, fn string, fileStruct FileStruct) error) error {
-	return nil
 }

@@ -1,10 +1,13 @@
 package core
 
 import (
+	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sync/atomic"
+
+	pb "github.com/cbehopkins/pb/v3"
 )
 
 // This is a lighter weight version of DirectoryTracker
@@ -22,8 +25,9 @@ type directoryWalker struct {
 type DirectoryWalker struct {
 	directoryWalker
 	fileVisitors []ForEachCallback
-	fileMutators  []DmMutCallback
+	fileMutators []DmMutCallback
 }
+
 func (dw *DirectoryWalker) AddFileMutator(fm DmMutCallback) {
 	dw.fileMutators = append(dw.fileMutators, fm)
 }
@@ -66,7 +70,7 @@ func (dw *directoryWalker) Walk(root string) error {
 	// This would make doing the checkcalc much faster as we only need a single pass
 	return filepath.WalkDir(root, dw.walkVisitor)
 }
-func(dw *directoryWalker) WalkMulti(roots []string) error {
+func (dw *directoryWalker) WalkMulti(roots []string) error {
 	for _, root := range roots {
 		if err := dw.Walk(root); err != nil {
 			return err
@@ -150,13 +154,24 @@ func (dw *DirectoryWalker) dirVisitor(path Dirname, d fs.DirEntry, err error) er
 		}
 	}
 	if len(dw.fileMutators) > 0 {
-		err:= dm.RangeMutate(func(file Fpath, d os.FileInfo, fs FileStruct) (FileStruct, error){
+		err := dm.RangeMutate(func(file Fpath, d os.FileInfo, fs FileStruct) (FileStruct, error) {
+			ignoreCounter := 0
 			for _, fm := range dw.fileMutators {
 				var err error
 				fs, err = fm(file, d, fs)
+				if errors.Is(err, ErrIgnoreThisMutate) {
+					ignoreCounter++
+					continue
+				}
+
 				if err != nil {
 					return fs, err
 				}
+			}
+			// If we get an ignore from all mutators, we skip the file
+			//Anyone not saying "Don't mutate" means we need to continue wioth mutation
+			if ignoreCounter == len(dw.fileMutators) {
+				return fs, ErrIgnoreThisMutate
 			}
 			return fs, nil
 		})
@@ -264,4 +279,4 @@ func (pdw *ProgressableDirectoryWalker) Walk(root string) error {
 }
 
 // Ensure directoryWalkerProgress implements Progressable
-var _ Progressable = (*directoryWalkerProgress)(nil)
+var _ pb.Progressable = (*directoryWalkerProgress)(nil)

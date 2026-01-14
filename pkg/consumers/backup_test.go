@@ -26,34 +26,6 @@ var (
 	errSelfCheckProblem = errors.New("self check problem")
 )
 
-func errHandler(
-	dts []*core.DirTracker,
-	registerFunc func(dt *core.DirTracker),
-) <-chan error {
-	if registerFunc == nil {
-		registerFunc = func(dt *core.DirTracker) {}
-	}
-	errChan := make(chan error, len(dts)) // Buffer with capacity = number of senders
-	var wg sync.WaitGroup
-	wg.Add(len(dts))
-	for _, ndt := range dts {
-		registerFunc(ndt)
-		go func(ndt *core.DirTracker) {
-			for err := range ndt.ErrChan() {
-				log.Println("Error received", err)
-				if err != nil {
-					errChan <- err
-				}
-			}
-			wg.Done()
-		}(ndt)
-	}
-	go func() {
-		wg.Wait()
-		close(errChan)
-	}()
-	return errChan
-}
 
 func makeFile(directory string) string {
 	// Calculate checksum while data is still in memory for efficiency
@@ -108,34 +80,19 @@ func createTestBackupDirectories(numberOfFiles, numberOfDuplicates int) ([]strin
 }
 
 func recalcTestDirectory(dir string) error {
-	makerFunc := func(dir string) (core.DirectoryTrackerInterface, error) {
-		mkFk := func(dir string) (core.DirectoryEntryInterface, error) {
-			dm, err := core.DirectoryMapFromDir(core.Dirname(dir))
-			dm.UpdateAllChecksums()
-			return dm, err
-		}
-		return core.NewDirectoryEntry(dir, mkFk)
-	}
-	for err := range core.NewDirTracker(false, dir, makerFunc).ErrChan() {
-		return fmt.Errorf("Error received on closing:%w", err)
-	}
-	return nil
-}
+	dw := core.NewDirectoryWalker(core.MakeTokenChan(core.NumTrackerOutstanding))
 
-// func (bdm *backupDupeMap) aFile(dm core.DirectoryMap, dir, fn string, d fs.DirEntry) error {
-// 	if fn == core.Md5FileName {
-// 		return nil
-// 	}
-// 	fs, ok := dm.Get(core.Fname(fn))
-// 	if !ok {
-// 		return fmt.Errorf("%w:%s", errMissingTestFile, fn)
-// 	}
-// 	if fs.Checksum == "" {
-// 		return fmt.Errorf("Empty checksum %w:%s", errSelfCheckProblem, fn)
-// 	}
-// 	bdm.Add(fs)
-// 	return nil
-// }
+	// Add mutator to update checksums for all files
+	dw.AddFileMutator(func(file core.Fpath, d os.FileInfo, fs core.FileStruct) (core.FileStruct, error) {
+		err := fs.UpdateChecksum(false, false, nil)
+		if errors.Is(err, os.ErrNotExist) {
+			return fs, core.ErrDeleteThisEntry
+		}
+		return fs, err
+	})
+
+	return dw.Walk(dir)
+}
 
 // TestPreExistingBackupTags verifies that BackupRunner skips files that already have backup tags
 func TestPreExistingBackupTags(t *testing.T) {

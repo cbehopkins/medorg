@@ -23,6 +23,7 @@ var errSelfCheckProblem = errors.New("self check problem")
 
 // Mutating Callback
 type DmMutCallback func(file Fpath, d os.FileInfo, fs FileStruct) (FileStruct, error)
+
 // Read only Callback
 type DmVisitFuncType func(dm DirectoryMap, path Fpath, d fs.DirEntry) error
 type ForEachCallback func(Fname, FileMetadata, os.FileInfo) error
@@ -273,20 +274,6 @@ func (dm *DirectoryMap) updateFromDirEntry(directory Dirname, entries []os.DirEn
 	return nil
 }
 
-func (dm *DirectoryMap) UpdateAllChecksums() error {
-	fc := func(file Fpath, d os.FileInfo, fs FileStruct) (FileStruct, error) {
-		// FIXME update this to actually do a file query later
-		err := fs.UpdateChecksum(false, false, nil)
-		if errors.Is(err, os.ErrNotExist) {
-			// File was removed/moved since we scanned the directory
-			// Request deletion from the DirectoryMap
-			return fs, ErrDeleteThisEntry
-		}
-		return fs, err
-	}
-	return dm.RangeMutate(fc)
-}
-
 // Stale returns true if the dm has been modified since writted
 func (dm DirectoryMap) Stale() bool {
 	dm.lock.RLock()
@@ -294,97 +281,9 @@ func (dm DirectoryMap) Stale() bool {
 	return *dm.stale
 }
 
-// Interface-based access methods for better decoupling
-
-// GetMetadata retrieves file metadata by filename
-// Returns the metadata and whether it was found
-func (dm DirectoryMap) GetMetadata(fn Fname) (FileMetadata, bool) {
-	fs, ok := dm.Get(fn)
-	if !ok {
-		return nil, false
-	}
-	return &fs, true
-}
-
-// AddMetadata adds file metadata to the directory map
-func (dm DirectoryMap) AddMetadata(fm FileMetadata) {
-	// Convert FileMetadata to FileStruct if it's already one
-	if fs, ok := fm.(*FileStruct); ok {
-		dm.Add(*fs)
-		return
-	}
-	// Otherwise create a new FileStruct from the metadata
-	// Extract the fields we need (Size, Checksum, Tags are fields not methods)
-	fs := FileStruct{
-		directory:  fm.Directory(),
-		BackupDest: fm.BackupDestinations(),
-	}
-	// We can only add FileStruct instances, so this is a limitation
-	// for now - the metadata must be a FileStruct pointer
-	dm.Add(fs)
-}
-
-// DirectoryStorage interface implementation
-
-// Load reads metadata from storage (implements DirectoryStorage.Load)
-func (dm *DirectoryMap) Load(directory string) error {
-	panic("I think this should be unused")
-	loadedDm, err := DirectoryMapFromDir(Dirname(directory))
-	if err != nil {
-		return err
-	}
-	*dm = loadedDm
-	return nil
-}
-
-// Save writes metadata to storage (implements DirectoryStorage.Save)
-func (dm DirectoryMap) Save(directory string) error {
-	panic("I think this should be unused")
-	return dm.Persist(Dirname(directory))
-}
-
-// GetFile retrieves metadata for a specific file (implements DirectoryStorage.GetFile)
-func (dm DirectoryMap) GetFile(filename string) (FileMetadata, error) {
-	panic("I think this should be unused")
-	fm, ok := dm.GetMetadata(Fname(filename))
-	if !ok {
-		return nil, fmt.Errorf("file %s not found in directory map", filename)
-	}
-	return fm, nil
-}
-
-// AddFile adds or updates file metadata (implements DirectoryStorage.AddFile)
-func (dm DirectoryMap) AddFile(fm FileMetadata) error {
-	panic("I think this should be unused")
-	dm.AddMetadata(fm)
-	return nil
-}
-
-// RemoveFile removes file metadata (implements DirectoryStorage.RemoveFile)
-func (dm DirectoryMap) RemoveFile(filename string) error {
-	panic("I think this should be unused")
-	dir, fn := filepath.Split(filename)
-	dm.RmFile(Dirname(dir), Fname(fn))
-	return nil
-}
-
-// ListFiles returns all files in the directory (implements DirectoryStorage.ListFiles)
-func (dm DirectoryMap) ListFiles() []FileMetadata {
-	result := make([]FileMetadata, 0, dm.Len())
-	err := dm.ForEachFile(func(filename Fname, fm FileMetadata, d os.FileInfo) error {
-		result = append(result, fm)
-		return nil
-	})
-	if err != nil {
-		// ForEachFile shouldn't fail with our simple append function
-		return result
-	}
-	return result
-}
-
 // ForEachFile iterates over all files in the directory map
 // The callback receives the filename and file metadata
-// This guarantees that all returned metadata has valid checksums before the visitor is called
+// This guarantees that all returned metadata have valid checksums before the visitor is called
 func (dm DirectoryMap) ForEachFile(fn ForEachCallback) error {
 	// Phase 1: Identify files needing checksum calculation (read-only)
 	var needsChecksum []Fname
@@ -484,7 +383,8 @@ func (dm DirectoryMap) RangeMutate(fc DmMutCallback) error {
 			// FIXME this should do a lookup....
 			fi = nil
 		}
-		fs, err := fc(NewFpath(fn), fi, v)
+		// Construct full path with known directory to avoid losing context in callbacks
+		fs, err := fc(NewFpath(v.Directory(), fn), fi, v)
 		switch err {
 		case nil:
 			dm.mp[fn] = fs
@@ -654,19 +554,4 @@ func (dm0 DirectoryMap) Equal(dm DirectoryEntryInterface) bool {
 		}
 	}
 	return true
-}
-
-// FIXME Revisit looks suspiciously like RangeMutate
-// We should swap over to it
-// Note the Dirname and Persist at the end
-func (dm DirectoryMap) Revisit(dir Dirname, visitor func(dm DirectoryEntryInterface, directory Dirname, file Fname, fileStruct FileStruct) error) error {
-	for path, fileStruct := range dm.mp {
-		if err := visitor(dm, dir, Fname(path), fileStruct); err != nil {
-			return fmt.Errorf("visitor error for file %s in directory %s: %w", path, dir, err)
-		}
-	}
-	if err := dm.Persist(dir); err != nil {
-		return fmt.Errorf("error persisting directory after revisit of %s: %w", dir, err)
-	}
-	return nil
 }
