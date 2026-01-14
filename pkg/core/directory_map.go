@@ -27,7 +27,7 @@ type DmVisitCallback func(file Fpath, d fs.DirEntry, fs FileStruct) error
 // Mutating Callback
 type DmMutCallback func(file Fpath, d fs.DirEntry, fs FileStruct) (FileStruct, error)
 type DmVisitFuncType func(dm DirectoryMap, path Fpath, d fs.DirEntry) error
-
+type ForEachCallback func(Fname, FileMetadata, os.FileInfo) error
 // A File Struct Func allows you to run a function on a FileStruct
 // You can mutate the FileStruct as needed and it will be stored back in the DirectoryMap
 type FsFunc func(fs *FileStruct) error
@@ -38,6 +38,7 @@ type DirectoryMap struct {
 	stale *bool
 	// We want to copy the DirectoryMap elsewhere
 	lock *sync.RWMutex
+	dir	Dirname
 
 	visitFunc DmVisitFuncType
 }
@@ -164,6 +165,7 @@ func (dm DirectoryMap) Get(fn Fname) (FileStruct, bool) {
 func DirectoryMapFromDir(directory Dirname) (dm DirectoryMap, err error) {
 	// Read in the xml structure to a map/array
 	dm = *NewDirectoryMap()
+	dm.dir = directory
 	if dm.mp == nil {
 		return dm, errors.New("initialize malfunction")
 	}
@@ -332,7 +334,7 @@ func (dm DirectoryMap) RemoveFile(filename string) error {
 // ListFiles returns all files in the directory (implements DirectoryStorage.ListFiles)
 func (dm DirectoryMap) ListFiles() []FileMetadata {
 	result := make([]FileMetadata, 0, dm.Len())
-	err := dm.ForEachFile(func(filename Fname, fm FileMetadata) error {
+	err := dm.ForEachFile(func(filename Fname, fm FileMetadata, d os.FileInfo) error {
 		result = append(result, fm)
 		return nil
 	})
@@ -346,7 +348,7 @@ func (dm DirectoryMap) ListFiles() []FileMetadata {
 // ForEachFile iterates over all files in the directory map
 // The callback receives the filename and file metadata
 // This guarantees that all returned metadata has valid checksums before the visitor is called
-func (dm DirectoryMap) ForEachFile(fn func(Fname, FileMetadata) error) error {
+func (dm DirectoryMap) ForEachFile(fn ForEachCallback) error {
 	// Phase 1: Identify files needing checksum calculation (read-only)
 	var needsChecksum []Fname
 	dm.lock.RLock()
@@ -388,20 +390,22 @@ func (dm DirectoryMap) ForEachFile(fn func(Fname, FileMetadata) error) error {
 	dm.lock.RLock()
 	defer dm.lock.RUnlock()
 
-	visitedCount := 0
 	for name, fs := range dm.mp {
 		fsCopy := fs // Create a copy to avoid pointer issues
-		if err := fn(name, &fsCopy); err != nil {
+		fi, err := os.Stat(filepath.Join(string(fs.directory), string(fs.Name)))
+		if err != nil {
 			return err
 		}
-		visitedCount++
+		if err := fn(name, &fsCopy, fi); err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
 // selfCheck the directory map for obvious errors
 func (dm DirectoryMap) selfCheck(directory Dirname) error {
-	fc := func(fn Fname, fs FileMetadata) error {
+	fc := func(fn Fname, fs FileMetadata, d os.FileInfo) error {
 		if fs.Directory() != directory {
 			return fmt.Errorf("%w FS has directory of %s for %s/%s", errSelfCheckProblem, fs.Directory(), directory, fn)
 		}
@@ -467,19 +471,6 @@ func (dm DirectoryMap) RunFsFc(path Fpath, fc FsFunc) error {
 
 	return nil
 }
-
-// UpdateChecksum will recalc the checksum of an entry
-// This is intended as a test helper function
-// func (dm DirectoryMap) UpdateChecksum(directory, file string, forceUpdate bool) error {
-// 	if Debug && file == "" {
-// 		return errors.New("asked to update a checksum on a null filename")
-// 	}
-// 	// log.Println("Updating checksum for", directory, file)
-// 	fc := func(fs *FileStruct) error {
-// 		return fs.UpdateChecksum(forceUpdate, false, nil)
-// 	}
-// 	return dm.RunFsFc(directory, file, fc)
-// }
 
 // DeleteMissingFiles deletes any file entries that are in the dm,
 // but not on the disk
@@ -602,6 +593,9 @@ func (dm0 DirectoryMap) Equal(dm DirectoryEntryInterface) bool {
 	return true
 }
 
+// FIXME Revisit looks suspiciously like RangeMutate
+// We should swap over to it
+// Note the Dirname and Persist at the end
 func (dm DirectoryMap) Revisit(dir Dirname, visitor func(dm DirectoryEntryInterface, directory Dirname, file Fname, fileStruct FileStruct) error) error {
 	for path, fileStruct := range dm.mp {
 		if err := visitor(dm, dir, Fname(path), fileStruct); err != nil {

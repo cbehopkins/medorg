@@ -124,7 +124,9 @@ func AutoVisitFilesInDirectoriesWithTokens(
 	}
 	return retArray
 }
-
+// So this is just a concenience function for
+// Running some visit function on all files in all directories
+// FIXME Can we remove  d fs.FileInfo (Since it comes from fs.DirEntry) & dm???
 func AutoVisitFilesInDirectories(
 	directories []string,
 	someVisitFunc func(dm DirectoryMap, path Fpath, d fs.DirEntry, fileStruct FileStruct, fileInfo fs.FileInfo) error,

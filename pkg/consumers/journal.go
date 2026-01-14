@@ -153,7 +153,7 @@ func (jo *Journal) Append(dm core.DirectoryMap, dir, alias string) error {
 
 	// Extract files from DirectoryMap
 	var files []core.FileStruct
-	err := dm.ForEachFile(func(filename core.Fname, fm core.FileMetadata) error {
+	err := dm.ForEachFile(func(filename core.Fname, fm core.FileMetadata, fi os.FileInfo) error {
 		// Evaluate ignore patterns against the full path so directory names are respected
 		fullPath := filepath.Join(dir, string(filename))
 		if jo.shouldIgnore(fullPath) {

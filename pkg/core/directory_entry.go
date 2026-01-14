@@ -14,7 +14,7 @@ type workItem struct {
 }
 
 // DirectoryVisitorFunc implement one of these and it will be called per file
-type DirectoryVisitorFunc func(dm DirectoryEntryInterface, directory string, file string, d fs.DirEntry) error
+// type DirectoryVisitorFunc func(dm DirectoryEntryInterface, directory string, file string, d fs.DirEntry) error
 
 // DirectoryEntryInterface any directory object needs to support this
 type DirectoryEntryInterface interface {

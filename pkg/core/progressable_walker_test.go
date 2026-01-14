@@ -1,6 +1,7 @@
 package core
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -15,10 +16,10 @@ func TestProgressableDirectoryWalkerVisitsAllFiles(t *testing.T) {
 
 	walker := NewProgressableDirectoryWalker(nil, root)
 	fileCount := 0
-	walker.FileVisitor = func(name string, fm FileMetadata) error {
+	walker.AddFileVisitor(func(name Fname, fm FileMetadata, fi os.FileInfo) error {
 		fileCount++
 		return nil
-	}
+	})
 
 	if err := walker.Walk(root); err != nil {
 		t.Fatalf("walk failed: %v", err)

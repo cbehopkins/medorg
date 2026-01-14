@@ -2,7 +2,7 @@ package core
 
 import (
 	"io/fs"
-	"log"
+	"os"
 	"path/filepath"
 	"sync/atomic"
 )
@@ -12,18 +12,21 @@ import (
 // This sacrifices IO for memory usage
 // directoryWalker is the lower layer that handles directory traversal logic
 // DirectoryWalker adds on file-level visitation
-
+type DirectoryVisitor func(path Dirname, d fs.DirEntry, err error) error
 type directoryWalker struct {
-	shouldIgnore func(path string) bool // Optional function to check if path should be ignored
-	WorkTokens   chan struct{}
-	DirectoryVisitor func(path Dirname, d fs.DirEntry, err error) error
-	cancelChan   chan struct{}
+	shouldIgnore     func(path string) bool // Optional function to check if path should be ignored
+	WorkTokens       chan struct{}
+	DirectoryVisitor DirectoryVisitor
+	cancelChan       chan struct{}
 }
 type DirectoryWalker struct {
 	directoryWalker
-	FileVisitor  func(string, FileMetadata) error
-
+	fileVisitors []ForEachCallback
 }
+func (dw *DirectoryWalker) AddFileVisitor(fv ForEachCallback)  {
+	dw.fileVisitors = append(dw.fileVisitors, fv)
+}
+
 func (dw directoryWalker) grabWorkToken() {
 	if dw.WorkTokens != nil {
 		<-dw.WorkTokens
@@ -39,13 +42,14 @@ func (dw directoryWalker) releaseWorkToken() {
 // You must supply a path to a work token chan.
 // Typically you use the same one you already have
 func NewDirectoryWalker(WorkTokens chan struct{}) *DirectoryWalker {
-	dw:= &DirectoryWalker{
+	dw := &DirectoryWalker{
 		directoryWalker: directoryWalker{
 			WorkTokens: WorkTokens,
 			cancelChan: make(chan struct{}),
 		},
 	}
 	dw.directoryWalker.DirectoryVisitor = dw.dirVisitor
+	dw.fileVisitors = make([]ForEachCallback, 0)
 	return dw
 }
 func (dw *directoryWalker) Cancel() {
@@ -81,6 +85,7 @@ func (dw *directoryWalker) shouldSkipDir(path string, d fs.DirEntry) error {
 	}
 	return nil
 }
+
 // Note the directoryWalker only visits directories
 func (dw *directoryWalker) walkVisitor(path string, d fs.DirEntry, err error) error {
 	if err != nil {
@@ -98,44 +103,47 @@ func (dw *directoryWalker) walkVisitor(path string, d fs.DirEntry, err error) er
 			return dw.DirectoryVisitor(Dirname(path), d, err)
 		}
 		return nil
-	} 
+	}
 	return nil
-	
 }
 
 // Note: this is DirectoryWalker and therefore we will now visit all files in the directory
 func (dw *DirectoryWalker) dirVisitor(path Dirname, d fs.DirEntry, err error) error {
-	log.Printf("dirVisitor called for %s", path)
+	// log.Printf("dirVisitor called for %s", path)
 	// FIXME could we throw this into a worker pool?
 	dw.grabWorkToken()
 	defer dw.releaseWorkToken()
-	
+
 	dm, err := DirectoryMapFromDirWithScan(path)
 	if err != nil {
 		return err
 	}
-	
+
 	if err := dm.UpdateAllChecksums(); err != nil {
 		return err
 	}
-	
-	if dw.FileVisitor == nil {
-		return nil
-	}
+
 	// FIXME
 	// See above comment about optimisation
 	// We could collect up the file entries during the directory walk
 	// and avoid this second pass
-	err = dm.ForEachFile(func(fn Fname, fm FileMetadata) error {
-		return dw.FileVisitor(string(fn), fm)
-	})
-	if err != nil {
-		return err
+	if len(dw.fileVisitors) > 0 {
+		err = dm.ForEachFile(func(fn Fname, fm FileMetadata, fi os.FileInfo) error {
+			for _, fv := range dw.fileVisitors {
+				if err := fv(fn, fm, fi); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
 	}
-	
-	return nil
+	return dm.Persist(path)
 
 }
+
 // ProgressableDirectoryWalker extends DirectoryWalker with progress tracking
 // Which means we first need to count the number of directories to visit
 // Then we can walk the directories updating progress as we go
@@ -149,15 +157,15 @@ func NewProgressableDirectoryWalker(WorkTokens chan struct{}, path string) *Prog
 	dw := NewDirectoryWalker(WorkTokens)
 	pdw := &ProgressableDirectoryWalker{
 		DirectoryWalker: *dw,
-		Progress: &directoryWalkerProgress{finishedChan: make(chan struct{})},
+		Progress:        &directoryWalkerProgress{finishedChan: make(chan struct{})},
 	}
-	
+
 	// Re-bind the dirVisitor method to the copied DirectoryWalker
 	pdw.DirectoryWalker.directoryWalker.DirectoryVisitor = pdw.DirectoryWalker.dirVisitor
 
 	// Counting walker shares the same ignore/cancel logic but only increments totals.
 	pdw.dirCount = directoryWalker{
-		WorkTokens:   nil, // counting pass is lightweight; no token gate needed
+		WorkTokens: nil, // counting pass is lightweight; no token gate needed
 		// This needs to come from the Ctrl-C handler to be effective
 		cancelChan:   pdw.DirectoryWalker.directoryWalker.cancelChan,
 		shouldIgnore: pdw.DirectoryWalker.directoryWalker.shouldIgnore,
@@ -184,9 +192,10 @@ type directoryWalkerProgress struct {
 	value        atomic.Int64
 	finishedChan chan struct{}
 }
+
 func NewDirectoryWalkerProgress(path string) *directoryWalkerProgress {
-	
-	dw:= &directoryWalkerProgress{
+
+	dw := &directoryWalkerProgress{
 		finishedChan: make(chan struct{}),
 	}
 	return dw
@@ -196,13 +205,13 @@ func (dw *directoryWalkerProgress) Done() {
 }
 
 // Progress interface methods
-func (dw *directoryWalkerProgress) Total() int64{
+func (dw *directoryWalkerProgress) Total() int64 {
 	return dw.total.Load()
 }
 func (dw *directoryWalkerProgress) Value() int64 {
 	return dw.value.Load()
 }
-func (dw *directoryWalkerProgress) FinishedChan() <-chan struct{}{
+func (dw *directoryWalkerProgress) FinishedChan() <-chan struct{} {
 	return dw.finishedChan
 }
 

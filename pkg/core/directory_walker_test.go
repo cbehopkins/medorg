@@ -2,6 +2,7 @@ package core
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -16,10 +17,10 @@ func TestDirectoryWalkerVisitsAllFiles(t *testing.T) {
 
 	walker := NewDirectoryWalker(nil)
 	visited := make(map[string]struct{})
-	walker.FileVisitor = func(name string, fm FileMetadata) error {
-		visited[filepath.Join(string(fm.Directory()), name)] = struct{}{}
+	walker.AddFileVisitor(func(name Fname, fm FileMetadata, fi os.FileInfo) error {
+		visited[filepath.Join(string(fm.Directory()), string(name))] = struct{}{}
 		return nil
-	}
+	})
 
 	if err := walker.Walk(root); err != nil {
 		t.Fatalf("walk failed: %v", err)
@@ -47,10 +48,10 @@ func TestDirectoryWalkerHandlesEmptyDirectory(t *testing.T) {
 
 	walker := NewDirectoryWalker(nil)
 	calls := 0
-	walker.FileVisitor = func(name string, fm FileMetadata) error {
+	walker.AddFileVisitor(func(name Fname, fm FileMetadata, fi os.FileInfo) error {
 		calls++
 		return nil
-	}
+	})
 
 	if err := walker.Walk(dir); err != nil {
 		t.Fatalf("walk failed: %v", err)
@@ -82,10 +83,10 @@ func TestDirectoryWalkerLargeTree(t *testing.T) {
 
 	walker := NewDirectoryWalker(nil)
 	visited := 0
-	walker.FileVisitor = func(name string, fm FileMetadata) error {
+	walker.AddFileVisitor(func(name Fname, fm FileMetadata, fi os.FileInfo) error {
 		visited++
 		return nil
-	}
+	})
 
 	if err := walker.Walk(root); err != nil {
 		t.Fatalf("walk failed: %v", err)

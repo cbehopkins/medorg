@@ -41,12 +41,11 @@ func main() {
 
 	// Set up the file visitor - simulate 1ms of work per file
 	fileCount := 0
-	walker.FileVisitor = func(name string, fm core.FileMetadata) error {
+	walker.AddFileVisitor(func(name core.Fname, fm core.FileMetadata, fi os.FileInfo) error {
 		fileCount++
 		time.Sleep(1 * time.Millisecond) // Simulate work
 		return nil
-	}
-
+	})
 	// Walk the directory (don't print before starting - pool needs clean output)
 	if err := walker.Walk(dir); err != nil {
 		log.Fatalf("Walk failed: %v", err)

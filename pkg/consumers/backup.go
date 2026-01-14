@@ -234,8 +234,8 @@ func extractAndCopy(
 ) error {
 
 	// First pass: scan source and populate BackupProcessor
-	srcVisitor := func(file string, fm core.FileMetadata) error {
-		if core.IsMetadataFile(file) {
+	srcVisitor := func(file core.Fname, fm core.FileMetadata, fi os.FileInfo) error {
+		if core.IsMetadataFile(string(file)) {
 			return nil
 		}
 		if fm.HasTag(volumeName) {
@@ -283,7 +283,7 @@ func extractAndCopy(
 		}
 	}
 
-	dwSrc.FileVisitor = srcVisitor
+	dwSrc.AddFileVisitor(srcVisitor)
 
 	if err := dwSrc.Walk(srcDir); err != nil {
 		return fmt.Errorf("error scanning source: %w", err)
@@ -577,8 +577,8 @@ func BackupRunner(
 		}
 	}
 
-	dwDest.FileVisitor = func(file string, fm core.FileMetadata) error {
-		if core.IsMetadataFile(file) {
+	dwDest.AddFileVisitor(func(file core.Fname, fm core.FileMetadata, fi os.FileInfo) error {
+		if core.IsMetadataFile(string(file)) {
 			return nil
 		}
 		if shutdownChan != nil {
@@ -592,7 +592,7 @@ func BackupRunner(
 		checksum := fm.GetChecksum()
 
 		return bp.addDstFile(checksum, fm.GetSize(), fm.BackupDestinations(), fm.Path())
-	}
+	})
 
 	if err := dwDest.Walk(destDir); err != nil {
 		return fmt.Errorf("error scanning destination: %w", err)
