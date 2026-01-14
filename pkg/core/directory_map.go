@@ -28,6 +28,7 @@ type DmVisitCallback func(file Fpath, d fs.DirEntry, fs FileStruct) error
 type DmMutCallback func(file Fpath, d fs.DirEntry, fs FileStruct) (FileStruct, error)
 type DmVisitFuncType func(dm DirectoryMap, path Fpath, d fs.DirEntry) error
 type ForEachCallback func(Fname, FileMetadata, os.FileInfo) error
+
 // A File Struct Func allows you to run a function on a FileStruct
 // You can mutate the FileStruct as needed and it will be stored back in the DirectoryMap
 type FsFunc func(fs *FileStruct) error
@@ -38,7 +39,7 @@ type DirectoryMap struct {
 	stale *bool
 	// We want to copy the DirectoryMap elsewhere
 	lock *sync.RWMutex
-	dir	Dirname
+	dir  Dirname
 
 	visitFunc DmVisitFuncType
 }
@@ -245,6 +246,11 @@ func (dm *DirectoryMap) UpdateAllChecksums() error {
 	fc := func(fn Fname, fs FileStruct) (FileStruct, error) {
 		// FIXME update this to actually do a file query later
 		err := fs.UpdateChecksum(false, false, nil)
+		if errors.Is(err, os.ErrNotExist) {
+			// File was removed/moved since we scanned the directory
+			// Request deletion from the DirectoryMap
+			return fs, ErrDeleteThisEntry
+		}
 		return fs, err
 	}
 	return dm.RangeMutate(fc)
@@ -394,6 +400,10 @@ func (dm DirectoryMap) ForEachFile(fn ForEachCallback) error {
 		fsCopy := fs // Create a copy to avoid pointer issues
 		fi, err := os.Stat(filepath.Join(string(fs.directory), string(fs.Name)))
 		if err != nil {
+			// If file doesn't exist, skip it - it may have been moved/deleted
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
 			return err
 		}
 		if err := fn(name, &fsCopy, fi); err != nil {
@@ -536,6 +546,11 @@ func (dm DirectoryMap) Visitor(path Fpath, d fs.DirEntry) error {
 func (dm DirectoryMap) UpdateValues(directory Dirname, d fs.DirEntry) error {
 	info, err := d.Info()
 	if err != nil {
+		// If the file no longer exists (e.g., moved/deleted after ReadDir but before Info),
+		// silently ignore it rather than propagating the error
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
 		return err
 	}
 	file := d.Name()

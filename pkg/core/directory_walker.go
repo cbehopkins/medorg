@@ -23,7 +23,8 @@ type DirectoryWalker struct {
 	directoryWalker
 	fileVisitors []ForEachCallback
 }
-func (dw *DirectoryWalker) AddFileVisitor(fv ForEachCallback)  {
+
+func (dw *DirectoryWalker) AddFileVisitor(fv ForEachCallback) {
 	dw.fileVisitors = append(dw.fileVisitors, fv)
 }
 
@@ -141,7 +142,6 @@ func (dw *DirectoryWalker) dirVisitor(path Dirname, d fs.DirEntry, err error) er
 		}
 	}
 	return dm.Persist(path)
-
 }
 
 // ProgressableDirectoryWalker extends DirectoryWalker with progress tracking
