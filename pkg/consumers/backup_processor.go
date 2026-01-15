@@ -379,7 +379,8 @@ func (bp *BackupProcessor) getOrphanFiles() []core.Fpath {
 
 // Return list of files to backup in a prioritized fashion
 // Uses vault-based sorting to avoid in-memory sort operations
-func (bp *BackupProcessor) prioritizedSrcFiles() (func() (core.Fpath, bool), error) {
+// Yields fileData to provide access to size and backup destinations
+func (bp *BackupProcessor) prioritizedSrcFiles() (func(yield func(fileData) bool), error) {
 	// Create a temporary collection for sorting by priority
 	identity := fmt.Sprintf("priority_%d", time.Now().UnixNano())
 	priorityColl, err := vault.GetOrCreateCollectionWithIdentity(
@@ -420,8 +421,8 @@ func (bp *BackupProcessor) prioritizedSrcFiles() (func() (core.Fpath, bool), err
 		return nil, err
 	}
 
-	// Iterate through the sorted collection and collect paths in order
-	ordered := make([]core.Fpath, 0)
+	// Iterate through the sorted collection and collect fileData in order
+	ordered := make([]fileData, 0)
 	ctx := context.Background()
 	for node, iterErr := range priorityColl.Iter(ctx) {
 		if iterErr != nil {
@@ -431,20 +432,19 @@ func (bp *BackupProcessor) prioritizedSrcFiles() (func() (core.Fpath, bool), err
 		if !ok {
 			return nil, fmt.Errorf("unexpected node type %T", node)
 		}
-		ordered = append(ordered, payloadNode.GetPayload().Fpath)
+		// Can we do this without a temp list???
+		ordered = append(ordered, payloadNode.GetPayload())
 	}
 
-	idx := 0
-	next := func() (core.Fpath, bool) {
-		if idx >= len(ordered) {
-			return core.NewFpath(""), false
+	iterator := func(yield func(fileData) bool) {
+		for _, fd := range ordered {
+			if !yield(fd) {
+				return
+			}
 		}
-		fp := ordered[idx]
-		idx++
-		return fp, true
 	}
 
-	return next, nil
+	return iterator, nil
 }
 
 type fileDataWithMd5 struct {
@@ -498,7 +498,8 @@ func (bp *inMemoryBackupProcessor) Close() error {
 
 // Return list of files to backup in a prioritized fashion
 // We sort by: fewest destinations first, then largest size first
-func (bp *inMemoryBackupProcessor) prioritizedSrcFiles() (func() (core.Fpath, bool), error) {
+// Yields fileData to provide access to size and backup destinations
+func (bp *inMemoryBackupProcessor) prioritizedSrcFiles() (func(yield func(fileData) bool), error) {
 	// Collect files present in src but not in dst.
 	entries := make([]fileData, 0, len(bp.srcFiles))
 	for md5Key, src := range bp.srcFiles {
@@ -520,15 +521,13 @@ func (bp *inMemoryBackupProcessor) prioritizedSrcFiles() (func() (core.Fpath, bo
 		return entries[i].Fpath.String() < entries[j].Fpath.String()
 	})
 
-	idx := 0
-	next := func() (core.Fpath, bool) {
-		if idx >= len(entries) {
-			return core.NewFpath(""), false
+	iterator := func(yield func(fileData) bool) {
+		for _, entry := range entries {
+			if !yield(entry) {
+				return
+			}
 		}
-		fp := entries[idx].Fpath
-		idx++
-		return fp, true
 	}
 
-	return next, nil
+	return iterator, nil
 }

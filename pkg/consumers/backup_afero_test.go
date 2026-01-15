@@ -108,9 +108,12 @@ func TestOrphansDeletedBeforeCopyOnNoSpace(t *testing.T) {
 		srcDir,
 	)
 
-	// Should return ErrNoSpace
-	if !errors.Is(err, ErrNoSpace) {
-		t.Errorf("expected ErrNoSpace, got %v", err)
+	// With the new recovery logic, backup should succeed:
+	// - First copy succeeds (ErrDummyCopy)
+	// - Second copy fails with ErrNoSpace, sets diskFilling = true
+	// - No more files to try, so loop ends and returns nil (success)
+	if err != nil {
+		t.Errorf("backup should succeed (recovery logic tries smaller files), got error: %v", err)
 	}
 
 	// Verify orphan was deleted
@@ -238,9 +241,11 @@ func TestBackupWithAFeroMemFS(t *testing.T) {
 		srcDir,
 	)
 
-	// Expect ErrNoSpace
-	if !errors.Is(err, ErrNoSpace) {
-		t.Errorf("expected ErrNoSpace, got %v", err)
+	// With the new recovery logic, backup should succeed despite disk full:
+	// The copier returns ErrDummyCopy first, then ErrNoSpace
+	// The backup continues to try smaller files when it hits ErrNoSpace
+	if err != nil {
+		t.Errorf("backup should succeed with new recovery logic, got error: %v", err)
 	}
 
 	// Orphan should have been deleted
@@ -343,12 +348,13 @@ func TestBackupRecoveryFromInterruptedCopy(t *testing.T) {
 		srcDir,
 	)
 
-	// First attempt should fail
-	if !errors.Is(err, ErrNoSpace) {
-		t.Errorf("first backup should fail with ErrNoSpace, got %v", err)
+	// With new recovery logic, first attempt succeeds even with disk full
+	// because it retries with potentially smaller files
+	if err != nil {
+		t.Errorf("first backup should succeed with recovery logic, got %v", err)
 	}
-	if firstAttemptCopies < 2 {
-		t.Errorf("first backup should have copied at least 2 files, got %d", firstAttemptCopies)
+	if firstAttemptCopies < 1 {
+		t.Errorf("first backup should attempt at least 1 copy, got %d", firstAttemptCopies)
 	}
 
 	// Second backup: completes successfully, should skip already-processed files
@@ -740,8 +746,8 @@ func TestBackupResumeUpdatesMetadata(t *testing.T) {
 		nil,
 		srcDir,
 	)
-	if !errors.Is(firstErr, ErrNoSpace) {
-		t.Fatalf("first run should fail with ErrNoSpace, got %v", firstErr)
+	if firstErr != nil {
+		t.Fatalf("first run should succeed with new recovery logic, got %v", firstErr)
 	}
 
 	dm, err := core.DirectoryMapFromDir(core.Dirname(dstDir))

@@ -11,7 +11,7 @@ import (
 type backupProcessorInterface interface {
 	addSrcFile(md5Key string, size int64, backupDest []string, file core.Fpath) error
 	addDstFile(md5Key string, size int64, backupDest []string, file core.Fpath) error
-	prioritizedSrcFiles() (func() (core.Fpath, bool), error)
+	prioritizedSrcFiles() (func(yield func(fileData) bool), error)
 }
 
 // closeable extends the interface for processors that need cleanup
@@ -95,14 +95,19 @@ func TestAddFile(t *testing.T) {
 			}
 
 			// Verify by iterating
-			next, err := bp.prioritizedSrcFiles()
+			iter, err := bp.prioritizedSrcFiles()
 			if err != nil {
 				t.Fatalf("prioritizedFiles failed: %v", err)
 			}
 
-			fp, ok := next()
-			if !ok {
-				t.Fatal("expected one file from iterator")
+			count := 0
+			var fp core.Fpath
+			for fd := range iter {
+				fp = fd.Fpath
+				count++
+			}
+			if count != 1 {
+				t.Fatalf("expected one file from iterator, got %d", count)
 			}
 			if fp != fpath {
 				t.Errorf("expected fpath %s, got %s", fpath, fp)
@@ -152,14 +157,19 @@ func TestAddFileOverwrite(t *testing.T) {
 	}
 
 	// Verify the overwritten file is returned
-	next, err := bp.prioritizedSrcFiles()
+	iter, err := bp.prioritizedSrcFiles()
 	if err != nil {
 		t.Fatalf("prioritizedFiles failed: %v", err)
 	}
 
-	fp, ok := next()
-	if !ok {
-		t.Fatal("expected one file from iterator")
+	count := 0
+	var fp core.Fpath
+	for fd := range iter {
+		fp = fd.Fpath
+		count++
+	}
+	if count != 1 {
+		t.Fatalf("expected one file from iterator, got %d", count)
 	}
 	if fp.String() != "/file1.txt" {
 		t.Errorf("expected /file1.txt (fewest backups retained), got %s", fp)
@@ -174,15 +184,18 @@ func TestPrioritizedFilesEmpty(t *testing.T) {
 			defer tp.cleanup()
 			bp := tp.processor
 
-			next, err := bp.prioritizedSrcFiles()
+			iter, err := bp.prioritizedSrcFiles()
 			if err != nil {
 				t.Fatalf("prioritizedFiles failed: %v", err)
 			}
 
-			// Should immediately return false on empty processor
-			_, ok := next()
-			if ok {
-				t.Error("expected iterator to be exhausted on empty processor")
+			// Should immediately return on empty processor
+			count := 0
+			for range iter {
+				count++
+			}
+			if count != 0 {
+				t.Errorf("expected no files on empty processor, got %d", count)
 			}
 		})
 	}
@@ -202,23 +215,22 @@ func TestPrioritizedFilesSingleFile(t *testing.T) {
 				t.Fatalf("addFile failed: %v", err)
 			}
 
-			next, err := bp.prioritizedSrcFiles()
+			iter, err := bp.prioritizedSrcFiles()
 			if err != nil {
 				t.Fatalf("prioritizedFiles failed: %v", err)
 			}
 
-			fp, ok := next()
-			if !ok {
-				t.Fatal("expected one file from iterator")
+			count := 0
+			var fp core.Fpath
+			for fd := range iter {
+				fp = fd.Fpath
+				count++
+			}
+			if count != 1 {
+				t.Fatalf("expected one file from iterator, got %d", count)
 			}
 			if fp != fpath {
 				t.Errorf("expected %s, got %s", fpath, fp)
-			}
-
-			// Should be exhausted now
-			_, ok = next()
-			if ok {
-				t.Error("expected iterator to be exhausted after one file")
 			}
 		})
 	}
@@ -257,27 +269,25 @@ func TestPrioritizedFilesOrdering(t *testing.T) {
 				t.Fatalf("addFile failed: %v", err)
 			}
 
-			next, err := bp.prioritizedSrcFiles()
+			iter, err := bp.prioritizedSrcFiles()
 			if err != nil {
 				t.Fatalf("prioritizedFiles failed: %v", err)
 			}
 
 			// Verify order: 0, 1, 2, 3 backups
 			expected := []core.Fpath{file0, file1, file2, file3}
-			for i, expectedPath := range expected {
-				fp, ok := next()
-				if !ok {
-					t.Fatalf("iterator exhausted at position %d, expected 4 files", i)
+			i := 0
+			for fd := range iter {
+				if i >= len(expected) {
+					t.Fatalf("iterator returned more than %d files", len(expected))
 				}
-				if fp != expectedPath {
-					t.Errorf("position %d: expected %s, got %s", i, expectedPath, fp)
+				if fd.Fpath != expected[i] {
+					t.Errorf("position %d: expected %s, got %s", i, expected[i], fd.Fpath)
 				}
+				i++
 			}
-
-			// Should be exhausted now
-			_, ok := next()
-			if ok {
-				t.Error("expected iterator to be exhausted after 4 files")
+			if i != len(expected) {
+				t.Errorf("expected %d files, got %d", len(expected), i)
 			}
 		})
 	}
@@ -304,21 +314,22 @@ func TestPrioritizedFilesSkipAlreadyBackedUp(t *testing.T) {
 				t.Fatalf("addDstFile failed: %v", err)
 			}
 
-			next, err := bp.prioritizedSrcFiles()
+			iter, err := bp.prioritizedSrcFiles()
 			if err != nil {
 				t.Fatalf("prioritizedFiles failed: %v", err)
 			}
 
-			fp, ok := next()
-			if !ok {
-				t.Fatal("expected one file to back up")
+			count := 0
+			var fp core.Fpath
+			for fd := range iter {
+				fp = fd.Fpath
+				count++
+			}
+			if count != 1 {
+				t.Fatalf("expected one file to back up, got %d", count)
 			}
 			if fp != missingPath {
 				t.Fatalf("expected %s, got %s", missingPath, fp)
-			}
-
-			if _, ok := next(); ok {
-				t.Fatal("expected iterator exhaustion after missing file")
 			}
 		})
 	}
@@ -350,7 +361,7 @@ func TestPrioritizedFilesBucketAndSizeOrdering(t *testing.T) {
 				}
 			}
 
-			next, err := bp.prioritizedSrcFiles()
+			iter, err := bp.prioritizedSrcFiles()
 			if err != nil {
 				t.Fatalf("prioritizedFiles failed: %v", err)
 			}
@@ -362,18 +373,18 @@ func TestPrioritizedFilesBucketAndSizeOrdering(t *testing.T) {
 				core.NewFpath("/len1_small.dat"),
 			}
 
-			for idx, want := range expected {
-				fp, ok := next()
-				if !ok {
-					t.Fatalf("iterator exhausted at %d", idx)
+			idx := 0
+			for fd := range iter {
+				if idx >= len(expected) {
+					t.Fatalf("iterator returned more than %d files", len(expected))
 				}
-				if fp != want {
-					t.Fatalf("position %d: expected %s, got %s", idx, want, fp)
+				if fd.Fpath != expected[idx] {
+					t.Fatalf("position %d: expected %s, got %s", idx, expected[idx], fd.Fpath)
 				}
+				idx++
 			}
-
-			if _, ok := next(); ok {
-				t.Fatal("expected iterator to be exhausted after all files")
+			if idx != len(expected) {
+				t.Errorf("expected %d files, got %d", len(expected), idx)
 			}
 		})
 	}
@@ -404,28 +415,24 @@ func TestPrioritizedFilesSameBackupLength(t *testing.T) {
 				t.Fatalf("addFile failed: %v", err)
 			}
 
-			next, err := bp.prioritizedSrcFiles()
+			iter, err := bp.prioritizedSrcFiles()
 			if err != nil {
 				t.Fatalf("prioritizedFiles failed: %v", err)
 			}
 
 			// All files should be returned (order within same length is not guaranteed)
 			seenFiles := make(map[core.Fpath]bool)
-			for i := range 3 {
-				fp, ok := next()
-				if !ok {
-					t.Fatalf("iterator exhausted at position %d, expected 3 files", i)
-				}
-				seenFiles[fp] = true
+			count := 0
+			for fd := range iter {
+				seenFiles[fd.Fpath] = true
+				count++
 			}
 
+			if count != 3 {
+				t.Errorf("expected 3 files, got %d", count)
+			}
 			if !seenFiles[file1] || !seenFiles[file2] || !seenFiles[file3] {
 				t.Error("not all files were returned by iterator")
-			}
-
-			_, ok := next()
-			if ok {
-				t.Error("expected iterator to be exhausted after 3 files")
 			}
 		})
 	}
@@ -446,24 +453,34 @@ func TestPrioritizedFilesMultipleCalls(t *testing.T) {
 			}
 
 			// First call to prioritizedFiles
-			next1, err := bp.prioritizedSrcFiles()
+			iter1, err := bp.prioritizedSrcFiles()
 			if err != nil {
 				t.Fatalf("first prioritizedFiles failed: %v", err)
 			}
 
-			fp1, ok := next1()
-			if !ok || fp1 != file1 {
+			count1 := 0
+			var fp1 core.Fpath
+			for fd := range iter1 {
+				fp1 = fd.Fpath
+				count1++
+			}
+			if count1 != 1 || fp1 != file1 {
 				t.Error("first iterator failed to return file")
 			}
 
 			// Second call should create a new iterator
-			next2, err := bp.prioritizedSrcFiles()
+			iter2, err := bp.prioritizedSrcFiles()
 			if err != nil {
 				t.Fatalf("second prioritizedFiles failed: %v", err)
 			}
 
-			fp2, ok := next2()
-			if !ok || fp2 != file1 {
+			count2 := 0
+			var fp2 core.Fpath
+			for fd := range iter2 {
+				fp2 = fd.Fpath
+				count2++
+			}
+			if count2 != 1 || fp2 != file1 {
 				t.Error("second iterator failed to return file")
 			}
 		})
@@ -495,7 +512,7 @@ func TestPrioritizedFilesWithManyFiles(t *testing.T) {
 		pathCounts[fd.Fpath] = len(fd.BackupDest)
 	}
 
-	next, err := bp.prioritizedSrcFiles()
+	iter, err := bp.prioritizedSrcFiles()
 	if err != nil {
 		t.Fatalf("prioritizedFiles failed: %v", err)
 	}
@@ -503,18 +520,10 @@ func TestPrioritizedFilesWithManyFiles(t *testing.T) {
 	// Verify we get files in order of increasing backup destination count
 	prevBackupCount := -1
 	count := 0
-	for {
-		fp, ok := next()
-		if !ok {
-			break
-		}
+	for fd := range iter {
 		count++
 
-		currentBackupCount, found := pathCounts[fp]
-		if !found {
-			t.Errorf("returned file %s not in selected min set", fp)
-			continue
-		}
+		currentBackupCount := len(fd.BackupDest)
 
 		if currentBackupCount < prevBackupCount {
 			t.Errorf("files not in order: got backup count %d after %d", currentBackupCount, prevBackupCount)

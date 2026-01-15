@@ -221,11 +221,10 @@ func (fpll *fpathListList) Add(index int, fp core.Fpath) {
 	(*fpll)[index] = append((*fpll)[index], fp)
 }
 
-// extractAndCopy performs backup using streaming visitor pattern (memory efficient)
-func extractAndCopy(
-	srcDir, destDir, volumeName string,
+// scanSrcTree performs backup using streaming visitor pattern (memory efficient)
+func scanSrcTree(
+	srcDir, volumeName string,
 	factory *pb.PoolProgressFactory,
-	fileCopyCallback FileCopier,
 	maxNumBackups int,
 	logFunc func(msg string),
 	shutdownChan chan struct{},
@@ -308,8 +307,13 @@ func copyPendingFiles(
 	}
 
 	logFunc("Starting file copy")
-	next, _ := bp.prioritizedSrcFiles()
-	for fp, ok := next(); ok; fp, ok = next() {
+	iter, _ := bp.prioritizedSrcFiles()
+	diskFilling := false
+	lastSize := int64(0)
+	for fd := range iter {
+		fp := fd.Fpath
+		fileSize := fd.Size
+
 		// Determine which source root this file belongs to
 		srcRoot, found := findSourceRoot(srcDirs, fp.String())
 		if !found {
@@ -319,52 +323,34 @@ func copyPendingFiles(
 		if ignoreFunc != nil && ignoreFunc(fp.String()) {
 			continue
 		}
-
+		if diskFilling && fileSize > lastSize {
+			logFunc("Completing copy due to disk full condition - and we've started getting larger files")
+			break
+		}
+		lastSize = fileSize
 		logFunc(fmt.Sprintf("Copying file: %s", fp))
-		if err := doACopy(srcRoot, destDir, volumeName, fp, fileCopyCallback); err != nil {
+		fs, err := doACopy(srcRoot, destDir, volumeName, fp, fileCopyCallback)
+		if err != nil {
 			if errors.Is(err, ErrNoSpace) {
-				return ErrNoSpace
+				logFunc("No space left on device during copy of " + fp.String())
+				// Move onto the next file which should be smaller
+				diskFilling = true
+				continue
 			}
 			return err
 		}
 
+		// Skip BackupProcessor updates if this was a dummy copy (no actual work done)
+		// FIXME we should not rely on side effects like this - check the copy method instead
+		if fs.Checksum == "" {
+			// panic("dummy copy detected")
+			continue
+		}
+
+		// Update BackupProcessor's internal state (doACopy already updated DirectoryMaps)
 		rel, err := filepath.Rel(srcRoot, fp.String())
 		if err != nil {
 			return err
-		}
-		dir := core.Dirname(filepath.Dir(fp.String()))
-		fn := core.Fname(filepath.Base(fp.String()))
-		dmSrc, err := core.DirectoryMapFromDir(dir)
-		if err != nil {
-			return err
-		}
-		fs, ok := dmSrc.Get(core.Fname(fn))
-		if !ok {
-			// Try to rebuild the directory entry for the missing file
-			log.Printf("Missing directory entry for %s in %s, attempting to rebuild", fn, dir)
-
-			// Create a new FileStruct from the actual file
-			fs, err = core.NewFileStruct(string(dir), string(fn))
-			if err != nil {
-				return fmt.Errorf("failed to create directory entry for %s: %w", fp, err)
-			}
-
-			// Calculate checksum if not present
-			if fs.Checksum == "" {
-				cks, err := core.CalcMd5File(string(dir), string(fn))
-				if err != nil {
-					return fmt.Errorf("failed to calculate checksum for %s: %w", fp, err)
-				}
-				fs.Checksum = cks
-			}
-
-			// Add the rebuilt entry to the directory map
-			dmSrc.Add(fs)
-
-			// Persist the updated directory map
-			if err := dmSrc.Persist(dir); err != nil {
-				log.Printf("warning: failed to persist rebuilt directory entry for %s: %v", fp, err)
-			}
 		}
 		dstPath := core.NewFpath(destDir, rel)
 		if err := bp.markAsMatched(fs.Checksum); err != nil {
@@ -457,7 +443,7 @@ func doACopy(
 	backupLabelName string, // the tag we should add to the sorce
 	file core.Fpath, // The full path of the file
 	fc FileCopier,
-) error {
+) (core.FileStruct, error) {
 	if fc == nil {
 		fc = core.CopyFile
 	}
@@ -467,22 +453,22 @@ func doACopy(
 	// the dst dir keeps the hierarchy
 	rel, err := filepath.Rel(srcDir, file.String())
 	if err != nil {
-		return err
+		return core.FileStruct{}, err
 	}
 
 	// Actually copy the file
 	err = fc(file, core.NewFpath(destDir, rel))
 	if errors.Is(err, ErrDummyCopy) {
-		return nil
+		return core.FileStruct{}, nil
 	}
 	if errors.Is(err, ErrNoSpace) {
 		_ = core.RmFilename(core.NewFpath(destDir, rel))
-		return ErrNoSpace
+		return core.FileStruct{}, ErrNoSpace
 	}
 	// Update the srcDir .md5 file with the fact we've backed this up now
 	src, err := tagSourceAsBackedUp(file, backupLabelName)
 	if err != nil {
-		return err
+		return core.FileStruct{}, err
 	}
 
 	// _ = src.RemoveTag(backupLabelName)
@@ -496,16 +482,19 @@ func doACopy(
 
 	dmDst, err := core.DirectoryMapFromDir(destDirForLock)
 	if err != nil {
-		return err
+		return core.FileStruct{}, err
 	}
 	fs, err := os.Stat(filepath.Join(destDir, rel))
 	if err != nil {
-		return err
+		return core.FileStruct{}, err
 	}
 	src.SetDirectory(destDirForLock)
 	src.Mtime = fs.ModTime().Unix()
 	dmDst.Add(src)
-	return dmDst.Persist(destDirForLock)
+	if err := dmDst.Persist(destDirForLock); err != nil {
+		return core.FileStruct{}, err
+	}
+	return src, nil
 }
 
 // BackupRunner handles backup from one or more source directories to a single destination.
@@ -605,10 +594,9 @@ func BackupRunner(
 	// Phase 2: scan all sources to populate backup plan (no copying yet)
 	for i, srcDir := range srcDirs {
 		logFunc(fmt.Sprintf("Scanning source %d for files to backup", i+1))
-		if err := extractAndCopy(
-			srcDir, destDir, backupLabelName,
+		if err := scanSrcTree(
+			srcDir, backupLabelName,
 			factory,
-			nil, // scan only
 			maxNumBackups,
 			logFunc,
 			shutdownChan,
