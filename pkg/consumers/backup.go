@@ -331,6 +331,10 @@ func copyPendingFiles(
 		logFunc(fmt.Sprintf("Copying file: %s", fp))
 		fs, err := doACopy(srcRoot, destDir, volumeName, fp, fileCopyCallback)
 		if err != nil {
+			if errors.Is(err, ErrDummyCopy) {
+				// Dummy copy: no actual work done, skip BackupProcessor updates
+				continue
+			}
 			if errors.Is(err, ErrNoSpace) {
 				logFunc("No space left on device during copy of " + fp.String())
 				// Move onto the next file which should be smaller
@@ -338,13 +342,6 @@ func copyPendingFiles(
 				continue
 			}
 			return err
-		}
-
-		// Skip BackupProcessor updates if this was a dummy copy (no actual work done)
-		// FIXME we should not rely on side effects like this - check the copy method instead
-		if fs.Checksum == "" {
-			// panic("dummy copy detected")
-			continue
 		}
 
 		// Update BackupProcessor's internal state (doACopy already updated DirectoryMaps)
@@ -440,7 +437,7 @@ type FileCopier func(src, dst core.Fpath) error
 func doACopy(
 	srcDir, // The source of the backup as specified on the command line
 	destDir, // The destination directory as specified...
-	backupLabelName string, // the tag we should add to the sorce
+	backupLabelName string, // the tag we should add to the source
 	file core.Fpath, // The full path of the file
 	fc FileCopier,
 ) (core.FileStruct, error) {
@@ -459,7 +456,8 @@ func doACopy(
 	// Actually copy the file
 	err = fc(file, core.NewFpath(destDir, rel))
 	if errors.Is(err, ErrDummyCopy) {
-		return core.FileStruct{}, nil
+		// Return ErrDummyCopy to signal no actual work done (caller decides how to handle)
+		return core.FileStruct{}, ErrDummyCopy
 	}
 	if errors.Is(err, ErrNoSpace) {
 		_ = core.RmFilename(core.NewFpath(destDir, rel))

@@ -382,6 +382,7 @@ func (bp *BackupProcessor) getOrphanFiles() []core.Fpath {
 // Yields fileData to provide access to size and backup destinations
 func (bp *BackupProcessor) prioritizedSrcFiles() (func(yield func(fileData) bool), error) {
 	// Create a temporary collection for sorting by priority
+	// identity is just the name of the collection...
 	identity := fmt.Sprintf("priority_%d", time.Now().UnixNano())
 	priorityColl, err := vault.GetOrCreateCollectionWithIdentity(
 		bp.session.Vault,

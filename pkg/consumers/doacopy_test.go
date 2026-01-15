@@ -111,8 +111,8 @@ func TestDoACopyWithDummyCopy(t *testing.T) {
 	fpath := core.NewFpath(srcFile)
 	fs, err := doACopy(srcDir, destDir, "backup_vol1", fpath, dummyCopier)
 
-	if err != nil {
-		t.Fatalf("doACopy should not error on ErrDummyCopy: %v", err)
+	if !errors.Is(err, ErrDummyCopy) {
+		t.Fatalf("doACopy should return ErrDummyCopy, got: %v", err)
 	}
 
 	// Verify returned FileStruct is empty (dummy copy means no actual work)
