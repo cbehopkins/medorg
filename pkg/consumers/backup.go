@@ -262,7 +262,9 @@ func scanSrcTree(
 		checksum := fm.GetChecksum()
 
 		if dstPath, exists := bp.checkDstFileExists(checksum); exists {
-			if err := bp.markAsMatched(checksum); err != nil {
+			// File already exists in destination with same checksum
+			// Add to srcFileCollection so Compare knows it's in both (not an orphan)
+			if err := bp.addSrcFile(checksum, fm.GetSize(), fm.BackupDestinations(), fp); err != nil {
 				return err
 			}
 			_, err := updateSourceDirectoryMap(fp.Dir(), core.Fname(fp.Base()), volumeName, fm.Path())
@@ -308,7 +310,10 @@ func copyPendingFiles(
 	}
 
 	logFunc("Starting file copy")
-	iter, _ := bp.prioritizedSrcFiles()
+	iter, err := bp.prioritizedSrcFiles()
+	if err != nil {
+		return err
+	}
 	diskFilling := false
 	lastSize := int64(0)
 	targetSize := int64(0)
@@ -366,9 +371,6 @@ func copyPendingFiles(
 			return err
 		}
 		dstPath := core.NewFpath(destDir, rel)
-		if err := bp.markAsMatched(fs.Checksum); err != nil {
-			return err
-		}
 		if err := bp.addDstFile(fs.Checksum, fs.Size, fs.BackupDest, dstPath); err != nil {
 			return err
 		}
@@ -633,7 +635,11 @@ func BackupRunner(
 	// Phase 3: delete orphans now that all sources are known
 	if orphanFunc != nil {
 		logFunc("Reporting orphaned destination files")
-		for _, orphan := range bp.getOrphanFiles() {
+		orphansIter, err := bp.getOrphanFiles()
+		if err != nil {
+			return err
+		}
+		for orphan := range orphansIter {
 			if err := orphanFunc(orphan.String()); err != nil {
 				return err
 			}

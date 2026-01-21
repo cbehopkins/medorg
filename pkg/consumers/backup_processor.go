@@ -74,12 +74,11 @@ type BackupProcessor struct {
 	dstFileCollection *treap.PersistentPayloadTreap[types.MD5Key, fileData]
 	session           *vault.VaultSession
 	filePath          string
-	matchedDstKeys    map[types.MD5Key]bool // Tracks which destination files were found in sources
-	mu                sync.Mutex            // Serializes treap/vault writes and map updates
-	persistQueue      chan persistRequest   // Serializes persist operations to prevent allocator corruption
-	persistWg         sync.WaitGroup        // Tracks persist operations
-	done              chan struct{}         // Closed to signal shutdown
-	closeOnce         sync.Once             // Ensures Close is called only once
+	mu                sync.Mutex          // Serializes treap/vault writes
+	persistQueue      chan persistRequest // Serializes persist operations to prevent allocator corruption
+	persistWg         sync.WaitGroup      // Tracks persist operations
+	done              chan struct{}       // Closed to signal shutdown
+	closeOnce         sync.Once           // Ensures Close is called only once
 }
 
 // persistRequest represents a request to persist a treap node
@@ -150,7 +149,6 @@ func NewBackupProcessor() (*BackupProcessor, error) {
 		dstFileCollection: dstCollection,
 		session:           session,
 		filePath:          tmpFile,
-		matchedDstKeys:    make(map[types.MD5Key]bool),
 		persistQueue:      make(chan persistRequest, 100), // Buffered queue for persist requests
 		done:              make(chan struct{}),            // Closed to signal shutdown
 	}
@@ -333,49 +331,35 @@ func (bp *BackupProcessor) checkDstFileExists(checksum string) (core.Fpath, bool
 	return node.GetPayload().Fpath, true
 }
 
-// markAsMatched marks a destination file as matched (found in source)
-// Used for orphan detection - unmatched files are orphans
-func (bp *BackupProcessor) markAsMatched(checksum string) error {
-	bp.mu.Lock()
-	defer bp.mu.Unlock()
-	key, err := types.MD5KeyFromString(checksum)
-	if err != nil {
-		// Try base64 format
-		key, err = types.Md5KeyFromBase64String(checksum)
-		if err != nil {
-			return err
-		}
-	}
-	bp.matchedDstKeys[key] = true
-	return nil
-}
+// getOrphanFiles streams files in destination that weren't matched in any source.
+// These are candidates for cleanup/archival. Results are yielded via iterator to
+// avoid loading all orphans into memory at once.
+func (bp *BackupProcessor) getOrphanFiles() (func(yield func(core.Fpath) bool), error) {
+	iterator := func(yield func(core.Fpath) bool) {
+		// Callback: ignore files only in src (not relevant for orphans)
+		onlyInSrc := func(_ treap.TreapNodeInterface[types.MD5Key]) error { return nil }
 
-// getOrphanFiles returns files in destination that weren't matched in any source
-// These are candidates for cleanup/archival
-func (bp *BackupProcessor) getOrphanFiles() []core.Fpath {
-	bp.mu.Lock()
-	defer bp.mu.Unlock()
-	orphans := []core.Fpath{}
+		// Callback: ignore files in both (they're not orphans)
+		inBoth := func(_ treap.TreapNodeInterface[types.MD5Key], _ treap.TreapNodeInterface[types.MD5Key]) error {
+			return nil
+		}
 
-	ctx := context.Background()
-	for node, iterErr := range bp.dstFileCollection.Iter(ctx) {
-		if iterErr != nil {
-			break
+		// Callback: collect files only in dst (these are orphans)
+		onlyInDst := func(node treap.TreapNodeInterface[types.MD5Key]) error {
+			payloadNode, ok := node.(treap.PersistentPayloadNodeInterface[types.MD5Key, fileData])
+			if !ok {
+				return fmt.Errorf("unexpected node type %T", node)
+			}
+			if !yield(payloadNode.GetPayload().Fpath) {
+				return fmt.Errorf("iterator stopped")
+			}
+			return nil
 		}
-		payloadNode, ok := node.(treap.PersistentPayloadNodeInterface[types.MD5Key, fileData])
-		if !ok {
-			continue
-		}
-		keyVal := payloadNode.GetKey().Value()
-		payload := payloadNode.GetPayload()
 
-		// If not matched, it's an orphan
-		if !bp.matchedDstKeys[keyVal] {
-			orphans = append(orphans, payload.Fpath)
-		}
+		_ = bp.srcFileCollection.Compare(bp.dstFileCollection, onlyInSrc, inBoth, onlyInDst)
 	}
 
-	return orphans
+	return iterator, nil
 }
 
 // Return list of files to backup in a prioritized fashion
