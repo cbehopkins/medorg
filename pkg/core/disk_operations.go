@@ -9,7 +9,45 @@ import (
 	"os/user"
 	"path/filepath"
 	"strings"
+	"syscall"
 )
+
+// ErrNoSpaceAnnotated wraps a no-space error with additional information about the file size
+// and bytes copied before the error occurred. Use errors.Is(err, ErrNoSpace) to check
+// if a no-space error occurred, and type-assert to *ErrNoSpaceAnnotated to get progress info.
+//
+// Example usage:
+//
+//	_, err := core.CopyFile(src, dst)
+//	if err != nil {
+//	    if errors.Is(err, consumers.ErrNoSpace) {
+//	        // Check if we have detailed progress information
+//	        var annotated *core.ErrNoSpaceAnnotated
+//	        if errors.As(err, &annotated) {
+//	            fmt.Printf("Copied %d of %d bytes before disk full\n",
+//	                annotated.BytesCopied, annotated.FileSize)
+//	        }
+//	    }
+//	}
+type ErrNoSpaceAnnotated struct {
+	FileSize    int64
+	BytesCopied int64
+}
+
+func (e *ErrNoSpaceAnnotated) Error() string {
+	return fmt.Sprintf("no space left on device: copied %d of %d bytes", e.BytesCopied, e.FileSize)
+}
+
+// Is returns true if the target is ErrNoSpace (from pkg/consumers),
+// making this compatible with errors.Is() checks
+func (e *ErrNoSpaceAnnotated) Is(target error) bool {
+	// Check against syscall.Errno(28) which is ErrNoSpace
+	var errno syscall.Errno
+	if errors.As(target, &errno) {
+		return errno == syscall.Errno(28)
+	}
+	return false
+}
 
 // md5WriteTokenChan limits concurrent MD5 file writes to prevent resource contention
 var md5WriteTokenChan = MakeTokenChan(4)
@@ -49,37 +87,38 @@ func createDestDirectoryAsNeeded(dst string) error {
 // CopyFile copies a file from src to dst. If src and dst files exist, and are
 // the same, then return success. Otherise, attempt to create a hard link
 // between the two files. If that fail, copy the file contents from src to dst.
-func CopyFile(src, dst Fpath) (err error) {
+// Returns the number of bytes copied and any error.
+func CopyFile(src, dst Fpath) (int64, error) {
 	srcs := src.string
 	dsts := dst.string
 	sfi, err := os.Stat(srcs)
 	if err != nil {
-		return fmt.Errorf("error in CopyFile src file status %w %s", err, srcs)
+		return 0, fmt.Errorf("error in CopyFile src file status %w %s", err, srcs)
 	}
 	if !sfi.Mode().IsRegular() {
 		// cannot copy non-regular files (e.g., directories,
 		// symlinks, devices, etc.)
-		return fmt.Errorf("CopyFile: non-regular source file %s (%q)", sfi.Name(), sfi.Mode().String())
+		return 0, fmt.Errorf("CopyFile: non-regular source file %s (%q)", sfi.Name(), sfi.Mode().String())
 	}
 	dfi, err := os.Stat(dsts)
 	if err != nil {
 		if !os.IsNotExist(err) {
-			return err
+			return 0, err
 		}
 	} else {
 		if !(dfi.Mode().IsRegular()) {
-			return fmt.Errorf("CopyFile: non-regular destination file %s (%q)", dfi.Name(), dfi.Mode().String())
+			return 0, fmt.Errorf("CopyFile: non-regular destination file %s (%q)", dfi.Name(), dfi.Mode().String())
 		}
 		if os.SameFile(sfi, dfi) {
-			return nil
+			return 0, nil
 		}
 	}
 	err = createDestDirectoryAsNeeded(dsts)
 	if err != nil {
-		return fmt.Errorf("issue in CopyFile creating directory tree %w", err)
+		return 0, fmt.Errorf("issue in CopyFile creating directory tree %w", err)
 	}
 	if err = os.Link(srcs, dsts); err == nil {
-		return nil
+		return sfi.Size(), nil
 	}
 	return copyFileContents(srcs, dsts)
 }
@@ -105,7 +144,7 @@ func MoveFile(src, dst Fpath) (err error) {
 	if _, err := os.Stat(dsts); os.IsExist(err) {
 		return err
 	}
-	err = CopyFile(src, dst)
+	_, err = CopyFile(src, dst)
 	if err != nil {
 		return fmt.Errorf("copy problem when moving %w", err)
 	}
@@ -115,28 +154,48 @@ func MoveFile(src, dst Fpath) (err error) {
 // copyFileContents copies the contents of the file named src to the file named
 // by dst. The file will be created if it does not already exist. If the
 // destination file exists, all it's contents will be replaced by the contents
-// of the source file.
-func copyFileContents(srcs, dsts string) (err error) {
+// of the source file. Returns the number of bytes copied and any error.
+// If a no-space error occurs, returns ErrNoSpaceAnnotated with file size and bytes copied.
+func copyFileContents(srcs, dsts string) (int64, error) {
 	in, err := os.Open(srcs)
 	if err != nil {
-		return fmt.Errorf("info error on src in copyFileContents : %w", err)
+		return 0, fmt.Errorf("info error on src in copyFileContents : %w", err)
 	}
 	defer func() { _ = in.Close() }()
+
+	// Get source file size for error annotation
+	fi, err := in.Stat()
+	if err != nil {
+		return 0, fmt.Errorf("error getting source file size: %w", err)
+	}
+	fileSize := fi.Size()
+
 	out, err := os.Create(dsts)
 	if err != nil {
-		return fmt.Errorf("unable to write to output file in copyFileContents %w %s", err, dsts)
+		return 0, fmt.Errorf("unable to write to output file in copyFileContents %w %s", err, dsts)
 	}
+	var written int64
 	defer func() {
 		cerr := out.Close()
 		if err == nil {
 			err = cerr
 		}
 	}()
-	if _, err = io.Copy(out, in); err != nil {
-		return
+	var copyErr error
+	written, copyErr = io.Copy(out, in)
+	if copyErr != nil {
+		// Check if this is a no-space error and annotate it
+		var errno syscall.Errno
+		if errors.As(copyErr, &errno) && errno == syscall.Errno(28) {
+			return written, &ErrNoSpaceAnnotated{
+				FileSize:    fileSize,
+				BytesCopied: written,
+			}
+		}
+		return written, copyErr
 	}
 	err = out.Sync()
-	return
+	return written, err
 }
 
 // LoadFileIter loads a file and returns its lines via a channel

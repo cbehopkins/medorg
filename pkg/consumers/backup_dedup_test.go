@@ -81,7 +81,7 @@ func TestBackupDuplicateContentFiles(t *testing.T) {
 	var copiedFiles []string
 	var copiedFilesMu sync.Mutex
 
-	fc := func(src, dst core.Fpath) error {
+	fc := func(src, dst core.Fpath) (int64, error) {
 		atomic.AddUint32(&copyCount, 1)
 		copiedFilesMu.Lock()
 		copiedFiles = append(copiedFiles, filepath.Base(dst.String()))
@@ -235,7 +235,7 @@ func TestBackupDuplicateContentInSubdirs(t *testing.T) {
 	var xc core.MdConfig
 	var copyCount uint32
 
-	fc := func(src, dst core.Fpath) error {
+	fc := func(src, dst core.Fpath) (int64, error) {
 		atomic.AddUint32(&copyCount, 1)
 		t.Logf("Copying: %s", src)
 		return core.CopyFile(src, dst)

@@ -88,7 +88,7 @@ func TestCopyFileSame(t *testing.T) {
 	}
 
 	// Copy to itself should succeed
-	err := CopyFile(NewFpath(testFile), NewFpath(testFile))
+	_, err := CopyFile(NewFpath(testFile), NewFpath(testFile))
 	if err != nil {
 		t.Errorf("CopyFile to same file returned error: %v", err)
 	}
@@ -107,7 +107,7 @@ func TestCopyFileBasic(t *testing.T) {
 	}
 
 	// Copy file
-	err := CopyFile(NewFpath(srcFile), NewFpath(dstFile))
+	_, err := CopyFile(NewFpath(srcFile), NewFpath(dstFile))
 	if err != nil {
 		t.Fatalf("CopyFile returned error: %v", err)
 	}
@@ -136,7 +136,7 @@ func TestCopyFileToNestedDir(t *testing.T) {
 	}
 
 	// Copy to nested location
-	err := CopyFile(NewFpath(srcFile), NewFpath(dstFile))
+	_, err := CopyFile(NewFpath(srcFile), NewFpath(dstFile))
 	if err != nil {
 		t.Fatalf("CopyFile to nested directory returned error: %v", err)
 	}
@@ -158,7 +158,7 @@ func TestCopyFileNonRegular(t *testing.T) {
 	dstFile := filepath.Join(tmpDir, "dst.txt")
 
 	// Try to copy a directory as source
-	err := CopyFile(NewFpath(tmpDir), NewFpath(dstFile))
+	_, err := CopyFile(NewFpath(tmpDir), NewFpath(dstFile))
 	if err == nil {
 		t.Error("CopyFile should fail for non-regular source file")
 	}
@@ -173,7 +173,7 @@ func TestCopyFileNonExistent(t *testing.T) {
 	srcFile := filepath.Join(tmpDir, "notexists.txt")
 	dstFile := filepath.Join(tmpDir, "dst.txt")
 
-	err := CopyFile(NewFpath(srcFile), NewFpath(dstFile))
+	_, err := CopyFile(NewFpath(srcFile), NewFpath(dstFile))
 	if err == nil {
 		t.Error("CopyFile should fail for non-existent source")
 	}
@@ -331,7 +331,7 @@ func TestCopyFileContents(t *testing.T) {
 	}
 
 	// Copy contents
-	err := copyFileContents(srcFile, dstFile)
+	_, err := copyFileContents(srcFile, dstFile)
 	if err != nil {
 		t.Fatalf("copyFileContents returned error: %v", err)
 	}
@@ -364,7 +364,7 @@ func TestCopyFileLargeFile(t *testing.T) {
 	}
 
 	// Copy file
-	err := CopyFile(NewFpath(srcFile), NewFpath(dstFile))
+	_, err := CopyFile(NewFpath(srcFile), NewFpath(dstFile))
 	if err != nil {
 		t.Fatalf("CopyFile returned error: %v", err)
 	}
@@ -399,7 +399,7 @@ func TestCopyFilePermissions(t *testing.T) {
 	}
 
 	// Copy file
-	err := CopyFile(NewFpath(srcFile), NewFpath(dstFile))
+	_, err := CopyFile(NewFpath(srcFile), NewFpath(dstFile))
 	if err != nil {
 		t.Fatalf("CopyFile returned error: %v", err)
 	}
@@ -468,7 +468,7 @@ func TestSequentialFileOperations(t *testing.T) {
 
 	// Copy to file2
 	file2 := filepath.Join(tmpDir, "file2.txt")
-	if err := CopyFile(NewFpath(file1), NewFpath(file2)); err != nil {
+	if _, err := CopyFile(NewFpath(file1), NewFpath(file2)); err != nil {
 		t.Fatalf("Copy to file2 failed: %v", err)
 	}
 

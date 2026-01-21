@@ -11,6 +11,7 @@ import (
 
 	"github.com/cbehopkins/bobbob/store/allocator"
 	"github.com/cbehopkins/bobbob/yggdrasil/treap"
+	"github.com/cbehopkins/bobbob/yggdrasil/types"
 	"github.com/cbehopkins/bobbob/yggdrasil/vault"
 	"github.com/cbehopkins/medorg/pkg/core"
 )
@@ -47,7 +48,7 @@ func (f fileData) Marshal() ([]byte, error) {
 }
 
 // Unmarshal implements PersistentPayload interface
-func (f fileData) Unmarshal(data []byte) (treap.UntypedPersistentPayload, error) {
+func (f fileData) Unmarshal(data []byte) (types.UntypedPersistentPayload, error) {
 	var size int64
 	var backupDest []string
 	_, err := fmt.Sscanf(string(data), "%d:%v", &size, &backupDest)
@@ -69,11 +70,11 @@ func (f fileData) SizeInBytes() int {
 }
 
 type BackupProcessor struct {
-	srcFileCollection *treap.PersistentPayloadTreap[treap.MD5Key, fileData]
-	dstFileCollection *treap.PersistentPayloadTreap[treap.MD5Key, fileData]
+	srcFileCollection *treap.PersistentPayloadTreap[types.MD5Key, fileData]
+	dstFileCollection *treap.PersistentPayloadTreap[types.MD5Key, fileData]
 	session           *vault.VaultSession
 	filePath          string
-	matchedDstKeys    map[treap.MD5Key]bool // Tracks which destination files were found in sources
+	matchedDstKeys    map[types.MD5Key]bool // Tracks which destination files were found in sources
 	mu                sync.Mutex            // Serializes treap/vault writes and map updates
 	persistQueue      chan persistRequest   // Serializes persist operations to prevent allocator corruption
 	persistWg         sync.WaitGroup        // Tracks persist operations
@@ -100,16 +101,16 @@ func NewBackupProcessor() (*BackupProcessor, error) {
 
 	session, colls, err := vault.OpenVaultWithIdentity(
 		tmpFile,
-		vault.PayloadIdentitySpec[string, treap.MD5Key, fileData]{
+		vault.PayloadIdentitySpec[string, types.MD5Key, fileData]{
 			Identity:        "srcFiles",
-			LessFunc:        treap.MD5Less,
-			KeyTemplate:     (*treap.MD5Key)(new(treap.MD5Key)),
+			LessFunc:        types.MD5Less,
+			KeyTemplate:     (*types.MD5Key)(new(types.MD5Key)),
 			PayloadTemplate: fileData{},
 		},
-		vault.PayloadIdentitySpec[string, treap.MD5Key, fileData]{
+		vault.PayloadIdentitySpec[string, types.MD5Key, fileData]{
 			Identity:        "dstFiles",
-			LessFunc:        treap.MD5Less,
-			KeyTemplate:     (*treap.MD5Key)(new(treap.MD5Key)),
+			LessFunc:        types.MD5Less,
+			KeyTemplate:     (*types.MD5Key)(new(types.MD5Key)),
 			PayloadTemplate: fileData{},
 		},
 	)
@@ -117,11 +118,11 @@ func NewBackupProcessor() (*BackupProcessor, error) {
 		return nil, err
 	}
 
-	srcCollection, ok := colls["srcFiles"].(*treap.PersistentPayloadTreap[treap.MD5Key, fileData])
+	srcCollection, ok := colls["srcFiles"].(*treap.PersistentPayloadTreap[types.MD5Key, fileData])
 	if !ok {
 		return nil, fmt.Errorf("collection has wrong type: got %T", colls["srcFiles"])
 	}
-	dstCollection, ok := colls["dstFiles"].(*treap.PersistentPayloadTreap[treap.MD5Key, fileData])
+	dstCollection, ok := colls["dstFiles"].(*treap.PersistentPayloadTreap[types.MD5Key, fileData])
 	if !ok {
 		return nil, fmt.Errorf("collection has wrong type: got %T", colls["dstFiles"])
 	}
@@ -138,8 +139,8 @@ func NewBackupProcessor() (*BackupProcessor, error) {
 	// onFlushDebug := func(stats vault.MemoryStats, cnt int) {
 	// 	log.Printf("[MEMORY] Flushed %d nodes, current stats: %v", cnt, stats)
 	// }
-	session.Vault.SetMemoryBudgetWithPercentileWithCallbacks(10_000, 25, nil, nil)
-	// session.Vault.SetCheckInterval(10)
+	session.Vault.SetMemoryBudgetWithPercentile(10_000, 25)
+	session.Vault.SetCheckInterval(1000)
 
 	// Setup allocation logging for debugging memory issues
 	// setupAllocationLogging(session)
@@ -149,7 +150,7 @@ func NewBackupProcessor() (*BackupProcessor, error) {
 		dstFileCollection: dstCollection,
 		session:           session,
 		filePath:          tmpFile,
-		matchedDstKeys:    make(map[treap.MD5Key]bool),
+		matchedDstKeys:    make(map[types.MD5Key]bool),
 		persistQueue:      make(chan persistRequest, 100), // Buffered queue for persist requests
 		done:              make(chan struct{}),            // Closed to signal shutdown
 	}
@@ -236,10 +237,10 @@ func (bp *BackupProcessor) addSrcFile(md5Key string, size int64, backupDest []st
 	bp.mu.Lock()
 	defer bp.mu.Unlock()
 	// Try hex string first (for tests), then fall back to base64 (production format)
-	key, err := treap.MD5KeyFromString(md5Key)
+	key, err := types.MD5KeyFromString(md5Key)
 	if err != nil {
 		// If hex fails, try base64
-		key, err = treap.Md5KeyFromBase64String(md5Key)
+		key, err = types.Md5KeyFromBase64String(md5Key)
 		if err != nil {
 			return fmt.Errorf("invalid md5 key %q: %w", md5Key, err)
 		}
@@ -281,10 +282,10 @@ func (bp *BackupProcessor) addDstFile(md5Key string, size int64, backupDest []st
 	bp.mu.Lock()
 	defer bp.mu.Unlock()
 	// Try hex string first (for tests), then fall back to base64 (production format)
-	key, err := treap.MD5KeyFromString(md5Key)
+	key, err := types.MD5KeyFromString(md5Key)
 	if err != nil {
 		// If hex fails, try base64
-		key, err = treap.Md5KeyFromBase64String(md5Key)
+		key, err = types.Md5KeyFromBase64String(md5Key)
 		if err != nil {
 			return fmt.Errorf("invalid md5 key %q: %w", md5Key, err)
 		}
@@ -316,10 +317,10 @@ func (bp *BackupProcessor) addDstFile(md5Key string, size int64, backupDest []st
 // checkDstFileExists checks if a file with the given checksum exists in destination
 // Returns the file path and true if found, empty string and false otherwise
 func (bp *BackupProcessor) checkDstFileExists(checksum string) (core.Fpath, bool) {
-	key, err := treap.MD5KeyFromString(checksum)
+	key, err := types.MD5KeyFromString(checksum)
 	if err != nil {
 		// Try base64 format
-		key, err = treap.Md5KeyFromBase64String(checksum)
+		key, err = types.Md5KeyFromBase64String(checksum)
 		if err != nil {
 			return core.Fpath{}, false
 		}
@@ -337,10 +338,10 @@ func (bp *BackupProcessor) checkDstFileExists(checksum string) (core.Fpath, bool
 func (bp *BackupProcessor) markAsMatched(checksum string) error {
 	bp.mu.Lock()
 	defer bp.mu.Unlock()
-	key, err := treap.MD5KeyFromString(checksum)
+	key, err := types.MD5KeyFromString(checksum)
 	if err != nil {
 		// Try base64 format
-		key, err = treap.Md5KeyFromBase64String(checksum)
+		key, err = types.Md5KeyFromBase64String(checksum)
 		if err != nil {
 			return err
 		}
@@ -361,7 +362,7 @@ func (bp *BackupProcessor) getOrphanFiles() []core.Fpath {
 		if iterErr != nil {
 			break
 		}
-		payloadNode, ok := node.(treap.PersistentPayloadNodeInterface[treap.MD5Key, fileData])
+		payloadNode, ok := node.(treap.PersistentPayloadNodeInterface[types.MD5Key, fileData])
 		if !ok {
 			continue
 		}
@@ -396,8 +397,8 @@ func (bp *BackupProcessor) prioritizedSrcFiles() (func(yield func(fileData) bool
 	}
 
 	// Callback: insert files that are only in src (not in dst) into priority collection
-	onlyInSrc := func(node treap.TreapNodeInterface[treap.MD5Key]) error {
-		payloadNode, ok := node.(treap.PersistentPayloadNodeInterface[treap.MD5Key, fileData])
+	onlyInSrc := func(node treap.TreapNodeInterface[types.MD5Key]) error {
+		payloadNode, ok := node.(treap.PersistentPayloadNodeInterface[types.MD5Key, fileData])
 		if !ok {
 			return fmt.Errorf("unexpected node type %T", node)
 		}
@@ -408,12 +409,12 @@ func (bp *BackupProcessor) prioritizedSrcFiles() (func(yield func(fileData) bool
 	}
 
 	// Ignore files in both collections
-	inBoth := func(_ treap.TreapNodeInterface[treap.MD5Key], _ treap.TreapNodeInterface[treap.MD5Key]) error {
+	inBoth := func(_ treap.TreapNodeInterface[types.MD5Key], _ treap.TreapNodeInterface[types.MD5Key]) error {
 		return nil
 	}
 
 	// Ignore files only in dst
-	onlyInDst := func(_ treap.TreapNodeInterface[treap.MD5Key]) error {
+	onlyInDst := func(_ treap.TreapNodeInterface[types.MD5Key]) error {
 		return nil
 	}
 
@@ -422,24 +423,21 @@ func (bp *BackupProcessor) prioritizedSrcFiles() (func(yield func(fileData) bool
 		return nil, err
 	}
 
-	// Iterate through the sorted collection and collect fileData in order
-	ordered := make([]fileData, 0)
-	ctx := context.Background()
-	for node, iterErr := range priorityColl.Iter(ctx) {
-		if iterErr != nil {
-			return nil, iterErr
-		}
-		payloadNode, ok := node.(treap.PersistentPayloadNodeInterface[priorityKey, fileData])
-		if !ok {
-			return nil, fmt.Errorf("unexpected node type %T", node)
-		}
-		// Can we do this without a temp list???
-		ordered = append(ordered, payloadNode.GetPayload())
-	}
-
+	// Return an iterator that streams directly from the sorted collection
+	// without loading everything into memory
 	iterator := func(yield func(fileData) bool) {
-		for _, fd := range ordered {
-			if !yield(fd) {
+		ctx := context.Background()
+		for node, iterErr := range priorityColl.Iter(ctx) {
+			if iterErr != nil {
+				// Can't propagate error from iterator, just stop iteration
+				return
+			}
+			payloadNode, ok := node.(treap.PersistentPayloadNodeInterface[priorityKey, fileData])
+			if !ok {
+				// Can't propagate error from iterator, just stop iteration
+				return
+			}
+			if !yield(payloadNode.GetPayload()) {
 				return
 			}
 		}

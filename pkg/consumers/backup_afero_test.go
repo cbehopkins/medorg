@@ -65,15 +65,15 @@ func TestOrphansDeletedBeforeCopyOnNoSpace(t *testing.T) {
 	copyCount := 0
 
 	// Failover copier: fails with ErrNoSpace after 1 copy
-	failingCopier := func(src, dst core.Fpath) error {
+	failingCopier := func(src, dst core.Fpath) (int64, error) {
 		callOrder = append(callOrder, fmt.Sprintf("copy(%s)", filepath.Base(src.String())))
 		copyCount++
 		// Second copy (or any beyond first) fails with no space
 		if copyCount > 1 {
-			return ErrNoSpace
+			return 512, ErrNoSpace // Return partial progress
 		}
 		// First copy succeeds (dummy)
-		return ErrDummyCopy
+		return 0, ErrDummyCopy
 	}
 
 	// Orphan handler: deletes the file, records the call
@@ -194,24 +194,24 @@ func TestBackupWithAFeroMemFS(t *testing.T) {
 	copyOps := []string{}
 
 	// Copier that writes to memfs, simulating disk full after the second copy
-	limitedCopier := func(src, dst core.Fpath) error {
+	limitedCopier := func(src, dst core.Fpath) (int64, error) {
 		copyOps = append(copyOps, filepath.Base(src.String()))
 
 		// Simulate disk full on the second copy attempt
 		if len(copyOps) > 1 {
-			return ErrNoSpace
+			return 256, ErrNoSpace // Partial progress before failure
 		}
 
 		// Read from real src, write to memfs (simulating copy)
 		data, err := os.ReadFile(src.String())
 		if err != nil {
-			return err
+			return 0, err
 		}
 		dstPath := dst.String()
 		if err := afero.WriteFile(memFS, dstPath, data, 0o644); err != nil {
-			return err
+			return 0, err
 		}
-		return ErrDummyCopy // Don't actually update medorg.xml
+		return int64(len(data)), ErrDummyCopy // Don't actually update medorg.xml
 	}
 
 	// Track orphan deletions
@@ -318,14 +318,14 @@ func TestBackupRecoveryFromInterruptedCopy(t *testing.T) {
 
 	// First backup: fails on 3rd file, simulating interruption
 	firstAttemptCopies := 0
-	firstAttemptCopier := func(src, dst core.Fpath) error {
+	firstAttemptCopier := func(src, dst core.Fpath) (int64, error) {
 		firstAttemptCopies++
 		if firstAttemptCopies > 2 {
 			// Fail on 3rd copy to simulate interruption
-			return ErrNoSpace
+			return 128, ErrNoSpace
 		}
 		// Dummy copy (don't actually write)
-		return ErrDummyCopy
+		return 0, ErrDummyCopy
 	}
 
 	var logBuf bytes.Buffer
@@ -359,10 +359,10 @@ func TestBackupRecoveryFromInterruptedCopy(t *testing.T) {
 
 	// Second backup: completes successfully, should skip already-processed files
 	secondAttemptCopies := 0
-	secondAttemptCopier := func(src, dst core.Fpath) error {
+	secondAttemptCopier := func(src, dst core.Fpath) (int64, error) {
 		secondAttemptCopies++
 		// All copies succeed on second attempt
-		return ErrDummyCopy
+		return 0, ErrDummyCopy
 	}
 
 	logBuf.Reset()
@@ -458,9 +458,9 @@ func TestOrphanReclaimSpaceWithinSingleBackup(t *testing.T) {
 		return os.Remove(path)
 	}
 
-	copier := func(src, dst core.Fpath) error {
+	copier := func(src, dst core.Fpath) (int64, error) {
 		callOrder = append(callOrder, "copy")
-		return ErrDummyCopy
+		return 0, ErrDummyCopy
 	}
 
 	var logBuf bytes.Buffer
@@ -554,17 +554,17 @@ func TestLargeFileHandlingWithMemFS(t *testing.T) {
 
 	// Track copy operations
 	copiesProcessed := 0
-	copier := func(src, dst core.Fpath) error {
+	copier := func(src, dst core.Fpath) (int64, error) {
 		copiesProcessed++
 		// Verify we can read the source file
 		data, err := os.ReadFile(src.String())
 		if err != nil {
-			return err
+			return 0, err
 		}
 		if int64(len(data)) != expectedSize {
-			return fmt.Errorf("copied file size mismatch: expected %d, got %d", expectedSize, len(data))
+			return 0, fmt.Errorf("copied file size mismatch: expected %d, got %d", expectedSize, len(data))
 		}
-		return ErrDummyCopy
+		return int64(len(data)), ErrDummyCopy
 	}
 
 	var logBuf bytes.Buffer
@@ -649,9 +649,9 @@ func TestBackupWithIdenticalSourceAndOrphan(t *testing.T) {
 		return os.Remove(path)
 	}
 
-	copier := func(src, dst core.Fpath) error {
+	copier := func(src, dst core.Fpath) (int64, error) {
 		// Should not be called if file already exists with same checksum
-		return ErrDummyCopy
+		return 0, ErrDummyCopy
 	}
 
 	var logBuf bytes.Buffer
@@ -724,10 +724,10 @@ func TestBackupResumeUpdatesMetadata(t *testing.T) {
 	}
 
 	copyCount := 0
-	failingCopier := func(src, dst core.Fpath) error {
+	failingCopier := func(src, dst core.Fpath) (int64, error) {
 		copyCount++
 		if copyCount == 2 {
-			return ErrNoSpace // interrupt after first copy
+			return 768, ErrNoSpace // interrupt after first copy
 		}
 		return core.CopyFile(src, dst)
 	}
@@ -761,7 +761,7 @@ func TestBackupResumeUpdatesMetadata(t *testing.T) {
 		t.Fatalf("did not expect %s in directory map after first run", files[1])
 	}
 
-	successCopier := func(src, dst core.Fpath) error {
+	successCopier := func(src, dst core.Fpath) (int64, error) {
 		return core.CopyFile(src, dst)
 	}
 	secondErr := BackupRunner(

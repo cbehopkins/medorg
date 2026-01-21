@@ -1,9 +1,7 @@
 package core
 
 import (
-	"encoding/xml"
 	"errors"
-	"fmt"
 	"io"
 	"log"
 )
@@ -22,17 +20,15 @@ func (md *Md5File) append(fs FileStruct) {
 }
 
 func supressXmlUnmarshallErrors(err error) error {
-	xse := &xml.SyntaxError{}
-	switch true {
-	case err == nil:
-	case errors.Is(err, io.EOF):
+	if err == nil {
 		return nil
-	case errors.As(err, &xse):
-		// Suppress error from causing a genuine failure (disks are unreliable)
-		// But still note that it happened
-		log.Println("Unmarshalling error:", err)
-	default:
-		return fmt.Errorf("unknown Error UnMarshalling:%w", err)
 	}
+	if errors.Is(err, io.EOF) {
+		return nil
+	}
+	// For robustness: treat any XML unmarshal error as recoverable.
+	// Disks and metadata can be flaky; we can rebuild from the filesystem.
+	// Log for observability but don't fail the run.
+	log.Println("Unmarshalling error:", err)
 	return nil
 }

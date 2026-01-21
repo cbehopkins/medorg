@@ -104,8 +104,8 @@ func TestDoACopyWithDummyCopy(t *testing.T) {
 	}
 
 	// Test copier that returns ErrDummyCopy
-	dummyCopier := func(src, dst core.Fpath) error {
-		return ErrDummyCopy
+	dummyCopier := func(src, dst core.Fpath) (int64, error) {
+		return 0, ErrDummyCopy
 	}
 
 	fpath := core.NewFpath(srcFile)
@@ -143,9 +143,9 @@ func TestDoACopyWithNoSpace(t *testing.T) {
 		t.Logf("check calc warning: %v", err)
 	}
 
-	// Test copier that returns ErrNoSpace
-	noSpaceCopier := func(src, dst core.Fpath) error {
-		return ErrNoSpace
+	// Test copier that returns ErrNoSpace (with byte count in copier, though not propagated)
+	noSpaceCopier := func(src, dst core.Fpath) (int64, error) {
+		return 1024, ErrNoSpace // Copier can track bytes, but standard CopyFile doesn't
 	}
 
 	fpath := core.NewFpath(srcFile)
@@ -180,9 +180,9 @@ func TestDoACopyWithCustomError(t *testing.T) {
 	// Test copier that returns a custom error
 	customErr := errors.New("custom copy error")
 	copyCount := 0
-	errorCopier := func(src, dst core.Fpath) error {
+	errorCopier := func(src, dst core.Fpath) (int64, error) {
 		copyCount++
-		return customErr
+		return 0, customErr
 	}
 
 	fpath := core.NewFpath(srcFile)

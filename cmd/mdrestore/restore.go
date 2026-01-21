@@ -328,12 +328,16 @@ func copyFileImpl(src, dst string) error {
 		return fmt.Errorf("failed to create destination directory: %w", err)
 	}
 
-	// Copy to temporary file first for atomic replace
-	tmp := dst + ".tmp"
-	// Best effort cleanup of any stale temp file
-	_ = os.Remove(tmp)
+	// Create a unique temporary file in the destination directory to avoid
+	// race conditions in concurrent copyFileImpl calls to the same destination
+	tmpFile, err := os.CreateTemp(dstDir, filepath.Base(dst)+".*.tmp")
+	if err != nil {
+		return fmt.Errorf("failed to create temp file: %w", err)
+	}
+	tmp := tmpFile.Name()
+	tmpFile.Close() // Close immediately, we'll use the name only
 
-	if err := core.CopyFile(core.NewFpath(src), core.NewFpath(tmp)); err != nil {
+	if _, err := core.CopyFile(core.NewFpath(src), core.NewFpath(tmp)); err != nil {
 		_ = os.Remove(tmp)
 		return fmt.Errorf("failed to copy to temp file: %w", err)
 	}

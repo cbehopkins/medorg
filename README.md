@@ -422,3 +422,23 @@ See individual package documentation in:
 - `pkg/core/` - Core functionality
 - `pkg/consumers/` - High-level operations
 - `cmd/*/` - Command implementations
+
+
+## Notes
+Set of personal notes - feel free to ignore
+# Memory debug
+
+On the pi:
+```
+go install -tags debugpprof ./cmd/mdbackup
+mdbackup -pprof-http 0.0.0.0:6060 -dump-profiles-on-interrupt -skip-checkcalc /mnt/backup
+```
+
+Local
+```
+go tool pprof -http=:8080 http://192.168.2.21:6060/debug/pprof/heap
+```
+
+# TODO
+* Tidy up FIXMEs
+* CTRL-C does not seem to work right during copies

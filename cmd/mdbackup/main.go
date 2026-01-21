@@ -29,7 +29,7 @@ var (
 func logMemoryStats(prefix string) {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
-	log.Printf("%s Memory: Alloc=%v MB, HeapInuse=%v MB, Sys=%v MB, TotalAlloc=%v MB, NumGC=%v, HeapObjects=%v, Goroutines=%v",
+	log.Printf("%s Memory: Alloc=%v MB, HeapInuse=%v MB, TotalAlloc=%v MB, Sys=%v MB, NumGC=%v, HeapObjects=%v, Goroutines=%v",
 		prefix,
 		m.Alloc/1024/1024,
 		m.HeapInuse/1024/1024,
@@ -80,61 +80,65 @@ func sizeOfBytes(fn string) int64 {
 }
 
 // poolCopier copies a file while updating a progress bar using bytes written
-func poolCopier(src, dst core.Fpath, pool *pb.Pool, wg *sync.WaitGroup) error {
+func poolCopier(src, dst core.Fpath, pool *pb.Pool, wg *sync.WaitGroup) (int64, error) {
 	myBar := new(pb.ProgressBar)
 	myBar.Set("prefix", fmt.Sprint(src.String(), ":"))
 	myBar.Set(pb.Bytes, true)
 	total := sizeOfBytes(src.String())
 	myBar.SetTotal(total)
 
+	log.Println("Started copying", src)
+	defer log.Println("Finished copying", src)
+
 	pool.Add(myBar)
 	myBar.Start()
+	defer func() {
+		myBar.Finish()
+		pool.Remove(myBar)
+	}()
 
 	// Replicate core.CopyFile with progress-enabled copy path
 	srcs := src.String()
 	dsts := dst.String()
 	sfi, err := os.Stat(srcs)
 	if err != nil {
-		myBar.Finish()
-		return fmt.Errorf("error in CopyFile src file status %w %s", err, srcs)
+		return 0, fmt.Errorf("error in CopyFile src file status %w %s", err, srcs)
 	}
 	if !sfi.Mode().IsRegular() {
-		myBar.Finish()
-		return fmt.Errorf("CopyFile: non-regular source file %s (%q)", sfi.Name(), sfi.Mode().String())
+		return 0, fmt.Errorf("CopyFile: non-regular source file %s (%q)", sfi.Name(), sfi.Mode().String())
 	}
 	if dfi, err := os.Stat(dsts); err == nil {
 		if !(dfi.Mode().IsRegular()) {
-			myBar.Finish()
-			return fmt.Errorf("CopyFile: non-regular destination file %s (%q)", dfi.Name(), dfi.Mode().String())
+			return 0, fmt.Errorf("CopyFile: non-regular destination file %s (%q)", dfi.Name(), dfi.Mode().String())
 		}
 		if os.SameFile(sfi, dfi) {
-			myBar.Finish()
-			return nil
+
+			return 0, nil
 		}
 	} else if !os.IsNotExist(err) {
-		myBar.Finish()
-		return err
+
+		return 0, err
 	}
 	if err := os.MkdirAll(filepath.Dir(dsts), 0o777); err != nil {
-		myBar.Finish()
-		return fmt.Errorf("issue in CopyFile creating directory tree %w", err)
+
+		return 0, fmt.Errorf("issue in CopyFile creating directory tree %w", err)
 	}
 	if err := os.Link(srcs, dsts); err == nil {
 		myBar.SetCurrent(total)
-		myBar.Finish()
-		return nil
+
+		return total, nil
 	}
 
 	in, err := os.Open(srcs)
 	if err != nil {
-		myBar.Finish()
-		return fmt.Errorf("info error on src in copyFileContents : %w", err)
+
+		return 0, fmt.Errorf("info error on src in copyFileContents : %w", err)
 	}
 	defer func() { _ = in.Close() }()
 	out, err := os.Create(dsts)
 	if err != nil {
-		myBar.Finish()
-		return fmt.Errorf("unable to write to output file in copyFileContents %w %s", err, dsts)
+
+		return 0, fmt.Errorf("unable to write to output file in copyFileContents %w %s", err, dsts)
 	}
 	// Ensure we close and report any close error
 	var copyErr error
@@ -173,16 +177,15 @@ func poolCopier(src, dst core.Fpath, pool *pb.Pool, wg *sync.WaitGroup) error {
 		}
 	}
 	if copyErr != nil {
-		myBar.Finish()
-		return copyErr
+
+		return written, copyErr
 	}
 	if err := out.Sync(); err != nil {
-		myBar.Finish()
-		return err
+
+		return written, err
 	}
 	myBar.SetCurrent(total)
-	myBar.Finish()
-	return nil
+	return total, nil
 }
 
 func visitFilesUpdatingProgressBar(pool *pb.Pool, directories []string,
@@ -276,12 +279,12 @@ func main() {
 	log.Println("This is a test log entry")
 
 	// Log initial memory stats
-	logMemoryStats("[STARTUP]")
+	// logMemoryStats("[STARTUP]")
 
 	// Start periodic memory monitoring (every 30 seconds)
 	monitorDone := make(chan struct{})
 	defer close(monitorDone)
-	startMemoryMonitor(30*time.Second, monitorDone)
+	// startMemoryMonitor(30*time.Second, monitorDone)
 
 	// Initialize optional pprof (no-op unless built with -tags debugpprof)
 	onInterrupt := pprofInit(monitorDone, f)

@@ -69,7 +69,7 @@ func TestBackupMaintainsDirectoryHierarchy(t *testing.T) {
 
 	// Run backup
 	var xc core.MdConfig
-	fc := func(src, dst core.Fpath) error {
+	fc := func(src, dst core.Fpath) (int64, error) {
 		return core.CopyFile(src, dst)
 	}
 	err = BackupRunner(&xc, 2, fc, dstDir, nil, nil, nil, nil, false, nil, srcDir)
@@ -196,7 +196,7 @@ func TestBackupStreamingMaintainsHierarchy(t *testing.T) {
 
 	// Run backup (uses streaming implementation)
 	var xc core.MdConfig
-	fc := func(src, dst core.Fpath) error {
+	fc := func(src, dst core.Fpath) (int64, error) {
 		return core.CopyFile(src, dst)
 	}
 	err = BackupRunner(&xc, 2, fc, dstDir, nil, nil, nil, nil, false, nil, srcDir)

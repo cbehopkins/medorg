@@ -29,6 +29,8 @@ func (s SimpleVolumeLabelProvider) GetVolumeLabel(destDir string) (string, error
 	return vc.Label, nil
 }
 
+var copyTokenChan = core.MakeTokenChan(2)
+
 // Config holds the configuration for mdbackup
 type Config struct {
 	// ProjectConfig holds project-level settings (ignore patterns etc.)
@@ -141,30 +143,45 @@ func Run(cfg Config) (int, error) {
 	}
 
 	// Setup the copier function
-	var copyer func(src, dst core.Fpath) error
+	var copyer func(src, dst core.Fpath) (int64, error)
 	if cfg.DummyMode {
 		log.Println("Configuring for dummy copy mode")
-		copyer = func(src, dst core.Fpath) error {
+		copyer = func(src, dst core.Fpath) (int64, error) {
 			if fileSkipper(src.String()) {
-				return nil
+				return 0, nil
 			}
 			log.Println("Copy from:", src, " to ", dst)
-			return consumers.ErrDummyCopy
+			return 0, consumers.ErrDummyCopy
 		}
 	} else if cfg.UseProgressBar {
 		log.Println("Using Progress bar style copy")
-		copyer = func(src, dst core.Fpath) error {
+		copyer = func(src, dst core.Fpath) (int64, error) {
+			logFunc("Copying: " + src.String() + " to " + dst.String())
 			if fileSkipper(src.String()) {
-				return nil
+				logFunc("Skipping (ignored): " + src.String())
+				return 0, nil
 			}
+			<-copyTokenChan
+			log.Println("Got Copy Token for" + src.String())
+
+			defer func() {
+				log.Println("Releasing Copy Token for" + src.String())
+				copyTokenChan <- struct{}{}
+			}()
 			return poolCopier(src, dst, pool, &wg)
 		}
 	} else {
 		log.Println("Configuring for default copy mode")
-		copyer = func(src, dst core.Fpath) error {
+		copyer = func(src, dst core.Fpath) (int64, error) {
 			if fileSkipper(src.String()) {
-				return nil
+				return 0, nil
 			}
+			<-copyTokenChan
+			log.Println("Got Copy Token for" + src.String())
+			defer func() {
+				log.Println("Releasing Copy Token for" + src.String())
+				copyTokenChan <- struct{}{}
+			}()
 			log.Println("Copying:", src, "to", dst)
 			return core.CopyFile(src, dst)
 		}

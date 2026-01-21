@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 
 	"github.com/cbehopkins/bobbob/store"
-	"github.com/cbehopkins/bobbob/yggdrasil/treap"
+	"github.com/cbehopkins/bobbob/yggdrasil/types"
 )
 
 // priorityKey orders by destinations (asc), size (desc), then path (asc).
@@ -29,7 +29,7 @@ func (k priorityKey) Marshal() ([]byte, error) {
 func (k *priorityKey) Unmarshal(data []byte) error {
 	return json.Unmarshal(data, k)
 }
-func (k priorityKey) New() treap.PersistentKey[priorityKey] {
+func (k priorityKey) New() types.PersistentKey[priorityKey] {
 	return &priorityKey{}
 }
 

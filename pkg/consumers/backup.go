@@ -28,6 +28,11 @@ var (
 	ErrNoSpace = syscall.Errno(28)
 )
 
+// ErrNoSpaceAnnotated is defined in core package and wraps ErrNoSpace with additional
+// information about the file size and bytes copied before the error occurred.
+// Use errors.Is(err, ErrNoSpace) to check if a no-space error occurred, and
+// type-assert to *core.ErrNoSpaceAnnotated to get progress info.
+
 // VolumeLabeler provides volume label functionality for backup operations
 type VolumeLabeler interface {
 	GetVolumeLabel(destDir string) (string, error)
@@ -85,10 +90,6 @@ type checksumRecord struct {
 type checksumSet struct {
 	mu   sync.Mutex
 	seen map[string]checksumRecord
-}
-
-func newChecksumSet() *checksumSet {
-	return &checksumSet{seen: make(map[string]checksumRecord)}
 }
 
 // SeedFromDestination marks a checksum as already present in the destination.
@@ -310,9 +311,15 @@ func copyPendingFiles(
 	iter, _ := bp.prioritizedSrcFiles()
 	diskFilling := false
 	lastSize := int64(0)
+	targetSize := int64(0)
 	for fd := range iter {
 		fp := fd.Fpath
 		fileSize := fd.Size
+		log.Println("copyPendingFiles: processing ", fp)
+		defer log.Println("copyPendingFiles: finished ", fp)
+		if targetSize > 0 && fileSize > targetSize {
+			continue
+		}
 
 		// Determine which source root this file belongs to
 		srcRoot, found := findSourceRoot(srcDirs, fp.String())
@@ -328,6 +335,7 @@ func copyPendingFiles(
 			break
 		}
 		lastSize = fileSize
+
 		logFunc(fmt.Sprintf("Copying file: %s", fp))
 		fs, err := doACopy(srcRoot, destDir, volumeName, fp, fileCopyCallback)
 		if err != nil {
@@ -336,7 +344,15 @@ func copyPendingFiles(
 				continue
 			}
 			if errors.Is(err, ErrNoSpace) {
-				logFunc("No space left on device during copy of " + fp.String())
+				// Check if we have detailed progress information
+				var annotated *core.ErrNoSpaceAnnotated
+				if errors.As(err, &annotated) {
+					logFunc(fmt.Sprintf("No space left on device during copy of %s (copied %d of %d bytes)",
+						fp.String(), annotated.BytesCopied, annotated.FileSize))
+					targetSize = annotated.FileSize
+				} else {
+					logFunc("No space left on device during copy of " + fp.String())
+				}
 				// Move onto the next file which should be smaller
 				diskFilling = true
 				continue
@@ -432,7 +448,7 @@ func updateSourceDirectoryMap(dir core.Dirname, filename core.Fname, backupLabel
 	return src, dmSrc.Persist(dir)
 }
 
-type FileCopier func(src, dst core.Fpath) error
+type FileCopier func(src, dst core.Fpath) (bytesCopied int64, err error)
 
 func doACopy(
 	srcDir, // The source of the backup as specified on the command line
@@ -442,7 +458,10 @@ func doACopy(
 	fc FileCopier,
 ) (core.FileStruct, error) {
 	if fc == nil {
-		fc = core.CopyFile
+		log.Println("Creating dummy copier as nil passed in")
+		fc = func(src, dst core.Fpath) (int64, error) {
+			return core.CopyFile(src, dst)
+		}
 	}
 
 	// Workout the new path the target file should have
@@ -454,30 +473,33 @@ func doACopy(
 	}
 
 	// Actually copy the file
-	err = fc(file, core.NewFpath(destDir, rel))
+	log.Println("fc start")
+	_, err = fc(file, core.NewFpath(destDir, rel))
+	log.Println("fc done")
 	if errors.Is(err, ErrDummyCopy) {
+		log.Println("Dummy copy requested for ", file)
 		// Return ErrDummyCopy to signal no actual work done (caller decides how to handle)
 		return core.FileStruct{}, ErrDummyCopy
 	}
 	if errors.Is(err, ErrNoSpace) {
+		log.Println("No space for ", file)
 		_ = core.RmFilename(core.NewFpath(destDir, rel))
-		return core.FileStruct{}, ErrNoSpace
+		return core.FileStruct{}, err
 	}
 	// Update the srcDir .md5 file with the fact we've backed this up now
+	log.Println("Tagging source")
 	src, err := tagSourceAsBackedUp(file, backupLabelName)
 	if err != nil {
 		return core.FileStruct{}, err
 	}
 
-	// _ = src.RemoveTag(backupLabelName)
-	// Update the destDir with the checksum from the srcDir
-
 	// Acquire lock for destination directory
 	destDirForLock := core.Dirname(filepath.Join(destDir, filepath.Dir(rel)))
+	log.Println("Updating destination directory map", file, destDirForLock)
 	dstLock := globalDirLocks.getLock(string(destDirForLock))
 	dstLock.Lock()
 	defer dstLock.Unlock()
-
+	log.Println("Lock achieved for ", destDirForLock)
 	dmDst, err := core.DirectoryMapFromDir(destDirForLock)
 	if err != nil {
 		return core.FileStruct{}, err
@@ -486,12 +508,15 @@ func doACopy(
 	if err != nil {
 		return core.FileStruct{}, err
 	}
+	log.Println("Messing about...", destDirForLock)
 	src.SetDirectory(destDirForLock)
 	src.Mtime = fs.ModTime().Unix()
 	dmDst.Add(src)
+	log.Println("Persisting destination directory map for ", destDirForLock)
 	if err := dmDst.Persist(destDirForLock); err != nil {
 		return core.FileStruct{}, err
 	}
+	log.Println("Done updating destination directory map for ", destDirForLock)
 	return src, nil
 }
 

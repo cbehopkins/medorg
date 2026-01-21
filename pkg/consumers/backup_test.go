@@ -71,7 +71,7 @@ func createTestBackupDirectories(numberOfFiles, numberOfDuplicates int) ([]strin
 		dstFile := core.NewFpath(directoriesCreated[1], stem)
 		log.Println("Pretending to backup", dstFile)
 		srcFile := core.NewFpath(selectedFilename)
-		err := core.CopyFile(srcFile, dstFile)
+		_, err := core.CopyFile(srcFile, dstFile)
 		if err != nil {
 			return nil, err
 		}
@@ -115,14 +115,9 @@ func TestPreExistingBackupTags(t *testing.T) {
 
 	// First pass: backup all files
 	var xc core.MdConfig
-	var firstPassCount uint32
-	fc := func(src, dst core.Fpath) error {
+	fc := func(src, dst core.Fpath) (int64, error) {
 		t.Logf("First pass: Copy %s", src)
-		if err := core.CopyFile(src, dst); err != nil {
-			return err
-		}
-		atomic.AddUint32(&firstPassCount, 1)
-		return nil
+		return core.CopyFile(src, dst)
 	}
 
 	err = BackupRunner(&xc, 2, fc, destDir, nil, nil, nil, nil, false, nil, srcDir)
@@ -132,13 +127,9 @@ func TestPreExistingBackupTags(t *testing.T) {
 
 	// Second pass: should copy 0 files since everything is already backed up
 	var secondPassCount uint32
-	fc2 := func(src, dst core.Fpath) error {
+	fc2 := func(src, dst core.Fpath) (int64, error) {
 		t.Logf("Second pass: Copy %s (unexpected!)", src)
-		if err := core.CopyFile(src, dst); err != nil {
-			return err
-		}
-		atomic.AddUint32(&secondPassCount, 1)
-		return nil
+		return core.CopyFile(src, dst)
 	}
 
 	err = BackupRunner(&xc, 2, fc2, destDir, nil, nil, nil, nil, false, nil, srcDir)
@@ -188,7 +179,7 @@ func TestBackupChecksumMaintenance(t *testing.T) {
 	}
 
 	var xc core.MdConfig
-	fc := func(src, dst core.Fpath) error {
+	fc := func(src, dst core.Fpath) (int64, error) {
 		return core.CopyFile(src, dst)
 	}
 
@@ -267,7 +258,7 @@ func TestBackupOrphanDetection(t *testing.T) {
 
 	// Perform initial backup
 	var xc core.MdConfig
-	fc := func(src, dst core.Fpath) error {
+	fc := func(src, dst core.Fpath) (int64, error) {
 		return core.CopyFile(src, dst)
 	}
 

@@ -80,7 +80,19 @@ func NewVolumeCfg(xc *MdConfig, fn string) (*VolumeCfg, error) {
 		}
 		err = itm.FromXML(byteValue)
 		if err != nil {
-			return nil, fmt.Errorf("unable to unmarshal config NewVolumeCfg file:%s::%w", fn, err)
+			// If metadata is corrupted, regenerate it (better than failing backup/restore)
+			log.Printf("Corrupted volume label file %s: %v; regenerating", fn, err)
+			err := itm.GenerateNewVolumeLabel(xc)
+			if err != nil {
+				return nil, err
+			}
+		} else if itm.Label == "" {
+			// If FromXML succeeded but label is empty (corrupted content), regenerate
+			log.Printf("Volume label file %s has no label; regenerating", fn)
+			err := itm.GenerateNewVolumeLabel(xc)
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 	// We don't care if the label is there already or not
@@ -91,14 +103,12 @@ func NewVolumeCfg(xc *MdConfig, fn string) (*VolumeCfg, error) {
 // FromXML populate from a ba
 func (vc *VolumeCfg) FromXML(input []byte) (err error) {
 	err = xml.Unmarshal(input, vc)
-	switch err {
-	case nil:
-	case io.EOF:
-		err = nil
-	default:
-		return fmt.Errorf("unknown Error UnMarshalling Config:%w", err)
+	// For corrupted metadata, return the error so caller can regenerate
+	// (don't suppress here; let caller decide recovery strategy)
+	if err == io.EOF {
+		return nil
 	}
-	return
+	return err
 }
 
 // Chunk of code nicked from stackoverflow

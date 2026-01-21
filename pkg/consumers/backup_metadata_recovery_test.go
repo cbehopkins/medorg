@@ -47,7 +47,7 @@ func TestBackupDestinationMetadataRecovery(t *testing.T) {
 	t.Log("=== STEP 1: Initial backup ===")
 	var xc core.MdConfig
 	var initialCopyCount uint32
-	fc := func(src, dst core.Fpath) error {
+	fc := func(src, dst core.Fpath) (int64, error) {
 		atomic.AddUint32(&initialCopyCount, 1)
 		t.Logf("Initial backup: copying %s -> %s", src, dst)
 		return core.CopyFile(src, dst)
@@ -111,13 +111,13 @@ func TestBackupDestinationMetadataRecovery(t *testing.T) {
 	// STEP 3: Run backup again - should rebuild metadata and NOT recopy files
 	t.Log("=== STEP 3: Running backup with missing metadata ===")
 	var secondCopyCount uint32
-	fc2 := func(src, dst core.Fpath) error {
+	fc2 := func(src, dst core.Fpath) (int64, error) {
 		atomic.AddUint32(&secondCopyCount, 1)
 		t.Logf("Second backup: copying %s -> %s", src, dst)
 		return core.CopyFile(src, dst)
 	}
 
-err = BackupRunner(&xc, 2, fc2, dstDir, nil, nil, nil, nil, false, nil, srcDir)
+	err = BackupRunner(&xc, 2, fc2, dstDir, nil, nil, nil, nil, false, nil, srcDir)
 	if secondCopyCount != 0 {
 		t.Errorf("Expected 0 files to be copied (idempotent), but %d were copied", secondCopyCount)
 	} else {
@@ -193,7 +193,7 @@ func TestBackupDestinationMetadataRecoveryWithSubdirs(t *testing.T) {
 	// Initial backup
 	var xc core.MdConfig
 	var initialCopyCount uint32
-	fc := func(src, dst core.Fpath) error {
+	fc := func(src, dst core.Fpath) (int64, error) {
 		atomic.AddUint32(&initialCopyCount, 1)
 		return core.CopyFile(src, dst)
 	}
@@ -233,7 +233,7 @@ func TestBackupDestinationMetadataRecoveryWithSubdirs(t *testing.T) {
 
 	// Run backup again
 	var secondCopyCount uint32
-	fc2 := func(src, dst core.Fpath) error {
+	fc2 := func(src, dst core.Fpath) (int64, error) {
 		atomic.AddUint32(&secondCopyCount, 1)
 		t.Logf("Unexpected copy: %s -> %s", src, dst)
 		return core.CopyFile(src, dst)
@@ -323,7 +323,7 @@ func TestBackupSourceMetadataRecovery(t *testing.T) {
 	// Run backup - should recalculate source metadata and perform backup
 	var xc core.MdConfig
 	var copyCount uint32
-	fc := func(src, dst core.Fpath) error {
+	fc := func(src, dst core.Fpath) (int64, error) {
 		atomic.AddUint32(&copyCount, 1)
 		return core.CopyFile(src, dst)
 	}
