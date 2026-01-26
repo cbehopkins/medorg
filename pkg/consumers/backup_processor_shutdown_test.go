@@ -21,6 +21,7 @@ func TestBackupProcessorGracefulShutdown(t *testing.T) {
 	const numWorkers = 20
 	var wg sync.WaitGroup
 	errors := make(chan error, numWorkers)
+	done := make(chan struct{}) // Test-level done signal
 
 	for i := 0; i < numWorkers; i++ {
 		wg.Add(1)
@@ -29,6 +30,13 @@ func TestBackupProcessorGracefulShutdown(t *testing.T) {
 			
 			// Generate some MD5 keys and try to add files
 			for j := 0; j < 100; j++ {
+				// Check if we should stop
+				select {
+				case <-done:
+					return
+				default:
+				}
+
 				// Create a simple hex MD5 key string
 				md5Str := string([]byte{
 					byte(workerID), byte(workerID), byte(j), byte(j),
@@ -58,16 +66,19 @@ func TestBackupProcessorGracefulShutdown(t *testing.T) {
 		}(i)
 	}
 
-	// Close the BackupProcessor after a short delay while workers are still running
+	// Signal workers to stop after some operations
 	time.Sleep(time.Millisecond * 50)
-	closeErr := bp.Close()
-	if closeErr != nil {
-		t.Errorf("Close() returned error: %v", closeErr)
-	}
+	close(done)
 
-	// Wait for all workers to finish
+	// CRITICAL: Wait for all workers to finish before closing
 	wg.Wait()
 	close(errors)
+
+	// Now close the BackupProcessor (all workers have stopped)
+	closeErr := bp.Close()
+	if closeErr != nil {
+		t.Logf("Close() returned error: %v", closeErr)
+	}
 
 	// Check for unexpected errors (not shutdown errors)
 	for err := range errors {

@@ -3,6 +3,7 @@ package consumers
 import (
 	"encoding/json"
 
+	"github.com/cbehopkins/bobbob"
 	"github.com/cbehopkins/bobbob/store"
 	"github.com/cbehopkins/bobbob/yggdrasil/types"
 )
@@ -33,7 +34,7 @@ func (k priorityKey) New() types.PersistentKey[priorityKey] {
 	return &priorityKey{}
 }
 
-func (k priorityKey) MarshalToObjectId(stre store.Storer) (store.ObjectId, error) {
+func (k priorityKey) MarshalToObjectId(stre store.Storer) (bobbob.ObjectId, error) {
 	b, err := k.Marshal()
 	if err != nil {
 		return 0, err
@@ -41,7 +42,7 @@ func (k priorityKey) MarshalToObjectId(stre store.Storer) (store.ObjectId, error
 	return store.WriteNewObjFromBytes(stre, b)
 }
 
-func (k *priorityKey) UnmarshalFromObjectId(id store.ObjectId, stre store.Storer) error {
+func (k *priorityKey) UnmarshalFromObjectId(id bobbob.ObjectId, stre store.Storer) error {
 	return store.ReadGeneric(stre, k, id)
 }
 

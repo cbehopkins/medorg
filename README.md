@@ -436,9 +436,24 @@ mdbackup -pprof-http 0.0.0.0:6060 -dump-profiles-on-interrupt -skip-checkcalc /m
 
 Local
 ```
-go tool pprof -http=:8080 http://192.168.2.21:6060/debug/pprof/heap
+# Memory profiling
+go tool pprof -http=:8080 http://192.168.2.21:6060/debug/pprof/heap      # Heap allocations
+go tool pprof -http=:8080 http://192.168.2.21:6060/debug/pprof/allocs    # All allocations (history)
+
+# Concurrency profiling
+go tool pprof -http=:8080 http://192.168.2.21:6060/debug/pprof/goroutine # Active goroutines
+go tool pprof -http=:8080 http://192.168.2.21:6060/debug/pprof/block     # Blocking (channel/lock contention)
+go tool pprof -http=:8080 http://192.168.2.21:6060/debug/pprof/mutex     # Mutex contention
+
+# CPU profiling
+go tool pprof -http=:8080 http://192.168.2.21:6060/debug/pprof/profile   # CPU profile (30s default)
+
+# Execution trace
+go tool pprof -http=:8080 http://192.168.2.21:6060/debug/pprof/trace  
 ```
 
 # TODO
+* The directory walker should read a directory once - collect all the properties of that directory and then construct/update the DirectoryEntry for that dir using what it found. Then it should move onto the next subdirectory recursively.
+* the directory walker should use a channel/worker model to Create the directory entries
 * Tidy up FIXMEs
 * CTRL-C does not seem to work right during copies

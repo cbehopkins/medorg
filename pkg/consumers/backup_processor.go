@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cbehopkins/bobbob/store/allocator"
+	"github.com/cbehopkins/bobbob"
 	"github.com/cbehopkins/bobbob/yggdrasil/treap"
 	"github.com/cbehopkins/bobbob/yggdrasil/types"
 	"github.com/cbehopkins/bobbob/yggdrasil/vault"
@@ -204,13 +204,13 @@ func setupAllocationLogging(session *vault.VaultSession) {
 		return
 	}
 	ok := session.ConfigureAllocatorCallbacks(
-		func(objId allocator.ObjectId, offset allocator.FileOffset, size int) {
+		func(objId bobbob.ObjectId, offset bobbob.FileOffset, size int) {
 			if size > 4096 {
 				log.Printf("[ALLOC] WARNING: Large allocation %d bytes at offset %d (objId=%d)",
 					size, offset, objId)
 			}
 		},
-		func(objId allocator.ObjectId, offset allocator.FileOffset, size int) {
+		func(objId bobbob.ObjectId, offset bobbob.FileOffset, size int) {
 			log.Printf("[ALLOC] Parent allocator allocated %d bytes at offset %d (objId=%d)",
 				size, offset, objId)
 		},
