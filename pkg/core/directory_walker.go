@@ -138,15 +138,6 @@ func (dw *DirectoryWalker) Walk(root string) error {
 	return nil
 }
 
-// func (dw *DirectoryWalker) WalkMulti(roots []string) error {
-// 	for _, root := range roots {
-// 		if err := dw.Walk(root); err != nil {
-// 			return err
-// 		}
-// 	}
-// 	return nil
-// }
-
 func (dw *DirectoryWalker) shouldSkipDir(path string) error {
 	if dw.cancelChan != nil {
 		select {
