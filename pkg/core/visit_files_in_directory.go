@@ -37,9 +37,9 @@ func VisitFilesInDirectories(
 
 	go func() {
 		defer close(errChan)
-		// Equivalent to WalkMulti to avoid method set quirks on embedded types
+		// Equivalent to WalkMulti - walk each directory
 		for _, root := range directories {
-			if err := (&dw.directoryWalker).Walk(root); err != nil {
+			if err := dw.Walk(root); err != nil {
 				errChan <- err
 				return
 			}

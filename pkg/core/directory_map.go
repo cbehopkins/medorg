@@ -239,6 +239,31 @@ func DirectoryMapFromDirWithScan(directory Dirname) (DirectoryMap, error) {
 	return dm, nil
 }
 
+// DirectoryMapFromDirEntries Create A Directory Map from a directory and a set of os.DirEntry
+// As one can build from a single read of the directory
+func DirectoryMapFromDirEntries(directory Dirname, entries []os.DirEntry) (DirectoryMap, error) {
+	dm, err := DirectoryMapFromDir(directory)
+	if err != nil {
+		return dm, err
+	}
+
+	dm.lock.Lock()
+	defer dm.lock.Unlock()
+	err = dm.updateFromDirEntry(directory, entries)
+	if err != nil {
+		return dm, err
+	}
+	// Any entries that have a dm, but no corresponding file info, must be stale
+	for fname := range dm.mp {
+		if _, ok := dm.fi[fname]; !ok {
+			delete(dm.mp, fname)
+			delete(dm.fi, fname)
+			*dm.stale = true
+		}
+	}
+	return dm, nil
+}
+
 // updateFromDirEntry updates the DirectoryMap from the provided os.DirEntry slice
 // This critically should allow us to do the directory read once
 // and update everything from that single read
@@ -259,11 +284,12 @@ func (dm *DirectoryMap) updateFromDirEntry(directory Dirname, entries []os.DirEn
 			continue
 		}
 		dm.fi[fname] = fi
-		if _, ok := dm.mp[fname]; ok {
-			continue
-		}
 		// Use FromStat directly with the FileInfo we already have instead of NewFileStruct
 		var fs FileStruct
+		fs, _ = dm.mp[fname]
+		if changed, err := fs.Changed(fi); !changed && err == nil {
+			continue
+		}
 		fs, err = fs.FromStat(directory, fname, fi)
 		if err != nil {
 			continue
