@@ -3,6 +3,7 @@ package core
 import (
 	"errors"
 	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
 	"sync/atomic"
@@ -20,6 +21,7 @@ type DirectoryWalker struct {
 	cancelChan       chan struct{}
 	fileVisitors     []ForEachCallback
 	fileMutators     []DmMutCallback
+	mutatePool       *mutatePool
 }
 
 func (dw *DirectoryWalker) AddFileMutator(fm DmMutCallback) {
@@ -47,6 +49,7 @@ func NewDirectoryWalker(WorkTokens chan struct{}) *DirectoryWalker {
 	dw := &DirectoryWalker{
 		WorkTokens: WorkTokens,
 		cancelChan: make(chan struct{}),
+		mutatePool: newMutatePool(),
 	}
 	dw.fileVisitors = make([]ForEachCallback, 0)
 	dw.fileMutators = make([]DmMutCallback, 0)
@@ -55,6 +58,13 @@ func NewDirectoryWalker(WorkTokens chan struct{}) *DirectoryWalker {
 }
 func (dw *DirectoryWalker) Cancel() {
 	close(dw.cancelChan)
+}
+
+func (dw *DirectoryWalker) Close() {
+	if dw.mutatePool != nil {
+		dw.mutatePool.close()
+		dw.mutatePool = nil
+	}
 }
 
 var errSkipFileVisitorRun = errors.New("Skip this file visitor run")
@@ -80,7 +90,9 @@ func (dw *DirectoryWalker) Walk(root string) error {
 		return nil
 	}
 
+	dw.grabWorkToken()
 	entries, err := os.ReadDir(root)
+	dw.releaseWorkToken()
 	if err != nil {
 		return err
 	}
@@ -100,12 +112,14 @@ func (dw *DirectoryWalker) Walk(root string) error {
 		err = dw.DirectoryVisitor(Dirname(root), entries, nil)
 		if err != nil {
 			if errors.Is(err, filepath.SkipDir) {
+				log.Println("Skipping", root, "and all subdirectories as per SkipDir")
 				return nil
 			}
 			if errors.Is(err, errSkipFileVisitorRun) {
 				skipFileVisitors = true
 			} else {
 				// If it's a filepath.SkipAll then allow the error to work its way up the tree
+				log.Println("Aborting due to err in dw.DirectoryVisitor", err)
 				return err
 			}
 		}
@@ -117,6 +131,7 @@ func (dw *DirectoryWalker) Walk(root string) error {
 			// SkipDir: skip this directory and its subdirectories (return nil to stop descent)
 			// SkipAll: stop all directory walking (propagate error up)
 			if errors.Is(err, filepath.SkipDir) {
+				log.Println("Skipping", root, "and all subdirectories as per SkipDir <- dirVisitor")
 				return nil
 			}
 			return err
@@ -129,9 +144,11 @@ func (dw *DirectoryWalker) Walk(root string) error {
 		err := dw.Walk(subdirPath)
 		if err != nil {
 			if errors.Is(err, filepath.SkipDir) {
+				log.Println("Skipping", subdirPath, "and all subdirectories as per SkipDir <- Walk")
 				continue
 			}
 			// If it's a filepath.SkipAll then allow the error to work its way up the tree
+			log.Println("SkipAll found at", root, d, "in subdirectory walk")
 			return err
 		}
 	}
@@ -172,11 +189,13 @@ func (dw *DirectoryWalker) dirVisitor(path Dirname, entries []os.DirEntry, err e
 	if err != nil {
 		return err
 	}
+	// Inject the shared worker pool
+	dm.pool = dw.mutatePool
+	err = dm.ChecksumCalc(dw.WorkTokens)
+	if err != nil {
+		return err
+	}
 
-	// FIXME
-	// See above comment about optimisation
-	// We could collect up the file entries during the directory walk
-	// and avoid this second pass
 	if len(dw.fileVisitors) > 0 {
 		err = dm.ForEachFile(func(fn Fname, fm FileMetadata, fi os.FileInfo) error {
 			for _, fv := range dw.fileVisitors {
@@ -206,7 +225,7 @@ func (dw *DirectoryWalker) dirVisitor(path Dirname, entries []os.DirEntry, err e
 				}
 			}
 			// If we get an ignore from all mutators, we skip the file
-			//Anyone not saying "Don't mutate" means we need to continue wioth mutation
+			//Anyone not saying "Don't mutate" means we need to continue with mutation
 			if ignoreCounter == len(dw.fileMutators) {
 				return fs, ErrIgnoreThisMutate
 			}
@@ -241,6 +260,7 @@ func NewProgressableDirectoryWalker(WorkTokens chan struct{}, path string) *Prog
 		// This needs to come from the Ctrl-C handler to be effective
 		cancelChan:   pdw.DirectoryWalker.cancelChan,
 		shouldIgnore: pdw.DirectoryWalker.shouldIgnore,
+		mutatePool:   dw.mutatePool, // Share the pool to avoid creating temporary ones
 	}
 	pdw.dirCount.DirectoryVisitor = func(path Dirname, entries []os.DirEntry, err error) error {
 		pdw.Progress.total.Add(1)

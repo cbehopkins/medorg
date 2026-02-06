@@ -86,7 +86,6 @@ func (de DirectoryEntry) Close() {
 	// Use atomic CAS to ensure we only close once
 	if !de.closed.CompareAndSwap(false, true) {
 		panic("DirectoryEntry Close called multiple times")
-		return // Already closed
 	}
 	close(de.workItems)
 }

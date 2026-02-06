@@ -26,7 +26,6 @@ var (
 	errSelfCheckProblem = errors.New("self check problem")
 )
 
-
 func makeFile(directory string) string {
 	// Calculate checksum while data is still in memory for efficiency
 	buff := make([]byte, 75000)
@@ -81,6 +80,7 @@ func createTestBackupDirectories(numberOfFiles, numberOfDuplicates int) ([]strin
 
 func recalcTestDirectory(dir string) error {
 	dw := core.NewDirectoryWalker(core.MakeTokenChan(core.NumTrackerOutstanding))
+	defer dw.Close()
 
 	// Add mutator to update checksums for all files
 	dw.AddFileMutator(func(file core.Fpath, d os.FileInfo, fs core.FileStruct) (core.FileStruct, error) {
@@ -220,6 +220,7 @@ func TestBackupChecksumMaintenance(t *testing.T) {
 
 	// Use DirectoryWalker to visit source files
 	dw := core.NewDirectoryWalker(core.MakeTokenChan(core.NumTrackerOutstanding))
+	defer dw.Close()
 	dw.AddFileVisitor(func(fn core.Fname, fm core.FileMetadata, fi os.FileInfo) error {
 		return srcVisitor(fn, fm, fi)
 	})
@@ -229,6 +230,7 @@ func TestBackupChecksumMaintenance(t *testing.T) {
 
 	// Use DirectoryWalker to visit destination files
 	dwDest := core.NewDirectoryWalker(core.MakeTokenChan(core.NumTrackerOutstanding))
+	defer dwDest.Close()
 	dwDest.AddFileVisitor(func(fn core.Fname, fm core.FileMetadata, fi os.FileInfo) error {
 		return destVisitor(fn, fm, fi)
 	})
@@ -274,6 +276,7 @@ func TestBackupOrphanDetection(t *testing.T) {
 	}
 	// Use DirectoryWalker to collect destination files
 	dwDest := core.NewDirectoryWalker(core.MakeTokenChan(core.NumTrackerOutstanding))
+	defer dwDest.Close()
 	dwDest.AddFileVisitor(func(fn core.Fname, fm core.FileMetadata, fi os.FileInfo) error {
 		return collectFilesVisitor(nil, core.Dirname(destDir), fn, *fm.(*core.FileStruct))
 	})

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"hash"
 	"io"
-	"log"
 	"os"
 	"path/filepath"
 	"time"
@@ -23,31 +22,31 @@ type DirectoryMapMod func(DirectoryMap, string)
 var ErrSkipCheck = errors.New("skipping Checksum")
 
 // NewChannels creates a channel based method for creating checksums
-func NewChannels() (inputChan chan FileStruct, outputChan chan FileStruct, closedChan chan struct{}) {
-	inputChan = make(chan FileStruct)
-	outputChan = make(chan FileStruct)
-	closedChan = make(chan struct{})
-	go md5Calcer(inputChan, outputChan, closedChan)
-	return
-}
+// func NewChannels() (inputChan chan FileStruct, outputChan chan FileStruct, closedChan chan struct{}) {
+// 	inputChan = make(chan FileStruct)
+// 	outputChan = make(chan FileStruct)
+// 	closedChan = make(chan struct{})
+// 	go md5Calcer(inputChan, outputChan, closedChan)
+// 	return
+// }
 
-func md5Calcer(inputChan chan FileStruct, outputChan chan FileStruct, closedChan chan struct{}) {
-	for itm := range inputChan {
-		// Calculate the MD5 here and send it
-		cks, err := CalcMd5File(string(itm.directory), string(itm.Name))
-		if err != nil {
-			log.Printf("Calculation error for %s: %v", itm.Name, err)
-			// Skip this file and continue processing
-			continue
-		}
-		log.Println("Calculation for", itm.Name, " complete")
-		itm.Checksum = cks
-		outputChan <- itm
-	}
-	log.Println("md5Calcer closed")
-	close(outputChan)
-	close(closedChan)
-}
+// func md5Calcer(inputChan chan FileStruct, outputChan chan FileStruct, closedChan chan struct{}) {
+// 	for itm := range inputChan {
+// 		// Calculate the MD5 here and send it
+// 		cks, err := CalcMd5File(string(itm.directory), string(itm.Name))
+// 		if err != nil {
+// 			log.Printf("Calculation error for %s: %v", itm.Name, err)
+// 			// Skip this file and continue processing
+// 			continue
+// 		}
+// 		log.Println("Calculation for", itm.Name, " complete")
+// 		itm.Checksum = cks
+// 		outputChan <- itm
+// 	}
+// 	log.Println("md5Calcer closed")
+// 	close(outputChan)
+// 	close(closedChan)
+// }
 
 // ReturnChecksumString gets the hash into the format we like it
 // This allows an external tool to calculate the sum

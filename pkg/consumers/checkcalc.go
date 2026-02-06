@@ -156,6 +156,7 @@ func RunCheckCalc(directories []string, opts CheckCalcOptions) error {
 
 	// Create DirectoryWalker with mutators for each operation
 	dw := core.NewDirectoryWalker(core.MakeTokenChan(core.NumTrackerOutstanding))
+	defer dw.Close()
 
 	// Add appropriate mutators based on flags
 	if opts.Scrub {

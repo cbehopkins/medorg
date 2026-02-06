@@ -1,7 +1,9 @@
 package consumers
 
 import (
-	"context"
+	"encoding/binary"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -43,21 +45,53 @@ func mergeBackupDestinations(a, b []string) []string {
 
 // Marshal implements PersistentPayload interface
 func (f fileData) Marshal() ([]byte, error) {
-	data := fmt.Sprintf("%d:%v", f.Size, f.BackupDest)
-	return []byte(data), nil
+	// Create a serializable version with just the path string (not the Fpath struct with cache pointers)
+	type fileDataSerialized struct {
+		Size       int64
+		FpathStr   string
+		BackupDest []string
+	}
+	serialized := fileDataSerialized{
+		Size:       f.Size,
+		FpathStr:   f.Fpath.String(),
+		BackupDest: f.BackupDest,
+	}
+	jsonData, err := json.Marshal(serialized)
+	if err != nil {
+		return nil, err
+	}
+	// Length-prefixed format to handle fixed-size block allocations
+	length := uint32(len(jsonData))
+	buf := make([]byte, 4+len(jsonData))
+	binary.LittleEndian.PutUint32(buf[0:4], length)
+	copy(buf[4:], jsonData)
+	return buf, nil
 }
 
 // Unmarshal implements PersistentPayload interface
 func (f fileData) Unmarshal(data []byte) (types.UntypedPersistentPayload, error) {
-	var size int64
-	var backupDest []string
-	_, err := fmt.Sscanf(string(data), "%d:%v", &size, &backupDest)
+	if len(data) < 4 {
+		return nil, fmt.Errorf("fileData too short: %d bytes", len(data))
+	}
+	length := binary.LittleEndian.Uint32(data[0:4])
+	if int(length) > len(data)-4 {
+		return nil, fmt.Errorf("fileData length %d exceeds data size %d", length, len(data)-4)
+	}
+	type fileDataSerialized struct {
+		Size       int64
+		FpathStr   string
+		BackupDest []string
+	}
+	var serialized fileDataSerialized
+	err := json.Unmarshal(data[4:4+length], &serialized)
 	if err != nil {
 		return nil, err
 	}
-	f.Size = size
-	f.BackupDest = backupDest
-	return f, nil
+	return fileData{
+		Size:       serialized.Size,
+		Fpath:      core.NewFpath(serialized.FpathStr),
+		BackupDest: serialized.BackupDest,
+	}, nil
 }
 
 // SizeInBytes implements PersistentPayload interface
@@ -380,6 +414,7 @@ func (bp *BackupProcessor) prioritizedSrcFiles() (func(yield func(fileData) bool
 		return nil, err
 	}
 
+	addedToPriority := 0
 	// Callback: insert files that are only in src (not in dst) into priority collection
 	onlyInSrc := func(node treap.TreapNodeInterface[types.MD5Key]) error {
 		payloadNode, ok := node.(treap.PersistentPayloadNodeInterface[types.MD5Key, fileData])
@@ -389,16 +424,32 @@ func (bp *BackupProcessor) prioritizedSrcFiles() (func(yield func(fileData) bool
 		fd := payloadNode.GetPayload()
 		key := buildPriorityKey(fd)
 		priorityColl.Insert(&key, fd)
+		addedToPriority++
+		log.Println("[Compare] Added file to priority collection", fd.Fpath.String())
 		return nil
 	}
 
 	// Ignore files in both collections
-	inBoth := func(_ treap.TreapNodeInterface[types.MD5Key], _ treap.TreapNodeInterface[types.MD5Key]) error {
+	inBoth := func(node treap.TreapNodeInterface[types.MD5Key], _ treap.TreapNodeInterface[types.MD5Key]) error {
+		payloadNode, ok := node.(treap.PersistentPayloadNodeInterface[types.MD5Key, fileData])
+		if !ok {
+			return fmt.Errorf("unexpected node type %T", node)
+		}
+		fd := payloadNode.GetPayload()
+
+		log.Println("[Compare] Skipping file in both src and dst", fd.Fpath.String())
 		return nil
 	}
 
 	// Ignore files only in dst
-	onlyInDst := func(_ treap.TreapNodeInterface[types.MD5Key]) error {
+	onlyInDst := func(node treap.TreapNodeInterface[types.MD5Key]) error {
+		payloadNode, ok := node.(treap.PersistentPayloadNodeInterface[types.MD5Key, fileData])
+		if !ok {
+			return fmt.Errorf("unexpected node type %T", node)
+		}
+		fd := payloadNode.GetPayload()
+
+		log.Println("[Compare] Skipping file only in dst", fd.Fpath.String())
 		return nil
 	}
 
@@ -406,25 +457,38 @@ func (bp *BackupProcessor) prioritizedSrcFiles() (func(yield func(fileData) bool
 	if err := bp.srcFileCollection.Compare(bp.dstFileCollection, onlyInSrc, inBoth, onlyInDst); err != nil {
 		return nil, err
 	}
+	log.Printf("[Compare] Added %d files to priority collection", addedToPriority)
 
-	// Return an iterator that streams directly from the sorted collection
-	// without loading everything into memory
+	// Return an iterator that walks the persistent treap in-order, including
+	// nodes that have been flushed to disk.
 	iterator := func(yield func(fileData) bool) {
-		ctx := context.Background()
-		for node, iterErr := range priorityColl.Iter(ctx) {
-			if iterErr != nil {
-				// Can't propagate error from iterator, just stop iteration
-				return
-			}
+		yieldedCount := 0
+		stopErr := errors.New("iteration stopped by caller")
+
+		err := priorityColl.InOrderVisit(func(node treap.TreapNodeInterface[priorityKey]) error {
 			payloadNode, ok := node.(treap.PersistentPayloadNodeInterface[priorityKey, fileData])
 			if !ok {
-				// Can't propagate error from iterator, just stop iteration
-				return
+				return fmt.Errorf("unexpected node type %T", node)
 			}
-			if !yield(payloadNode.GetPayload()) {
-				return
+			payload := payloadNode.GetPayload()
+			yieldedCount++
+
+			if yieldedCount <= 20 || yieldedCount%50000 == 0 {
+				log.Printf("[Iterator] Yielding file %d: %s (size: %d, dests: %v)\n",
+					yieldedCount, payload.Fpath.String(), payload.Size, payload.BackupDest)
 			}
+
+			if !yield(payload) {
+				log.Println("[Iterator] Stopping iteration as requested by caller")
+				return stopErr
+			}
+			return nil
+		})
+		if err != nil && !errors.Is(err, stopErr) {
+			log.Printf("[Iterator] ERROR during InOrderVisit: %v\n", err)
 		}
+		log.Printf("[Iterator] Completed iterating prioritized source files: %d files yielded, %d files added\n",
+			yieldedCount, addedToPriority)
 	}
 
 	return iterator, nil

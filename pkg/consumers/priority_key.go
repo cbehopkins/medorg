@@ -1,7 +1,9 @@
 package consumers
 
 import (
+	"encoding/binary"
 	"encoding/json"
+	"fmt"
 
 	"github.com/cbehopkins/bobbob"
 	"github.com/cbehopkins/bobbob/store"
@@ -25,10 +27,26 @@ func (k priorityKey) Equals(other priorityKey) bool {
 	return k.DestCount == other.DestCount && k.InvSize == other.InvSize && k.Path == other.Path
 }
 func (k priorityKey) Marshal() ([]byte, error) {
-	return json.Marshal(k)
+	data, err := json.Marshal(k)
+	if err != nil {
+		return nil, err
+	}
+	// Length-prefixed format to handle fixed-size block allocations
+	length := uint32(len(data))
+	buf := make([]byte, 4+len(data))
+	binary.LittleEndian.PutUint32(buf[0:4], length)
+	copy(buf[4:], data)
+	return buf, nil
 }
 func (k *priorityKey) Unmarshal(data []byte) error {
-	return json.Unmarshal(data, k)
+	if len(data) < 4 {
+		return fmt.Errorf("priorityKey data too short: %d bytes", len(data))
+	}
+	length := binary.LittleEndian.Uint32(data[0:4])
+	if int(length) > len(data)-4 {
+		return fmt.Errorf("priorityKey length %d exceeds data size %d", length, len(data)-4)
+	}
+	return json.Unmarshal(data[4:4+length], k)
 }
 func (k priorityKey) New() types.PersistentKey[priorityKey] {
 	return &priorityKey{}

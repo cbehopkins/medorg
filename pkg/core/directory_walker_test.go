@@ -19,6 +19,7 @@ func TestDirectoryWalkerVisitsAllFiles(t *testing.T) {
 	expected += writeDirMap(t, sub, []string{"child.txt"})
 
 	walker := NewDirectoryWalker(nil)
+		defer walker.Close()
 	visited := make(map[string]struct{})
 	walker.AddFileVisitor(func(name Fname, fm FileMetadata, fi os.FileInfo) error {
 		visited[filepath.Join(string(fm.Directory()), string(name))] = struct{}{}
@@ -50,6 +51,7 @@ func TestDirectoryWalkerHandlesEmptyDirectory(t *testing.T) {
 	}
 
 	walker := NewDirectoryWalker(nil)
+		defer walker.Close()
 	calls := 0
 	walker.AddFileVisitor(func(name Fname, fm FileMetadata, fi os.FileInfo) error {
 		calls++
@@ -85,6 +87,7 @@ func TestDirectoryWalkerLargeTree(t *testing.T) {
 	expected := buildLargeTree(t, root, 3, 3) // 3 levels, branching factor 3, 2 files per directory
 
 	walker := NewDirectoryWalker(nil)
+		defer walker.Close()
 	visited := 0
 	walker.AddFileVisitor(func(name Fname, fm FileMetadata, fi os.FileInfo) error {
 		visited++
@@ -196,6 +199,7 @@ func TestDirectoryWalkerFileVisitorCorrectValues(t *testing.T) {
 
 	// Walk the directory and verify the visitor receives correct values
 	walker := NewDirectoryWalker(nil)
+		defer walker.Close()
 	visitorCalled := false
 
 	walker.AddFileVisitor(func(name Fname, fm FileMetadata, fi os.FileInfo) error {
@@ -623,6 +627,7 @@ func TestDirectoryWalkerSkipDirFile(t *testing.T) {
 
 	// Walk and collect visited directories
 	walker := NewDirectoryWalker(nil)
+		defer walker.Close()
 	visitedDirs := make(map[string]struct{})
 
 	walker.AddFileVisitor(func(name Fname, fm FileMetadata, fi os.FileInfo) error {
@@ -756,6 +761,7 @@ func TestDirectoryWalkerSkipAll(t *testing.T) {
 
 	// Walk with a condition that triggers SkipAll at dir_b
 	walker := NewDirectoryWalker(nil)
+		defer walker.Close()
 	visitedDirs := make(map[string]struct{})
 	var visitMutex sync.Mutex
 
@@ -850,6 +856,7 @@ func TestDirectoryWalkerSkipDirFromVisitor(t *testing.T) {
 
 	// Walk with a condition that triggers SkipDir at dir_b
 	walker := NewDirectoryWalker(nil)
+		defer walker.Close()
 	visitedDirs := make(map[string]struct{})
 	var visitMutex sync.Mutex
 
@@ -904,3 +911,4 @@ func TestDirectoryWalkerSkipDirFromVisitor(t *testing.T) {
 		t.Error("subdir_c should have been visited (SkipDir should not affect sibling's subdirectories)")
 	}
 }
+

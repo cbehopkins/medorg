@@ -279,6 +279,7 @@ func scanSrcTree(
 	}
 	logFunc("Scanning source for files to backup")
 	dwSrc := core.NewProgressableDirectoryWalker(core.MakeTokenChan(4), srcDir)
+	defer dwSrc.Close()
 	if factory != nil {
 		if err := factory.Register(dwSrc.Progress); err != nil {
 			log.Printf("failed to register source progress: %v", err)
@@ -317,12 +318,14 @@ func copyPendingFiles(
 	diskFilling := false
 	lastSize := int64(0)
 	targetSize := int64(0)
+	yieldCount := 0
 	for fd := range iter {
+		yieldCount++
 		fp := fd.Fpath
 		fileSize := fd.Size
-		log.Println("copyPendingFiles: processing ", fp)
-		defer log.Println("copyPendingFiles: finished ", fp)
+		log.Printf("copyPendingFiles: processing file %d: %s (size: %d)", yieldCount, fp, fileSize)
 		if targetSize > 0 && fileSize > targetSize {
+			log.Println("copyPendingFiles Skipping as space probably insufficient")
 			continue
 		}
 
@@ -333,6 +336,7 @@ func copyPendingFiles(
 		}
 
 		if ignoreFunc != nil && ignoreFunc(fp.String()) {
+			log.Println("copyPendingFiles skipping as ignoreFunc")
 			continue
 		}
 		if diskFilling && fileSize > lastSize {
@@ -344,6 +348,7 @@ func copyPendingFiles(
 		logFunc(fmt.Sprintf("Copying file: %s", fp))
 		fs, err := doACopy(srcRoot, destDir, volumeName, fp, fileCopyCallback)
 		if err != nil {
+			log.Println("doACopy Error during file copy:", err)
 			if errors.Is(err, ErrDummyCopy) {
 				// Dummy copy: no actual work done, skip BackupProcessor updates
 				continue
@@ -364,6 +369,7 @@ func copyPendingFiles(
 			}
 			return err
 		}
+		log.Println("copyPendingFiles: finished ", fp)
 
 		// Update BackupProcessor's internal state (doACopy already updated DirectoryMaps)
 		rel, err := filepath.Rel(srcRoot, fp.String())
@@ -372,10 +378,12 @@ func copyPendingFiles(
 		}
 		dstPath := core.NewFpath(destDir, rel)
 		if err := bp.addDstFile(fs.Checksum, fs.Size, fs.BackupDest, dstPath); err != nil {
+			log.Printf("ERROR: addDstFile failed after processing %d files: %v (file: %s)", yieldCount, err, fp)
 			return err
 		}
 	}
 
+	log.Printf("Completed iteration: successfully processed %d files", yieldCount)
 	logFunc("Completed file copy")
 	return nil
 }
@@ -585,6 +593,7 @@ func BackupRunner(
 	logFunc("Initial scan for destination inventory")
 	// Use ProgressableDirectoryWalker to track progress
 	dwDest := core.NewProgressableDirectoryWalker(core.MakeTokenChan(4), destDir)
+	defer dwDest.Close()
 	if factory != nil {
 		if err := factory.Register(dwDest.Progress); err != nil {
 			log.Printf("failed to register destination progress: %v", err)

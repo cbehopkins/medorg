@@ -37,6 +37,7 @@ func VisitFilesInDirectories(
 
 	go func() {
 		defer close(errChan)
+		defer dw.Close()
 		// Equivalent to WalkMulti - walk each directory
 		for _, root := range directories {
 			if err := dw.Walk(root); err != nil {

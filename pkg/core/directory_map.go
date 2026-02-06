@@ -10,6 +10,8 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"runtime"
+	"slices"
 	"sync"
 )
 
@@ -42,6 +44,54 @@ type DirectoryMap struct {
 	dir  Dirname
 
 	visitFunc DmVisitFuncType
+	// Optional shared worker pool for RangeMutate operations
+	pool *mutatePool
+}
+
+type mutateWorkItem struct {
+	fn       Fname
+	fpath    Fpath
+	fi       os.FileInfo
+	fs       FileStruct
+	callback DmMutCallback
+	resultCh chan mutateResult
+}
+
+type mutateResult struct {
+	fn  Fname
+	fs  FileStruct
+	err error
+}
+
+type mutatePool struct {
+	workCh chan mutateWorkItem
+	wg     sync.WaitGroup
+}
+
+func newMutatePool() *mutatePool {
+	workerCount := runtime.NumCPU()
+	if workerCount < 1 {
+		workerCount = 1
+	}
+	pool := &mutatePool{
+		workCh: make(chan mutateWorkItem, workerCount*2),
+	}
+	pool.wg.Add(workerCount)
+	for i := 0; i < workerCount; i++ {
+		go func() {
+			defer pool.wg.Done()
+			for item := range pool.workCh {
+				fs, err := item.callback(item.fpath, item.fi, item.fs)
+				item.resultCh <- mutateResult{fn: item.fn, fs: fs, err: err}
+			}
+		}()
+	}
+	return pool
+}
+
+func (p *mutatePool) close() {
+	close(p.workCh)
+	p.wg.Wait()
 }
 
 func updateDirEntry(dm DirectoryMap, path Fpath, d fs.DirEntry) error {
@@ -300,6 +350,34 @@ func (dm *DirectoryMap) updateFromDirEntry(directory Dirname, entries []os.DirEn
 	return nil
 }
 
+func (dm DirectoryMap) ChecksumCalc(workTokens chan struct{}) error {
+	if workTokens != nil {
+		// It's assumed that the caller has already acquired a token
+		// So we release it here
+		workTokens <- struct{}{}
+		defer func() { <-workTokens }()
+	}
+
+	fc := func(file Fpath, d os.FileInfo, fs FileStruct) (FileStruct, error) {
+		if fs.Checksum != "" {
+			return fs, nil
+		}
+		if workTokens != nil {
+			<-workTokens
+		}
+		cks, err := CalcMd5File(string(fs.directory), string(fs.Name))
+		if workTokens != nil {
+			workTokens <- struct{}{}
+		}
+		if err != nil {
+			return fs, err
+		}
+		fs.Checksum = cks
+		return fs, nil
+	}
+	return dm.RangeMutate(fc)
+}
+
 // Stale returns true if the dm has been modified since writted
 func (dm DirectoryMap) Stale() bool {
 	dm.lock.RLock()
@@ -329,10 +407,12 @@ func (dm DirectoryMap) ForEachFile(fn ForEachCallback) error {
 			fs := dm.mp[name]
 			dm.lock.RUnlock()
 
+			log.Println("[DM] Calculating  checksum for",fs.Directory(), fs.Name)
+
 			cks, err := CalcMd5File(string(fs.directory), string(fs.Name))
 			if err != nil {
 				// Log but don't fail - allow visitor to handle the empty checksum
-				log.Printf("warning: failed to calculate checksum for %s/%s: %v", fs.directory, fs.Name, err)
+				log.Printf("[DM] warning: failed to calculate checksum for %s/%s: %v\n", fs.directory, fs.Name, err)
 				continue
 			}
 			fs.Checksum = cks
@@ -399,37 +479,94 @@ var (
 // RangeMutate range over the map, mutating as needed
 // note one may return specific errors to delete or squash the mutation
 func (dm DirectoryMap) RangeMutate(fc DmMutCallback) error {
+	// Use injected pool if available, otherwise create temporary
+	pool := dm.pool
+	var tempPool *mutatePool
+	if pool == nil {
+		tempPool = newMutatePool()
+		pool = tempPool
+		defer tempPool.close()
+	}
+	deleteList := []Fname{}
+	needsUpdate := func(current, updated FileStruct) bool {
+		if current.Name != updated.Name {
+			return true
+		}
+		if current.Mtime != updated.Mtime || current.Size != updated.Size || current.Checksum != updated.Checksum {
+			return true
+		}
+		if current.Directory() != updated.Directory() {
+			return true
+		}
+		if !slices.Equal(current.BackupDest, updated.BackupDest) {
+			return true
+		}
+		if !slices.Equal(current.Tags, updated.Tags) {
+			return true
+		}
+		return false
+	}
+
+	// Snapshot work items while holding the lock to keep map stable
 	dm.lock.Lock()
 	defer dm.lock.Unlock()
-	deleteList := []Fname{}
-
+	items := make([]mutateWorkItem, 0, len(dm.mp))
 	for fn, v := range dm.mp {
 		fi, ok := dm.fi[fn]
 		if !ok {
 			// FIXME this should do a lookup....
 			fi = nil
 		}
-		// Construct full path with known directory to avoid losing context in callbacks
-		fs, err := fc(NewFpath(v.Directory(), fn), fi, v)
-		switch err {
+		dir := v.Directory()
+		if dir == "" && dm.dir != "" {
+			dir = dm.dir
+			v.SetDirectory(dm.dir)
+		}
+		items = append(items, mutateWorkItem{
+			fn:       fn,
+			fpath:    NewFpath(dir, fn),
+			fi:       fi,
+			fs:       v,
+			callback: fc,
+			resultCh: make(chan mutateResult, 1),
+		})
+	}
+	// Keep the map locked for the whole operation to preserve existing semantics
+	// (RangeMutate has always been a write-locked, serial operation on the map).
+	// Workers do not touch the map directly, only the callback logic, so the lock
+	// prevents external writers without blocking internal parallel work.
+	for i := range items {
+		pool.workCh <- items[i]
+	}
+
+	for _, item := range items {
+		res := <-item.resultCh
+		if res.err == nil && res.fs.Directory() == "" && item.fpath.Dir() != "" {
+			res.fs.SetDirectory(item.fpath.Dir())
+		}
+		switch res.err {
 		case nil:
-			dm.mp[fn] = fs
-			// FIXME Don't mark stale if nothing changed
+			current := dm.mp[res.fn]
+			if !needsUpdate(current, res.fs) {
+				continue
+			}
+			dm.mp[res.fn] = res.fs
 			*dm.stale = true
 		case ErrIgnoreThisMutate:
 		case ErrDeleteThisEntry:
-			// Have I been writing too much python if I think this is a good idea?
-			deleteList = append(deleteList, fn)
+			deleteList = append(deleteList, res.fn)
 		default:
-			return err
+			return res.err
 		}
 	}
+
 	if len(deleteList) > 0 {
 		*dm.stale = true
 		for _, v := range deleteList {
 			delete(dm.mp, v)
 		}
 	}
+
 	return nil
 }
 
