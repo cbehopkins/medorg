@@ -5,7 +5,7 @@ go 1.24.0
 toolchain go1.24.2
 
 require (
-	github.com/cbehopkins/bobbob v0.1.16-rc.7
+	github.com/cbehopkins/bobbob v0.1.16-rc.10
 	github.com/cbehopkins/pb/v3 v3.1.9
 	github.com/inhies/go-bytesize v0.0.0-20220417184213-4913239db9cf
 	github.com/spf13/afero v1.11.0
