@@ -52,6 +52,24 @@ func (k priorityKey) New() types.PersistentKey[priorityKey] {
 	return &priorityKey{}
 }
 
+func (k priorityKey) LateMarshal(stre bobbob.Storer) (bobbob.ObjectId, int, bobbob.Finisher) {
+	b, err := k.Marshal()
+	if err != nil {
+		return 0, 0, func() error { return err }
+	}
+	id, err := store.WriteNewObjFromBytes(stre, b)
+	if err != nil {
+		return 0, 0, func() error { return err }
+	}
+	return id, len(b), func() error { return nil }
+}
+
+func (k *priorityKey) LateUnmarshal(id bobbob.ObjectId, size int, stre bobbob.Storer) bobbob.Finisher {
+	return func() error {
+		return store.ReadGeneric(stre, k, id)
+	}
+}
+
 func (k priorityKey) MarshalToObjectId(stre store.Storer) (bobbob.ObjectId, error) {
 	b, err := k.Marshal()
 	if err != nil {
@@ -62,6 +80,11 @@ func (k priorityKey) MarshalToObjectId(stre store.Storer) (bobbob.ObjectId, erro
 
 func (k *priorityKey) UnmarshalFromObjectId(id bobbob.ObjectId, stre store.Storer) error {
 	return store.ReadGeneric(stre, k, id)
+}
+
+// DeleteDependents is a no-op for priorityKey since it stores its value directly in the ObjectId.
+func (k priorityKey) DeleteDependents(stre bobbob.Storer) error {
+	return nil
 }
 
 func priorityKeyLess(a, b priorityKey) bool {

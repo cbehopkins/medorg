@@ -106,14 +106,14 @@ func checkTestDirectoryChecksums(dir string) error {
 		if file == core.Md5FileName {
 			return nil
 		}
-		
+
 		// Load the directory map for this file's directory
 		dirPath := filepath.Dir(path)
 		dm, loadErr := core.DirectoryMapFromDir(core.Dirname(dirPath))
 		if loadErr != nil {
 			return loadErr
 		}
-		
+
 		// Check if the file has a checksum entry
 		fp := core.NewFpath(dirPath, file)
 		return checkChecksums(dm, fp, d)

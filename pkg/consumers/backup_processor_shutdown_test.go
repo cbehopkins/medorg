@@ -27,7 +27,7 @@ func TestBackupProcessorGracefulShutdown(t *testing.T) {
 		wg.Add(1)
 		go func(workerID int) {
 			defer wg.Done()
-			
+
 			// Generate some MD5 keys and try to add files
 			for j := 0; j < 100; j++ {
 				// Check if we should stop
@@ -49,7 +49,7 @@ func TestBackupProcessorGracefulShutdown(t *testing.T) {
 				for _, b := range []byte(md5Str) {
 					md5Hex += string("0123456789abcdef"[b>>4]) + string("0123456789abcdef"[b&0xf])
 				}
-				
+
 				file := core.NewFpath("/test", "file.txt")
 				err := bp.addSrcFile(md5Hex, 1234, []string{}, file)
 				if err != nil {
@@ -59,7 +59,7 @@ func TestBackupProcessorGracefulShutdown(t *testing.T) {
 					}
 					return
 				}
-				
+
 				// Small delay to increase chance of hitting shutdown
 				time.Sleep(time.Microsecond * 10)
 			}
@@ -159,7 +159,7 @@ func TestBackupProcessorOperationAfterClose(t *testing.T) {
 	// Try to add a file after close
 	md5Hex := "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"
 	file := core.NewFpath("/test", "file.txt")
-	
+
 	err = bp.addSrcFile(md5Hex, 1234, []string{}, file)
 	if err == nil {
 		t.Error("Expected error when adding file after Close, got nil")
@@ -193,9 +193,9 @@ func TestBackupProcessorHighConcurrency(t *testing.T) {
 		wg.Add(1)
 		go func(workerID int) {
 			defer wg.Done()
-			
+
 			for j := 0; j < opsPerWorker; j++ {
-				// Create a simple hex MD5 key string  
+				// Create a simple hex MD5 key string
 				md5Str := string([]byte{
 					byte(workerID >> 8), byte(workerID), byte(j), byte(j),
 					byte(workerID >> 8), byte(workerID), byte(j), byte(j),
@@ -207,7 +207,7 @@ func TestBackupProcessorHighConcurrency(t *testing.T) {
 				for _, b := range []byte(md5Str) {
 					md5Hex += string("0123456789abcdef"[b>>4]) + string("0123456789abcdef"[b&0xf])
 				}
-				
+
 				file := core.NewFpath("/test", "file.txt")
 				if err := bp.addSrcFile(md5Hex, int64(j), []string{}, file); err != nil {
 					errors <- err
@@ -221,7 +221,7 @@ func TestBackupProcessorHighConcurrency(t *testing.T) {
 	close(errors)
 
 	duration := time.Since(startTime)
-	
+
 	// Check for errors
 	errorCount := 0
 	for err := range errors {

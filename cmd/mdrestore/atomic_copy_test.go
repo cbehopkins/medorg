@@ -57,7 +57,9 @@ func TestCopyFile_AtomicChecksumAndOverwrite(t *testing.T) {
 		t.Fatalf("copyFile second copy failed: %v", err)
 	}
 	dh2, err := core.CalcMd5File(ddir, dbase)
-	if err != nil { t.Fatalf("dst checksum after second copy: %v", err) }
+	if err != nil {
+		t.Fatalf("dst checksum after second copy: %v", err)
+	}
 	if sh != dh2 {
 		t.Fatalf("checksum mismatch after second copy: %s vs %s", sh, dh2)
 	}

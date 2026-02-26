@@ -80,7 +80,6 @@ func createTestBackupDirectories(numberOfFiles, numberOfDuplicates int) ([]strin
 
 func recalcTestDirectory(dir string) error {
 	dw := core.NewDirectoryWalker(core.MakeTokenChan(core.NumTrackerOutstanding))
-	defer dw.Close()
 
 	// Add mutator to update checksums for all files
 	dw.AddFileMutator(func(file core.Fpath, d os.FileInfo, fs core.FileStruct) (core.FileStruct, error) {
@@ -91,7 +90,11 @@ func recalcTestDirectory(dir string) error {
 		return fs, err
 	})
 
-	return dw.Walk(dir)
+	if err := dw.Walk(dir); err != nil {
+		_ = dw.Close()
+		return err
+	}
+	return dw.Close()
 }
 
 // TestPreExistingBackupTags verifies that BackupRunner skips files that already have backup tags

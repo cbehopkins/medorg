@@ -69,15 +69,12 @@ type mutatePool struct {
 }
 
 func newMutatePool() *mutatePool {
-	workerCount := runtime.NumCPU()
-	if workerCount < 1 {
-		workerCount = 1
-	}
+	workerCount := max(runtime.NumCPU(), 1)
 	pool := &mutatePool{
 		workCh: make(chan mutateWorkItem, workerCount*2),
 	}
 	pool.wg.Add(workerCount)
-	for i := 0; i < workerCount; i++ {
+	for range workerCount {
 		go func() {
 			defer pool.wg.Done()
 			for item := range pool.workCh {
@@ -127,7 +124,7 @@ func (dm *DirectoryMap) SetVisitFunc(f DmVisitFuncType) {
 	dm.visitFunc = f
 }
 
-// Len gth of the directoty map
+// Len gth of the directory map
 func (dm DirectoryMap) Len() int {
 	dm.lock.RLock()
 	defer dm.lock.RUnlock()
@@ -330,7 +327,7 @@ func (dm *DirectoryMap) updateFromDirEntry(directory Dirname, entries []os.DirEn
 			return err
 		}
 
-		if entry.IsDir() || entry.Name() == Md5FileName {
+		if entry.IsDir() || IsMetadataFile(entry.Name()) {
 			continue
 		}
 		dm.fi[fname] = fi

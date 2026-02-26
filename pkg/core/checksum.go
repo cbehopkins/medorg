@@ -17,7 +17,6 @@ var Debug bool
 
 type DirectoryMapMod func(DirectoryMap, string)
 
-
 // ErrSkipCheck Reports a checksum that we have skipped producing
 var ErrSkipCheck = errors.New("skipping Checksum")
 

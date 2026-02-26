@@ -20,9 +20,9 @@ func TestRunWithMissingProjectConfig(t *testing.T) {
 	cfg := Config{
 		ProjectConfig: nil, // Missing config
 		Destination:   "/tmp/dst",
-		Sources:        []string{"/tmp/src"},
-		LogOutput:      &buf,
-		MessageWriter:  &buf,
+		Sources:       []string{"/tmp/src"},
+		LogOutput:     &buf,
+		MessageWriter: &buf,
 	}
 
 	exitCode, err := Run(cfg)
@@ -39,10 +39,10 @@ func TestRunWithMissingDestination(t *testing.T) {
 	var buf bytes.Buffer
 	cfg := Config{
 		ProjectConfig: &core.MdConfig{}, // Minimal config, no file I/O
-		Destination:   "",                // Empty destination
-		Sources:        []string{"/tmp"}, // String only, doesn't need to exist
-		LogOutput:      &buf,
-		MessageWriter:  &buf,
+		Destination:   "",               // Empty destination
+		Sources:       []string{"/tmp"}, // String only, doesn't need to exist
+		LogOutput:     &buf,
+		MessageWriter: &buf,
 	}
 
 	exitCode, err := Run(cfg)
@@ -60,9 +60,9 @@ func TestRunWithMissingSources(t *testing.T) {
 	cfg := Config{
 		ProjectConfig: &core.MdConfig{}, // Minimal config, no file I/O
 		Destination:   "/tmp",           // String only, doesn't need to exist
-		Sources:        []string{},      // Empty sources
-		LogOutput:      &buf,
-		MessageWriter:  &buf,
+		Sources:       []string{},       // Empty sources
+		LogOutput:     &buf,
+		MessageWriter: &buf,
 	}
 
 	exitCode, err := Run(cfg)
@@ -90,10 +90,10 @@ func TestRunStatsMode(t *testing.T) {
 	cfg := Config{
 		ProjectConfig: xc,
 		Destination:   tmpDir,
-		Sources:        []string{tmpDir},
-		StatsMode:      true,
-		LogOutput:      &logBuf,
-		MessageWriter:  &msgBuf,
+		Sources:       []string{tmpDir},
+		StatsMode:     true,
+		LogOutput:     &logBuf,
+		MessageWriter: &msgBuf,
 	}
 
 	exitCode, err := Run(cfg)
@@ -123,11 +123,11 @@ func TestRunStatsModeWithProgressBar(t *testing.T) {
 	cfg := Config{
 		ProjectConfig:  xc,
 		Destination:    tmpDir,
-		Sources:         []string{tmpDir},
-		StatsMode:       true,
-		UseProgressBar:  true,
-		LogOutput:       &logBuf,
-		MessageWriter:   &msgBuf,
+		Sources:        []string{tmpDir},
+		StatsMode:      true,
+		UseProgressBar: true,
+		LogOutput:      &logBuf,
+		MessageWriter:  &msgBuf,
 	}
 
 	exitCode, err := Run(cfg)
@@ -153,10 +153,10 @@ func TestRunScanMode(t *testing.T) {
 	cfg := Config{
 		ProjectConfig: xc,
 		Destination:   dstDir,
-		Sources:        []string{tmpDir},
-		ScanMode:       true, // Scan only, no copy
-		LogOutput:      &logBuf,
-		MessageWriter:  &msgBuf,
+		Sources:       []string{tmpDir},
+		ScanMode:      true, // Scan only, no copy
+		LogOutput:     &logBuf,
+		MessageWriter: &msgBuf,
 	}
 
 	exitCode, err := Run(cfg)
@@ -197,11 +197,11 @@ func TestRunDummyModeMultipleSources(t *testing.T) {
 	cfg := Config{
 		ProjectConfig:  xc,
 		Destination:    dstDir,
-		Sources:         srcDirs,
-		DummyMode:       true,
-		UseProgressBar:  false,
-		LogOutput:       &logBuf,
-		MessageWriter:   &msgBuf,
+		Sources:        srcDirs,
+		DummyMode:      true,
+		UseProgressBar: false,
+		LogOutput:      &logBuf,
+		MessageWriter:  &msgBuf,
 	}
 
 	exitCode, err := Run(cfg)
@@ -245,12 +245,12 @@ func TestRunDummyModeDeleteSingleSource(t *testing.T) {
 	cfg := Config{
 		ProjectConfig:  xc,
 		Destination:    dstDir,
-		Sources:         []string{srcDir},
-		DummyMode:       true,
-		DeleteMode:      true, // In dummy mode, should just log
-		UseProgressBar:  false,
-		LogOutput:       &logBuf,
-		MessageWriter:   &msgBuf,
+		Sources:        []string{srcDir},
+		DummyMode:      true,
+		DeleteMode:     true, // In dummy mode, should just log
+		UseProgressBar: false,
+		LogOutput:      &logBuf,
+		MessageWriter:  &msgBuf,
 	}
 
 	exitCode, err := Run(cfg)
@@ -274,11 +274,11 @@ func TestRunDefaultOutputs(t *testing.T) {
 	cfg := Config{
 		ProjectConfig: xc,
 		Destination:   tmpDir,
-		Sources:        []string{tmpDir},
-		DummyMode:      true,
-		LogOutput:      nil, // Will default to os.Stderr
-		MessageWriter:  nil, // Will default to os.Stdout
-		ShutdownChan:   nil, // Will default to make(chan struct{})
+		Sources:       []string{tmpDir},
+		DummyMode:     true,
+		LogOutput:     nil, // Will default to os.Stderr
+		MessageWriter: nil, // Will default to os.Stdout
+		ShutdownChan:  nil, // Will default to make(chan struct{})
 	}
 
 	exitCode, err := Run(cfg)
@@ -324,11 +324,11 @@ func TestRunWithIgnorePatterns(t *testing.T) {
 	cfg := Config{
 		ProjectConfig:  xc,
 		Destination:    dstDir,
-		Sources:         []string{srcDir},
-		DummyMode:       true,
-		UseProgressBar:  false,
-		LogOutput:       &logBuf,
-		MessageWriter:   &msgBuf,
+		Sources:        []string{srcDir},
+		DummyMode:      true,
+		UseProgressBar: false,
+		LogOutput:      &logBuf,
+		MessageWriter:  &msgBuf,
 	}
 
 	exitCode, err := Run(cfg)
@@ -353,11 +353,11 @@ func TestRunCompletionMessages(t *testing.T) {
 	cfg := Config{
 		ProjectConfig:  xc,
 		Destination:    tmpDir,
-		Sources:         []string{tmpDir},
+		Sources:        []string{tmpDir},
 		DummyMode:      true,
-		UseProgressBar:  false,
-		LogOutput:       &buf,
-		MessageWriter:   &buf,
+		UseProgressBar: false,
+		LogOutput:      &buf,
+		MessageWriter:  &buf,
 	}
 
 	exitCode, err := Run(cfg)

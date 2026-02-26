@@ -61,7 +61,7 @@ func TestCopyFile_DiskFullLeavesNoPartialFile(t *testing.T) {
 	// Mock copyFileFunc to simulate a copy failure (e.g., disk full)
 	originalCopyFunc := copyFileFunc
 	defer func() { copyFileFunc = originalCopyFunc }()
-	
+
 	copyFileFunc = func(src, dst string) error {
 		return fmt.Errorf("simulated disk full error")
 	}

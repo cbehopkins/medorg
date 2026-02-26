@@ -19,7 +19,7 @@ func TestDirectoryWalkerVisitsAllFiles(t *testing.T) {
 	expected += writeDirMap(t, sub, []string{"child.txt"})
 
 	walker := NewDirectoryWalker(nil)
-		defer walker.Close()
+	defer walker.Close()
 	visited := make(map[string]struct{})
 	walker.AddFileVisitor(func(name Fname, fm FileMetadata, fi os.FileInfo) error {
 		visited[filepath.Join(string(fm.Directory()), string(name))] = struct{}{}
@@ -51,7 +51,7 @@ func TestDirectoryWalkerHandlesEmptyDirectory(t *testing.T) {
 	}
 
 	walker := NewDirectoryWalker(nil)
-		defer walker.Close()
+	defer walker.Close()
 	calls := 0
 	walker.AddFileVisitor(func(name Fname, fm FileMetadata, fi os.FileInfo) error {
 		calls++
@@ -87,7 +87,7 @@ func TestDirectoryWalkerLargeTree(t *testing.T) {
 	expected := buildLargeTree(t, root, 3, 3) // 3 levels, branching factor 3, 2 files per directory
 
 	walker := NewDirectoryWalker(nil)
-		defer walker.Close()
+	defer walker.Close()
 	visited := 0
 	walker.AddFileVisitor(func(name Fname, fm FileMetadata, fi os.FileInfo) error {
 		visited++
@@ -199,7 +199,7 @@ func TestDirectoryWalkerFileVisitorCorrectValues(t *testing.T) {
 
 	// Walk the directory and verify the visitor receives correct values
 	walker := NewDirectoryWalker(nil)
-		defer walker.Close()
+	defer walker.Close()
 	visitorCalled := false
 
 	walker.AddFileVisitor(func(name Fname, fm FileMetadata, fi os.FileInfo) error {
@@ -334,6 +334,11 @@ func TestDirectoryWalkerInvalidChecksumRecalculation(t *testing.T) {
 		t.Fatalf("walk failed: %v", err)
 	}
 
+	// Close walker to ensure async persist operations complete
+	if err := walker.Close(); err != nil {
+		t.Fatalf("walker close failed: %v", err)
+	}
+
 	// CRITICAL: Verify that the CORRECT checksum was persisted back to the XML
 	// This ensures we don't have to recalculate on the next run
 	persistedChecksum := readChecksumFromXML(t, root, filename)
@@ -415,6 +420,11 @@ func TestDirectoryWalkerFileSizeChangeRecalculation(t *testing.T) {
 
 	if err := walker.Walk(root); err != nil {
 		t.Fatalf("walk failed: %v", err)
+	}
+
+	// Close walker to ensure async persist operations complete
+	if err := walker.Close(); err != nil {
+		t.Fatalf("walker close failed: %v", err)
 	}
 
 	// CRITICAL: Verify that the NEW checksum was persisted back to the XML
@@ -627,7 +637,7 @@ func TestDirectoryWalkerSkipDirFile(t *testing.T) {
 
 	// Walk and collect visited directories
 	walker := NewDirectoryWalker(nil)
-		defer walker.Close()
+	defer walker.Close()
 	visitedDirs := make(map[string]struct{})
 
 	walker.AddFileVisitor(func(name Fname, fm FileMetadata, fi os.FileInfo) error {
@@ -761,7 +771,7 @@ func TestDirectoryWalkerSkipAll(t *testing.T) {
 
 	// Walk with a condition that triggers SkipAll at dir_b
 	walker := NewDirectoryWalker(nil)
-		defer walker.Close()
+	defer walker.Close()
 	visitedDirs := make(map[string]struct{})
 	var visitMutex sync.Mutex
 
@@ -823,12 +833,12 @@ func TestDirectoryWalkerSkipDirFromVisitor(t *testing.T) {
 	//     subdir_c/ - should be visited
 
 	dirs := []struct {
-		name    string
-		subdir  string
+		name           string
+		subdir         string
 		triggerSkipDir bool
 	}{
 		{"dir_a", "subdir_a", false},
-		{"dir_b", "subdir_b", true},  // Will trigger SkipDir
+		{"dir_b", "subdir_b", true}, // Will trigger SkipDir
 		{"dir_c", "subdir_c", false},
 	}
 
@@ -856,7 +866,7 @@ func TestDirectoryWalkerSkipDirFromVisitor(t *testing.T) {
 
 	// Walk with a condition that triggers SkipDir at dir_b
 	walker := NewDirectoryWalker(nil)
-		defer walker.Close()
+	defer walker.Close()
 	visitedDirs := make(map[string]struct{})
 	var visitMutex sync.Mutex
 
@@ -911,4 +921,3 @@ func TestDirectoryWalkerSkipDirFromVisitor(t *testing.T) {
 		t.Error("subdir_c should have been visited (SkipDir should not affect sibling's subdirectories)")
 	}
 }
-

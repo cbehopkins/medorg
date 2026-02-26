@@ -408,7 +408,7 @@ func TestSetupLogFileMultipleCalls(t *testing.T) {
 	if _, err := writer2.Write([]byte("log2")); err != nil {
 		t.Errorf("Write to log2 failed: %v", err)
 	}
-	
+
 	// Close writers to release file handles
 	if closer, ok := writer1.(io.Closer); ok {
 		closer.Close()
@@ -437,7 +437,7 @@ func TestConfigLoaderWithEmptyConfigFile(t *testing.T) {
 		// This is the expected path for true empty file
 		return
 	}
-	
+
 	// Some XML parsers might treat empty as valid empty document
 	// Just verify it returns something reasonable
 	if exitCode != ExitOk && config != nil {

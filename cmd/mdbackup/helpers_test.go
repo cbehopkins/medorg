@@ -167,7 +167,7 @@ func TestSimpleVolumeLabelProviderNotFound(t *testing.T) {
 	xc := newXMLCfgAt(t, tmpDir)
 
 	provider := SimpleVolumeLabelProvider{xc}
-	
+
 	// Try to get label for a different directory that was never set up
 	nonexistentDir := "/nonexistent/path/that/does/not/exist"
 	_, err := provider.GetVolumeLabel(nonexistentDir)

@@ -239,10 +239,11 @@ func scanSrcTree(
 			return nil
 		}
 		if fm.HasTag(volumeName) {
-			return nil
-		}
-		lenArchive := len(fm.BackupDestinations())
-		if lenArchive > maxNumBackups {
+			// This file is already backed up to that destination
+			// Add to BackupProcessor so it knows it's in both (not an orphan)
+			if err := bp.addSrcFile(fm.GetChecksum(), fm.GetSize(), fm.BackupDestinations(), fm.Path()); err != nil {
+				return fmt.Errorf("add src file failed (md5=%q size=%d path=%s): %w", fm.GetChecksum(), fm.GetSize(), fm.Path().String(), err)
+			}
 			return nil
 		}
 
@@ -265,7 +266,7 @@ func scanSrcTree(
 			// File already exists in destination with same checksum
 			// Add to srcFileCollection so Compare knows it's in both (not an orphan)
 			if err := bp.addSrcFile(checksum, fm.GetSize(), fm.BackupDestinations(), fp); err != nil {
-				return err
+				return fmt.Errorf("add src file failed (md5=%q size=%d path=%s): %w", checksum, fm.GetSize(), fp.String(), err)
 			}
 			_, err := updateSourceDirectoryMap(fp.Dir(), core.Fname(fp.Base()), volumeName, fm.Path())
 			if err != nil {
@@ -275,7 +276,10 @@ func scanSrcTree(
 			return nil
 		}
 
-		return bp.addSrcFile(checksum, fm.GetSize(), fm.BackupDestinations(), fp)
+		if err := bp.addSrcFile(checksum, fm.GetSize(), fm.BackupDestinations(), fp); err != nil {
+			return fmt.Errorf("add src file failed (md5=%q size=%d path=%s): %w", checksum, fm.GetSize(), fp.String(), err)
+		}
+		return nil
 	}
 	logFunc("Scanning source for files to backup")
 	dwSrc := core.NewProgressableDirectoryWalker(core.MakeTokenChan(4), srcDir)
@@ -305,13 +309,14 @@ func copyPendingFiles(
 	logFunc func(string),
 	ignoreFunc func(path string) bool,
 	bp *BackupProcessor,
+	maxNumBackups int,
 ) error {
 	if fileCopyCallback == nil {
 		return nil
 	}
 
 	logFunc("Starting file copy")
-	iter, err := bp.prioritizedSrcFiles()
+	iter, err := bp.prioritizedSrcFiles(maxNumBackups)
 	if err != nil {
 		return err
 	}
@@ -533,6 +538,7 @@ func doACopy(
 // BackupRunner handles backup from one or more source directories to a single destination.
 // Supports single or multiple sources with proper orphan detection across all sources.
 // ignoreFunc is optional and should return true if a path should be ignored.
+// Handles backup from one or more source directories to a single destination.
 func BackupRunner(
 	volumeLabel VolumeLabeler,
 	maxNumBackups int,
@@ -656,7 +662,7 @@ func BackupRunner(
 	}
 
 	// Phase 4: perform copies using the populated plan
-	if err := copyPendingFiles(srcDirs, destDir, backupLabelName, fileCopyCallback, logFunc, ignoreFunc, bp); err != nil {
+	if err := copyPendingFiles(srcDirs, destDir, backupLabelName, fileCopyCallback, logFunc, ignoreFunc, bp, maxNumBackups); err != nil {
 		return err
 	}
 

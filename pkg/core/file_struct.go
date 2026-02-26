@@ -14,7 +14,7 @@ var ErrRecalced = errors.New("File checksum has been recalculated")
 // FileStruct contains all the properties associated with a file
 type FileStruct struct {
 	XMLName   struct{} `xml:"fr"`
-	directory Dirname   // Kept as hidden from the xml as this is used for messaging between agents
+	directory Dirname  // Kept as hidden from the xml as this is used for messaging between agents
 	// and that does not want to end up in the final xml file
 	Name     Fname  `xml:"fname,attr"`
 	Checksum string `xml:"checksum,attr"`

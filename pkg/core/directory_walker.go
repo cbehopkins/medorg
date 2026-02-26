@@ -6,10 +6,65 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
+	"sync"
 	"sync/atomic"
 
 	pb "github.com/cbehopkins/pb/v3"
 )
+
+type workerPool struct {
+	workCh  chan func() error
+	errorCh chan error
+	wg      sync.WaitGroup
+}
+
+func newWorkerPool(workerCount int) *workerPool {
+	pool := &workerPool{
+		workCh:  make(chan func() error, workerCount*2),
+		errorCh: make(chan error, workerCount*2),
+	}
+	pool.wg.Add(workerCount)
+	for range workerCount {
+		go func() {
+			defer pool.wg.Done()
+			for work := range pool.workCh {
+				if err := work(); err != nil {
+					pool.errorCh <- err
+				}
+			}
+		}()
+	}
+	return pool
+}
+
+func (wp *workerPool) Submit(work func() error) {
+	wp.workCh <- work
+}
+func (wp *workerPool) Close() error {
+	close(wp.workCh)
+	wp.wg.Wait()
+	close(wp.errorCh)
+	var err error
+	for e := range wp.errorCh {
+		if err == nil {
+			err = e
+		} else {
+			err = errors.New(err.Error() + "; " + e.Error())
+		}
+	}
+	return err
+}
+
+// Errored returns the first error encountered by any worker, or nil if no errors occurred.
+func (wp *workerPool) Errored() error {
+	select {
+	case err := <-wp.errorCh:
+		return err
+	default:
+		return nil
+	}
+}
 
 // DirectoryVisitor is a callback function type for visiting directories
 // It is passed the Directory paramaters and an []fs.DirEntry for the files
@@ -22,6 +77,7 @@ type DirectoryWalker struct {
 	fileVisitors     []ForEachCallback
 	fileMutators     []DmMutCallback
 	mutatePool       *mutatePool
+	workerPool       *workerPool
 }
 
 func (dw *DirectoryWalker) AddFileMutator(fm DmMutCallback) {
@@ -53,6 +109,7 @@ func NewDirectoryWalker(WorkTokens chan struct{}) *DirectoryWalker {
 	}
 	dw.fileVisitors = make([]ForEachCallback, 0)
 	dw.fileMutators = make([]DmMutCallback, 0)
+	dw.workerPool = newWorkerPool(runtime.NumCPU() * 4)
 
 	return dw
 }
@@ -60,16 +117,26 @@ func (dw *DirectoryWalker) Cancel() {
 	close(dw.cancelChan)
 }
 
-func (dw *DirectoryWalker) Close() {
+func (dw *DirectoryWalker) Close() error {
 	if dw.mutatePool != nil {
 		dw.mutatePool.close()
 		dw.mutatePool = nil
 	}
+	if dw.workerPool != nil {
+		if err := dw.workerPool.Close(); err != nil {
+			return err
+		}
+		dw.workerPool = nil
+	}
+	return nil
 }
 
 var errSkipFileVisitorRun = errors.New("Skip this file visitor run")
 
 func (dw *DirectoryWalker) Walk(root string) error {
+	if err := dw.workerPool.Errored(); err != nil {
+		return err
+	}
 	// FIXME there is an optimisation we could do here
 	// that collects up the file entries at the same time as walking
 	// This would make doing the checkcalc much faster as we only need a single pass
@@ -181,7 +248,6 @@ func (dw *DirectoryWalker) shouldSkipDir(path string) error {
 // Note: this is DirectoryWalker and therefore we will now visit all files in the directory
 func (dw *DirectoryWalker) dirVisitor(path Dirname, entries []os.DirEntry, err error) error {
 	// log.Printf("dirVisitor called for %s", path)
-	// FIXME could we throw this into a worker pool?
 	dw.grabWorkToken()
 	defer dw.releaseWorkToken()
 
@@ -235,7 +301,14 @@ func (dw *DirectoryWalker) dirVisitor(path Dirname, entries []os.DirEntry, err e
 			return err
 		}
 	}
-	return dm.Persist(path)
+	// return dm.Persist(path)
+	if err := dw.workerPool.Errored(); err != nil {
+		return err
+	}
+	dw.workerPool.Submit(func() error {
+		return dm.Persist(path)
+	})
+	return nil
 }
 
 // ProgressableDirectoryWalker extends DirectoryWalker with progress tracking
@@ -260,7 +333,8 @@ func NewProgressableDirectoryWalker(WorkTokens chan struct{}, path string) *Prog
 		// This needs to come from the Ctrl-C handler to be effective
 		cancelChan:   pdw.DirectoryWalker.cancelChan,
 		shouldIgnore: pdw.DirectoryWalker.shouldIgnore,
-		mutatePool:   dw.mutatePool, // Share the pool to avoid creating temporary ones
+		mutatePool:   dw.mutatePool,                   // Share the pool to avoid creating temporary ones
+		workerPool:   newWorkerPool(runtime.NumCPU()), // Initialize worker pool for counting pass
 	}
 	pdw.dirCount.DirectoryVisitor = func(path Dirname, entries []os.DirEntry, err error) error {
 		pdw.Progress.total.Add(1)
@@ -274,6 +348,20 @@ func NewProgressableDirectoryWalker(WorkTokens chan struct{}, path string) *Prog
 	}
 
 	return pdw
+}
+
+// Close cleans up resources for both the main walker and the counting walker
+func (pdw *ProgressableDirectoryWalker) Close() error {
+	// Close the counting walker's worker pool first
+	if pdw.dirCount.workerPool != nil {
+		if err := pdw.dirCount.workerPool.Close(); err != nil {
+			log.Printf("warning: failed to close dirCount workerPool: %v", err)
+		}
+		pdw.dirCount.workerPool = nil
+	}
+
+	// Then close the main DirectoryWalker (which includes its workerPool)
+	return pdw.DirectoryWalker.Close()
 }
 
 // This is the struct that informs the progress bar of totals and current value

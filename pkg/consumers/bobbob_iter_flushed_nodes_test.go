@@ -114,6 +114,22 @@ func (k *testKey) Unmarshal(data []byte) error {
 func (k testKey) New() types.PersistentKey[testKey] {
 	return &testKey{}
 }
+func (k testKey) LateMarshal(stre bobbob.Storer) (bobbob.ObjectId, int, bobbob.Finisher) {
+	b, err := k.Marshal()
+	if err != nil {
+		return 0, 0, func() error { return err }
+	}
+	id, err := store.WriteNewObjFromBytes(stre, b)
+	if err != nil {
+		return 0, 0, func() error { return err }
+	}
+	return id, len(b), func() error { return nil }
+}
+func (k *testKey) LateUnmarshal(id bobbob.ObjectId, size int, stre bobbob.Storer) bobbob.Finisher {
+	return func() error {
+		return store.ReadGeneric(stre, k, id)
+	}
+}
 func (k testKey) MarshalToObjectId(stre store.Storer) (bobbob.ObjectId, error) {
 	b, err := k.Marshal()
 	if err != nil {
@@ -123,6 +139,9 @@ func (k testKey) MarshalToObjectId(stre store.Storer) (bobbob.ObjectId, error) {
 }
 func (k *testKey) UnmarshalFromObjectId(id bobbob.ObjectId, stre store.Storer) error {
 	return store.ReadGeneric(stre, k, id)
+}
+func (k testKey) DeleteDependents(stre bobbob.Storer) error {
+	return nil
 }
 
 func testKeyLess(a, b testKey) bool {

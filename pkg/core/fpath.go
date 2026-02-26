@@ -14,12 +14,13 @@ const (
 	ConfigFileName  = ".mdcfg.xml"     // medorg configuration data
 	JournalPathName = ".mdjournal.xml" // journal data
 	VolumePathName  = ".mdbackup.xml"  // volume backup data - i.e. what is written in the root of a backup volume
-	SkipDirFile	= ".mdSkipDir"    		// presence of this file causes medorg to skip the directory
+	SkipDirFile     = ".mdSkipDir"     // presence of this file causes medorg to skip the directory
 )
 
 func IsMetadataFile(fn string) bool {
-	return fn == Md5FileName || fn == ConfigFileName || fn == JournalPathName
+	return fn == Md5FileName || fn == ConfigFileName || fn == JournalPathName || fn == VolumePathName || fn == SkipDirFile
 }
+
 // Fname is used to indicate we are talking about a filename (not a path)
 type Fname string
 
@@ -32,6 +33,7 @@ type Fpath struct {
 	dir  *Dirname
 	base *Fname
 }
+
 func (f Fpath) Is(name string) bool {
 	return strings.EqualFold(string(f.Base()), name)
 }

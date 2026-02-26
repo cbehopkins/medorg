@@ -61,6 +61,24 @@ func (sk simpleKey) New() types.PersistentKey[simpleKey] {
 	return &simpleKey{}
 }
 
+func (sk simpleKey) LateMarshal(stre bobbob.Storer) (bobbob.ObjectId, int, bobbob.Finisher) {
+	b, err := sk.Marshal()
+	if err != nil {
+		return 0, 0, func() error { return err }
+	}
+	id, err := store.WriteNewObjFromBytes(stre, b)
+	if err != nil {
+		return 0, 0, func() error { return err }
+	}
+	return id, len(b), func() error { return nil }
+}
+
+func (sk *simpleKey) LateUnmarshal(id bobbob.ObjectId, size int, stre bobbob.Storer) bobbob.Finisher {
+	return func() error {
+		return store.ReadGeneric(stre, sk, id)
+	}
+}
+
 func (sk simpleKey) MarshalToObjectId(stre store.Storer) (bobbob.ObjectId, error) {
 	b, err := sk.Marshal()
 	if err != nil {
@@ -71,6 +89,10 @@ func (sk simpleKey) MarshalToObjectId(stre store.Storer) (bobbob.ObjectId, error
 
 func (sk *simpleKey) UnmarshalFromObjectId(id bobbob.ObjectId, stre store.Storer) error {
 	return store.ReadGeneric(stre, sk, id)
+}
+
+func (sk simpleKey) DeleteDependents(stre bobbob.Storer) error {
+	return nil
 }
 
 func simpleKeyLess(a, b simpleKey) bool {

@@ -11,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cbehopkins/bobbob"
 	"github.com/cbehopkins/bobbob/yggdrasil/treap"
 	"github.com/cbehopkins/bobbob/yggdrasil/types"
 	"github.com/cbehopkins/bobbob/yggdrasil/vault"
@@ -104,15 +103,17 @@ func (f fileData) SizeInBytes() int {
 }
 
 type BackupProcessor struct {
-	srcFileCollection *treap.PersistentPayloadTreap[types.MD5Key, fileData]
-	dstFileCollection *treap.PersistentPayloadTreap[types.MD5Key, fileData]
+	srcFileCollection *treap.PersistentPayloadTreap[md5Key, fileData]
+	dstFileCollection *treap.PersistentPayloadTreap[md5Key, fileData]
 	session           *vault.VaultSession
 	filePath          string
 	mu                sync.Mutex          // Serializes treap/vault writes
 	persistQueue      chan persistRequest // Serializes persist operations to prevent allocator corruption
 	persistWg         sync.WaitGroup      // Tracks persist operations
+	opsWg             sync.WaitGroup      // Tracks active treap/vault operations
 	done              chan struct{}       // Closed to signal shutdown
 	closeOnce         sync.Once           // Ensures Close is called only once
+	finishers         []func()            // Optional callbacks to run on shutdown
 }
 
 // persistRequest represents a request to persist a treap node
@@ -129,21 +130,22 @@ func NewBackupProcessor() (*BackupProcessor, error) {
 		return nil, err
 	}
 	tmpFile := f.Name()
+	log.Println("Backup database stored at:", tmpFile)
 	// We only need the path for the vault; close the file handle
 	_ = f.Close()
 
 	session, colls, err := vault.OpenVaultWithIdentity(
 		tmpFile,
-		vault.PayloadIdentitySpec[string, types.MD5Key, fileData]{
+		vault.PayloadIdentitySpec[string, md5Key, fileData]{
 			Identity:        "srcFiles",
-			LessFunc:        types.MD5Less,
-			KeyTemplate:     (*types.MD5Key)(new(types.MD5Key)),
+			LessFunc:        md5KeyLess,
+			KeyTemplate:     (*md5Key)(new(md5Key)),
 			PayloadTemplate: fileData{},
 		},
-		vault.PayloadIdentitySpec[string, types.MD5Key, fileData]{
+		vault.PayloadIdentitySpec[string, md5Key, fileData]{
 			Identity:        "dstFiles",
-			LessFunc:        types.MD5Less,
-			KeyTemplate:     (*types.MD5Key)(new(types.MD5Key)),
+			LessFunc:        md5KeyLess,
+			KeyTemplate:     (*md5Key)(new(md5Key)),
 			PayloadTemplate: fileData{},
 		},
 	)
@@ -151,32 +153,26 @@ func NewBackupProcessor() (*BackupProcessor, error) {
 		return nil, err
 	}
 
-	srcCollection, ok := colls["srcFiles"].(*treap.PersistentPayloadTreap[types.MD5Key, fileData])
+	srcCollection, ok := colls["srcFiles"].(*treap.PersistentPayloadTreap[md5Key, fileData])
 	if !ok {
 		return nil, fmt.Errorf("collection has wrong type: got %T", colls["srcFiles"])
 	}
-	dstCollection, ok := colls["dstFiles"].(*treap.PersistentPayloadTreap[types.MD5Key, fileData])
+	dstCollection, ok := colls["dstFiles"].(*treap.PersistentPayloadTreap[md5Key, fileData])
 	if !ok {
 		return nil, fmt.Errorf("collection has wrong type: got %T", colls["dstFiles"])
 	}
-	// Set memory budget: keep max 50 nodes, flush oldest 50% when exceeded
-	// This is aggressive but necessary on Pi with limited RAM
-	// shouldFlushDebug := func(stats vault.MemoryStats, sf bool) {
-	// 	if sf {
-	// 		log.Println("[MEMORY] Flushing memory: ", stats)
-	// 	} else {
-	// 		log.Println("[MEMORY] Memory usage within budget", stats)
-	// 	}
 
-	// }
-	// onFlushDebug := func(stats vault.MemoryStats, cnt int) {
-	// 	log.Printf("[MEMORY] Flushed %d nodes, current stats: %v", cnt, stats)
-	// }
-	session.Vault.SetMemoryBudgetWithPercentile(10_000, 25)
-	session.Vault.SetCheckInterval(1000)
+	// Disable the Vault's automatic background monitoring (we use explicit background persist instead)
+	session.Vault.SetBackgroundMonitoring(false)
 
-	// Setup allocation logging for debugging memory issues
-	// setupAllocationLogging(session)
+	// Enable our explicit background persist strategy by default for production behavior
+	var finishers []func()
+	handle := session.Vault.StartBackgroundPersistOldestPercentile(
+		10,                    // persist oldest 10% (same as before)
+		10*time.Second,        // check every 10 seconds (instead of per-operation)
+		treap.WithAutoFlush(), // flush after each persist
+	)
+	finishers = append(finishers, handle.Stop)
 
 	bp := &BackupProcessor{
 		srcFileCollection: srcCollection,
@@ -185,6 +181,7 @@ func NewBackupProcessor() (*BackupProcessor, error) {
 		filePath:          tmpFile,
 		persistQueue:      make(chan persistRequest, 100), // Buffered queue for persist requests
 		done:              make(chan struct{}),            // Closed to signal shutdown
+		finishers:         finishers,
 	}
 
 	// Start background persist worker to serialize persist operations
@@ -200,22 +197,21 @@ func (bp *BackupProcessor) persistWorker() {
 		// Serialize persist operations to prevent allocator corruption
 		req.errCh <- req.fn()
 	}
+	for _, finisher := range bp.finishers {
+		finisher()
+	}
 }
 
-// queuePersist queues a persist operation and waits for it to complete
-func (bp *BackupProcessor) queuePersist(fn func() error) error {
-	errCh := make(chan error, 1)
-	req := persistRequest{
-		fn:    fn,
-		errCh: errCh,
-	}
-
-	// Use select to avoid sending on closed channel
+func (bp *BackupProcessor) beginOp() (func(), error) {
+	// Increment first, then check if shutdown has started
+	bp.opsWg.Add(1)
 	select {
-	case bp.persistQueue <- req:
-		return <-errCh
 	case <-bp.done:
-		return fmt.Errorf("BackupProcessor is shutting down")
+		// Shutdown has started; decrement and return error
+		bp.opsWg.Done()
+		return nil, fmt.Errorf("BackupProcessor is shutting down")
+	default:
+		return bp.opsWg.Done, nil
 	}
 }
 
@@ -223,7 +219,8 @@ func (bp *BackupProcessor) Close() error {
 	var closeErr error
 	bp.closeOnce.Do(func() {
 		close(bp.done)         // Signal shutdown to all goroutines
-		close(bp.persistQueue) // Close queue so persistWorker exits
+		bp.opsWg.Wait()        // Wait for in-flight operations to finish
+		close(bp.persistQueue) // Signal persistWorker to stop
 		bp.persistWg.Wait()    // Wait for persistWorker to finish
 		defer os.Remove(bp.filePath)
 		closeErr = bp.session.Close()
@@ -231,57 +228,30 @@ func (bp *BackupProcessor) Close() error {
 	return closeErr
 }
 
-// setupAllocationLogging configures allocation logging on the store's allocators for debugging memory usage.
-// Uses type assertion to access SetOnAllocate callbacks on allocator interfaces.
-func setupAllocationLogging(session *vault.VaultSession) {
-	if session == nil || session.Vault == nil || session.Vault.Store == nil {
-		return
-	}
-	ok := session.ConfigureAllocatorCallbacks(
-		func(objId bobbob.ObjectId, offset bobbob.FileOffset, size int) {
-			if size > 4096 {
-				log.Printf("[ALLOC] WARNING: Large allocation %d bytes at offset %d (objId=%d)",
-					size, offset, objId)
-			}
-		},
-		func(objId bobbob.ObjectId, offset bobbob.FileOffset, size int) {
-			log.Printf("[ALLOC] Parent allocator allocated %d bytes at offset %d (objId=%d)",
-				size, offset, objId)
-		},
-	)
-	if !ok {
-		panic("Allocator shenannigans")
-	}
-}
-
 // Add files to the list of files we found
 // A file is defined by it's md5 key - with a sanity check on its size
 // backupDest is where it's already backed up to
 // Then srcDir and srcFile are where we find it to back it up from
 func (bp *BackupProcessor) addSrcFile(md5Key string, size int64, backupDest []string, file core.Fpath) error {
-	// Check if shutting down
-	select {
-	case <-bp.done:
-		return fmt.Errorf("BackupProcessor is shutting down")
-	default:
+	finisher, err := bp.beginOp()
+	if err != nil {
+		return err
 	}
+	defer finisher()
 
 	bp.mu.Lock()
 	defer bp.mu.Unlock()
-	// Try hex string first (for tests), then fall back to base64 (production format)
-	key, err := types.MD5KeyFromString(md5Key)
+	key, _, err := md5KeyFromString(md5Key)
 	if err != nil {
-		// If hex fails, try base64
-		key, err = types.Md5KeyFromBase64String(md5Key)
-		if err != nil {
-			return fmt.Errorf("invalid md5 key %q: %w", md5Key, err)
-		}
+		return fmt.Errorf("invalid md5 key %q: %w", md5Key, err)
 	}
 	payload := fileData{
 		Size:       size,
 		Fpath:      file,
 		BackupDest: backupDest,
 	}
+
+	log.Printf("[addSrcFile] Inserting key: %v, path: %s, size: %d, backupDest: %v", key, file.String(), size, backupDest)
 
 	// If we already have this checksum recorded, merge destinations and prefer the path
 	// that needs backup most (fewest existing destinations) while retaining merged metadata.
@@ -294,33 +264,28 @@ func (bp *BackupProcessor) addSrcFile(md5Key string, size int64, backupDest []st
 			chosen.Size = payload.Size
 		}
 		chosen.BackupDest = mergedDest
-		existingNode.SetPayload(chosen)
-		return bp.queuePersist(existingNode.Persist)
+		log.Printf("[addSrcFile] Updating existing key: %v, new path: %s, mergedDest: %v", key, chosen.Fpath.String(), mergedDest)
+		return bp.srcFileCollection.UpdatePayload(&key, chosen)
 	}
 
-	bp.srcFileCollection.Insert(&key, payload)
-	return nil
+	log.Printf("[addSrcFile] New insert for key: %v, path: %s", key, file.String())
+	return bp.srcFileCollection.Insert(&key, payload)
 }
 
 // Add files to the list of files we found in the backup destination
 func (bp *BackupProcessor) addDstFile(md5Key string, size int64, backupDest []string, file core.Fpath) error {
-	// Check if shutting down
-	select {
-	case <-bp.done:
-		return fmt.Errorf("BackupProcessor is shutting down")
-	default:
+
+	finisher, err := bp.beginOp()
+	if err != nil {
+		return err
 	}
+	defer finisher()
 
 	bp.mu.Lock()
 	defer bp.mu.Unlock()
-	// Try hex string first (for tests), then fall back to base64 (production format)
-	key, err := types.MD5KeyFromString(md5Key)
+	key, _, err := md5KeyFromString(md5Key)
 	if err != nil {
-		// If hex fails, try base64
-		key, err = types.Md5KeyFromBase64String(md5Key)
-		if err != nil {
-			return fmt.Errorf("invalid md5 key %q: %w", md5Key, err)
-		}
+		return fmt.Errorf("invalid md5 key %q: %w", md5Key, err)
 	}
 	payload := fileData{
 		Size:       size,
@@ -338,24 +303,24 @@ func (bp *BackupProcessor) addDstFile(md5Key string, size int64, backupDest []st
 		// Keep the first seen path; destinations are what matter here
 		chosen.BackupDest = mergedDest
 		// Why can't we just set the node and let the memory management handle it?
-		existingNode.SetPayload(chosen)
-		return bp.queuePersist(existingNode.Persist)
+		return bp.dstFileCollection.UpdatePayload(&key, chosen)
 	}
 
-	bp.dstFileCollection.Insert(&key, payload)
-	return nil
+	return bp.dstFileCollection.Insert(&key, payload)
 }
 
 // checkDstFileExists checks if a file with the given checksum exists in destination
 // Returns the file path and true if found, empty string and false otherwise
 func (bp *BackupProcessor) checkDstFileExists(checksum string) (core.Fpath, bool) {
-	key, err := types.MD5KeyFromString(checksum)
+	finisher, err := bp.beginOp()
 	if err != nil {
-		// Try base64 format
-		key, err = types.Md5KeyFromBase64String(checksum)
-		if err != nil {
-			return core.Fpath{}, false
-		}
+		return core.Fpath{}, false
+	}
+	defer finisher()
+
+	key, _, err := md5KeyFromString(checksum)
+	if err != nil {
+		return core.Fpath{}, false
 	}
 
 	node := bp.dstFileCollection.Search(&key)
@@ -371,16 +336,16 @@ func (bp *BackupProcessor) checkDstFileExists(checksum string) (core.Fpath, bool
 func (bp *BackupProcessor) getOrphanFiles() (func(yield func(core.Fpath) bool), error) {
 	iterator := func(yield func(core.Fpath) bool) {
 		// Callback: ignore files only in src (not relevant for orphans)
-		onlyInSrc := func(_ treap.TreapNodeInterface[types.MD5Key]) error { return nil }
+		onlyInSrc := func(_ treap.TreapNodeInterface[md5Key]) error { return nil }
 
 		// Callback: ignore files in both (they're not orphans)
-		inBoth := func(_ treap.TreapNodeInterface[types.MD5Key], _ treap.TreapNodeInterface[types.MD5Key]) error {
+		inBoth := func(_ treap.TreapNodeInterface[md5Key], _ treap.TreapNodeInterface[md5Key]) error {
 			return nil
 		}
 
 		// Callback: collect files only in dst (these are orphans)
-		onlyInDst := func(node treap.TreapNodeInterface[types.MD5Key]) error {
-			payloadNode, ok := node.(treap.PersistentPayloadNodeInterface[types.MD5Key, fileData])
+		onlyInDst := func(node treap.TreapNodeInterface[md5Key]) error {
+			payloadNode, ok := node.(treap.PersistentPayloadNodeInterface[md5Key, fileData])
 			if !ok {
 				return fmt.Errorf("unexpected node type %T", node)
 			}
@@ -395,11 +360,18 @@ func (bp *BackupProcessor) getOrphanFiles() (func(yield func(core.Fpath) bool), 
 
 	return iterator, nil
 }
+func perFlush[K any, P types.PersistentPayload[P]](coll *treap.PersistentPayloadTreap[K, P]) error {
+	// Persist and flush the priority collection to disk for memory efficiency
+	if err := coll.Persist(); err != nil {
+		return err
+	}
+	return coll.FlushAll()
+}
 
 // Return list of files to backup in a prioritized fashion
 // Uses vault-based sorting to avoid in-memory sort operations
 // Yields fileData to provide access to size and backup destinations
-func (bp *BackupProcessor) prioritizedSrcFiles() (func(yield func(fileData) bool), error) {
+func (bp *BackupProcessor) prioritizedSrcFiles(maxNumBackups int) (func(yield func(fileData) bool), error) {
 	// Create a temporary collection for sorting by priority
 	// identity is just the name of the collection...
 	identity := fmt.Sprintf("priority_%d", time.Now().UnixNano())
@@ -416,12 +388,16 @@ func (bp *BackupProcessor) prioritizedSrcFiles() (func(yield func(fileData) bool
 
 	addedToPriority := 0
 	// Callback: insert files that are only in src (not in dst) into priority collection
-	onlyInSrc := func(node treap.TreapNodeInterface[types.MD5Key]) error {
-		payloadNode, ok := node.(treap.PersistentPayloadNodeInterface[types.MD5Key, fileData])
+	onlyInSrc := func(node treap.TreapNodeInterface[md5Key]) error {
+		payloadNode, ok := node.(treap.PersistentPayloadNodeInterface[md5Key, fileData])
 		if !ok {
 			return fmt.Errorf("unexpected node type %T", node)
 		}
 		fd := payloadNode.GetPayload()
+		if len(fd.BackupDest) > maxNumBackups {
+			// Return without adding as already sufficiently backed up
+			return nil
+		}
 		key := buildPriorityKey(fd)
 		priorityColl.Insert(&key, fd)
 		addedToPriority++
@@ -430,8 +406,8 @@ func (bp *BackupProcessor) prioritizedSrcFiles() (func(yield func(fileData) bool
 	}
 
 	// Ignore files in both collections
-	inBoth := func(node treap.TreapNodeInterface[types.MD5Key], _ treap.TreapNodeInterface[types.MD5Key]) error {
-		payloadNode, ok := node.(treap.PersistentPayloadNodeInterface[types.MD5Key, fileData])
+	inBoth := func(node treap.TreapNodeInterface[md5Key], _ treap.TreapNodeInterface[md5Key]) error {
+		payloadNode, ok := node.(treap.PersistentPayloadNodeInterface[md5Key, fileData])
 		if !ok {
 			return fmt.Errorf("unexpected node type %T", node)
 		}
@@ -442,8 +418,8 @@ func (bp *BackupProcessor) prioritizedSrcFiles() (func(yield func(fileData) bool
 	}
 
 	// Ignore files only in dst
-	onlyInDst := func(node treap.TreapNodeInterface[types.MD5Key]) error {
-		payloadNode, ok := node.(treap.PersistentPayloadNodeInterface[types.MD5Key, fileData])
+	onlyInDst := func(node treap.TreapNodeInterface[md5Key]) error {
+		payloadNode, ok := node.(treap.PersistentPayloadNodeInterface[md5Key, fileData])
 		if !ok {
 			return fmt.Errorf("unexpected node type %T", node)
 		}
@@ -453,11 +429,58 @@ func (bp *BackupProcessor) prioritizedSrcFiles() (func(yield func(fileData) bool
 		return nil
 	}
 
+	// Log contents of srcFileCollection before compare
+	log.Println("[Debug] srcFileCollection contents before compare:")
+	srcCount := 0
+	_ = bp.srcFileCollection.InOrderVisit(func(node treap.TreapNodeInterface[md5Key]) error {
+		if node == nil || node.IsNil() {
+			return nil
+		}
+		payloadNode, ok := node.(treap.PersistentPayloadNodeInterface[md5Key, fileData])
+		if ok {
+			fd := payloadNode.GetPayload()
+			log.Printf("  [src] key: %v, path: %s, size: %d, backupDest: %v", payloadNode.GetKey(), fd.Fpath.String(), fd.Size, fd.BackupDest)
+			srcCount++
+		}
+		return nil
+	})
+	log.Printf("[Debug] srcFileCollection total: %d", srcCount)
+
+	// Log contents of dstFileCollection before compare
+	log.Println("[Debug] dstFileCollection contents before compare:")
+	dstCount := 0
+	_ = bp.dstFileCollection.InOrderVisit(func(node treap.TreapNodeInterface[md5Key]) error {
+		if node == nil || node.IsNil() {
+			return nil
+		}
+		payloadNode, ok := node.(treap.PersistentPayloadNodeInterface[md5Key, fileData])
+		if ok {
+			fd := payloadNode.GetPayload()
+			log.Printf("  [dst] key: %v, path: %s, size: %d, backupDest: %v", payloadNode.GetKey(), fd.Fpath.String(), fd.Size, fd.BackupDest)
+			dstCount++
+		}
+		return nil
+	})
+	log.Printf("[Debug] dstFileCollection total: %d", dstCount)
+
 	// Compare and populate priority collection with only src files
 	if err := bp.srcFileCollection.Compare(bp.dstFileCollection, onlyInSrc, inBoth, onlyInDst); err != nil {
+		log.Printf("[Debug] Compare error: %v", err)
 		return nil, err
 	}
 	log.Printf("[Compare] Added %d files to priority collection", addedToPriority)
+	if err := perFlush(priorityColl); err != nil {
+		log.Printf("[Debug] perFlush(priorityColl) error: %v", err)
+		return nil, err
+	}
+	if err := perFlush(bp.srcFileCollection); err != nil {
+		log.Printf("[Debug] perFlush(srcFileCollection) error: %v", err)
+		return nil, err
+	}
+	if err := perFlush(bp.dstFileCollection); err != nil {
+		log.Printf("[Debug] perFlush(dstFileCollection) error: %v", err)
+		return nil, err
+	}
 
 	// Return an iterator that walks the persistent treap in-order, including
 	// nodes that have been flushed to disk.
@@ -546,7 +569,7 @@ func (bp *inMemoryBackupProcessor) Close() error {
 // Return list of files to backup in a prioritized fashion
 // We sort by: fewest destinations first, then largest size first
 // Yields fileData to provide access to size and backup destinations
-func (bp *inMemoryBackupProcessor) prioritizedSrcFiles() (func(yield func(fileData) bool), error) {
+func (bp *inMemoryBackupProcessor) prioritizedSrcFiles(maxNumBackups int) (func(yield func(fileData) bool), error) {
 	// Collect files present in src but not in dst.
 	entries := make([]fileData, 0, len(bp.srcFiles))
 	for md5Key, src := range bp.srcFiles {
@@ -570,6 +593,9 @@ func (bp *inMemoryBackupProcessor) prioritizedSrcFiles() (func(yield func(fileDa
 
 	iterator := func(yield func(fileData) bool) {
 		for _, entry := range entries {
+			if maxNumBackups > 0 && len(entry.BackupDest) >= maxNumBackups {
+				continue
+			}
 			if !yield(entry) {
 				return
 			}
