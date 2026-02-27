@@ -133,10 +133,10 @@ func (dm DirectoryMap) Len() int {
 
 // ToMd5File converts the directory map to an Md5File structure
 // This is primarily used for XML serialization
+// Note: Dir field is intentionally not set for .medorg.xml files (it's superfluous)
+// Journal files set Dir explicitly when needed
 func (dm DirectoryMap) ToMd5File(dir Dirname) (*Md5File, error) {
-	m5f := Md5File{
-		Dir: string(dir),
-	}
+	m5f := Md5File{}
 	dm.lock.RLock()
 	defer dm.lock.RUnlock()
 
@@ -259,32 +259,32 @@ func DirectoryMapFromDir(directory Dirname) (dm DirectoryMap, err error) {
 // removes entries for missing files, and adds entries for any files that exist
 // on disk but are not present in the map. This ensures the returned map reflects
 // the current contents of the filesystem.
-func DirectoryMapFromDirWithScan(directory Dirname) (DirectoryMap, error) {
-	dm, err := DirectoryMapFromDir(directory)
-	if err != nil {
-		return dm, err
-	}
+// func DirectoryMapFromDirWithScan(directory Dirname) (DirectoryMap, error) {
+// 	dm, err := DirectoryMapFromDir(directory)
+// 	if err != nil {
+// 		return dm, err
+// 	}
 
-	entries, err := os.ReadDir(string(directory))
-	if err != nil {
-		return dm, err
-	}
-	dm.lock.Lock()
-	defer dm.lock.Unlock()
-	err = dm.updateFromDirEntry(directory, entries)
-	if err != nil {
-		return dm, err
-	}
-	// Any entries that have a dm, but no corresponding file info, must be stale
-	for fname := range dm.mp {
-		if _, ok := dm.fi[fname]; !ok {
-			delete(dm.mp, fname)
-			delete(dm.fi, fname)
-			*dm.stale = true
-		}
-	}
-	return dm, nil
-}
+// 	entries, err := os.ReadDir(string(directory))
+// 	if err != nil {
+// 		return dm, err
+// 	}
+// 	dm.lock.Lock()
+// 	defer dm.lock.Unlock()
+// 	err = dm.updateFromDirEntry(directory, entries)
+// 	if err != nil {
+// 		return dm, err
+// 	}
+// 	// Any entries that have a dm, but no corresponding file info, must be stale
+// 	for fname := range dm.mp {
+// 		if _, ok := dm.fi[fname]; !ok {
+// 			delete(dm.mp, fname)
+// 			delete(dm.fi, fname)
+// 			*dm.stale = true
+// 		}
+// 	}
+// 	return dm, nil
+// }
 
 // DirectoryMapFromDirEntries Create A Directory Map from a directory and a set of os.DirEntry
 // As one can build from a single read of the directory
@@ -404,7 +404,7 @@ func (dm DirectoryMap) ForEachFile(fn ForEachCallback) error {
 			fs := dm.mp[name]
 			dm.lock.RUnlock()
 
-			log.Println("[DM] Calculating  checksum for",fs.Directory(), fs.Name)
+			log.Println("[DM] Calculating  checksum for", fs.Directory(), fs.Name)
 
 			cks, err := CalcMd5File(string(fs.directory), string(fs.Name))
 			if err != nil {

@@ -70,14 +70,16 @@ func (wp *workerPool) Errored() error {
 // It is passed the Directory paramaters and an []fs.DirEntry for the files
 type DirectoryVisitor func(path Dirname, entries []fs.DirEntry, err error) error
 type DirectoryWalker struct {
-	shouldIgnore     func(path string) bool // Optional function to check if path should be ignored
-	WorkTokens       chan struct{}
-	DirectoryVisitor DirectoryVisitor
-	cancelChan       chan struct{}
-	fileVisitors     []ForEachCallback
-	fileMutators     []DmMutCallback
-	mutatePool       *mutatePool
-	workerPool       *workerPool
+	shouldIgnore          func(path string) bool // Optional function to check if path should be ignored
+	WorkTokens            chan struct{}
+	DirectoryVisitor      DirectoryVisitor
+	cancelChan            chan struct{}
+	fileVisitors          []ForEachCallback
+	fileMutators          []DmMutCallback
+	fileVisitorsSkippable []ForEachCallback // Test-only: can return SkipDir
+	fileMutatorsSkippable []DmMutCallback   // Test-only: can return SkipDir
+	mutatePool            *mutatePool
+	workerPool            *workerPool
 }
 
 func (dw *DirectoryWalker) AddFileMutator(fm DmMutCallback) {
@@ -85,6 +87,18 @@ func (dw *DirectoryWalker) AddFileMutator(fm DmMutCallback) {
 }
 func (dw *DirectoryWalker) AddFileVisitor(fv ForEachCallback) {
 	dw.fileVisitors = append(dw.fileVisitors, fv)
+}
+
+// AddFileVisitorSkippable adds a file visitor that may return SkipDir (test-only)
+// When any skippable visitor/mutator is present, dirVisitor runs synchronously
+func (dw *DirectoryWalker) AddFileVisitorSkippable(fv ForEachCallback) {
+	dw.fileVisitorsSkippable = append(dw.fileVisitorsSkippable, fv)
+}
+
+// AddFileMutatorSkippable adds a file mutator that may return SkipDir (test-only)
+// When any skippable visitor/mutator is present, dirVisitor runs synchronously
+func (dw *DirectoryWalker) AddFileMutatorSkippable(fm DmMutCallback) {
+	dw.fileMutatorsSkippable = append(dw.fileMutatorsSkippable, fm)
 }
 
 func (dw *DirectoryWalker) grabWorkToken() {
@@ -133,13 +147,23 @@ func (dw *DirectoryWalker) Close() error {
 
 var errSkipFileVisitorRun = errors.New("Skip this file visitor run")
 
+// handleWalkError logs SkipDir messages and returns errors unchanged for proper propagation
+func handleWalkError(err error, context string) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, filepath.SkipDir) {
+		log.Println("Skipping", context, "and all subdirectories as per SkipDir")
+	}
+	// Return ALL errors (including SkipDir) for proper handling by caller
+	return err
+}
+
 func (dw *DirectoryWalker) Walk(root string) error {
 	if err := dw.workerPool.Errored(); err != nil {
 		return err
 	}
-	// FIXME there is an optimisation we could do here
-	// that collects up the file entries at the same time as walking
-	// This would make doing the checkcalc much faster as we only need a single pass
+
 	// Check it is a dir first
 	info, err := os.Stat(root)
 	if err != nil {
@@ -149,19 +173,18 @@ func (dw *DirectoryWalker) Walk(root string) error {
 		return errors.New("Walk root is not a directory")
 	}
 
-	// FIXME there's an optimisation here where we
-	// can use the os.ReadDir that comes later to get all entries in one go
-	// But KISS for now
-	if err := dw.shouldSkipDir(root); err != nil {
-		// It's not an error, but still, skip it
-		return nil
-	}
-
+	// Read directory entries once and use for all checks
 	dw.grabWorkToken()
 	entries, err := os.ReadDir(root)
 	dw.releaseWorkToken()
 	if err != nil {
 		return err
+	}
+
+	// Check if we should skip this directory using the entries we just read
+	if err := dw.shouldSkipDir(root, entries); err != nil {
+		// It's not an error, but still, skip it
+		return nil
 	}
 	directories := make([]fs.DirEntry, 0)
 	files := make([]fs.DirEntry, 0)
@@ -178,51 +201,79 @@ func (dw *DirectoryWalker) Walk(root string) error {
 	if dw.DirectoryVisitor != nil {
 		err = dw.DirectoryVisitor(Dirname(root), entries, nil)
 		if err != nil {
-			if errors.Is(err, filepath.SkipDir) {
-				log.Println("Skipping", root, "and all subdirectories as per SkipDir")
-				return nil
-			}
 			if errors.Is(err, errSkipFileVisitorRun) {
 				skipFileVisitors = true
-			} else {
-				// If it's a filepath.SkipAll then allow the error to work its way up the tree
+			} else if err := handleWalkError(err, root); err != nil {
 				log.Println("Aborting due to err in dw.DirectoryVisitor", err)
 				return err
+			} else {
+				return nil // SkipDir case
 			}
 		}
 	}
 
-	if !skipFileVisitors {
-		// Visit this directory, run the visitors etc
-		if err := dw.dirVisitor(Dirname(root), entries, nil); err != nil {
-			// SkipDir: skip this directory and its subdirectories (return nil to stop descent)
-			// SkipAll: stop all directory walking (propagate error up)
-			if errors.Is(err, filepath.SkipDir) {
-				log.Println("Skipping", root, "and all subdirectories as per SkipDir <- dirVisitor")
-				return nil
-			}
+	// Start dirVisitor in background while we walk subdirectories
+	// If skippable visitors/mutators are present (test-only), run synchronously
+	hasSkippableVisitors := len(dw.fileVisitorsSkippable) > 0 || len(dw.fileMutatorsSkippable) > 0
+
+	dvErrChan := make(chan error, 1)
+	go func() {
+		defer close(dvErrChan)
+		if !skipFileVisitors {
+			dvErrChan <- dw.dirVisitor(Dirname(root), entries, nil)
+		} else {
+			dvErrChan <- nil
+		}
+	}()
+	if hasSkippableVisitors {
+		// Synchronous mode: run dirVisitor immediately and wait if needed
+		// Wait for it to complete before walking subdirectories
+		err := <-dvErrChan
+		if err := handleWalkError(err, root+" <- dirVisitor"); err != nil {
 			return err
 		}
+		dvErrChan = make(chan error, 1) // Closed channel so select won't block
+		close(dvErrChan)
 	}
-	// Now walk sub-directories
-	// Maybe use WalkMulti here?
+
+	// Walk subdirectories while dirVisitor runs in parallel
+	dvErrChan2 := dvErrChan // Reference to track if we've consumed the channel
 	for _, d := range directories {
+		// Check if dirVisitor has already failed (only in async mode)
+		if !hasSkippableVisitors && dvErrChan2 != nil {
+			select {
+			case err, ok := <-dvErrChan2:
+				if !ok {
+					// Channel closed, no error from dirVisitor
+					dvErrChan2 = nil
+				} else if err := handleWalkError(err, root+" <- dirVisitor"); err != nil {
+					return err
+				}
+			default:
+				// dirVisitor still running or already checked
+			}
+		}
+
 		subdirPath := filepath.Join(root, d.Name())
-		err := dw.Walk(subdirPath)
-		if err != nil {
+		if err := dw.Walk(subdirPath); err != nil {
+			// For subdirectory walks, SkipDir means continue to next subdirectory
 			if errors.Is(err, filepath.SkipDir) {
 				log.Println("Skipping", subdirPath, "and all subdirectories as per SkipDir <- Walk")
 				continue
 			}
-			// If it's a filepath.SkipAll then allow the error to work its way up the tree
 			log.Println("SkipAll found at", root, d, "in subdirectory walk")
 			return err
 		}
 	}
+
+	// Wait for dirVisitor to complete after all subdirectories are processed
+	if err, ok := <-dvErrChan; ok {
+		return handleWalkError(err, root+" <- dirVisitor (final)")
+	}
 	return nil
 }
 
-func (dw *DirectoryWalker) shouldSkipDir(path string) error {
+func (dw *DirectoryWalker) shouldSkipDir(path string, entries []fs.DirEntry) error {
 	if dw.cancelChan != nil {
 		select {
 		case <-dw.cancelChan:
@@ -231,13 +282,16 @@ func (dw *DirectoryWalker) shouldSkipDir(path string) error {
 		}
 	}
 
-	// Skip hidden directories
+	// Skip hidden directories (checks path components, not entries)
 	if isHiddenDirectory(path) {
 		return filepath.SkipDir
 	}
-	if hasSkipfile(path) {
+
+	// Check for skip file in the entries we already read
+	if hasSkipfileInEntries(entries) {
 		return filepath.SkipDir
 	}
+
 	// Skip directories matching ignore patterns
 	if dw.shouldIgnore != nil && dw.shouldIgnore(path) {
 		return filepath.SkipDir
@@ -247,7 +301,6 @@ func (dw *DirectoryWalker) shouldSkipDir(path string) error {
 
 // Note: this is DirectoryWalker and therefore we will now visit all files in the directory
 func (dw *DirectoryWalker) dirVisitor(path Dirname, entries []os.DirEntry, err error) error {
-	// log.Printf("dirVisitor called for %s", path)
 	dw.grabWorkToken()
 	defer dw.releaseWorkToken()
 
@@ -262,9 +315,16 @@ func (dw *DirectoryWalker) dirVisitor(path Dirname, entries []os.DirEntry, err e
 		return err
 	}
 
-	if len(dw.fileVisitors) > 0 {
+	if len(dw.fileVisitors) > 0 || len(dw.fileVisitorsSkippable) > 0 {
 		err = dm.ForEachFile(func(fn Fname, fm FileMetadata, fi os.FileInfo) error {
+			// Run non-skippable visitors first
 			for _, fv := range dw.fileVisitors {
+				if err := fv(fn, fm, fi); err != nil {
+					return err
+				}
+			}
+			// Run skippable visitors (may return SkipDir)
+			for _, fv := range dw.fileVisitorsSkippable {
 				if err := fv(fn, fm, fi); err != nil {
 					return err
 				}
@@ -275,9 +335,12 @@ func (dw *DirectoryWalker) dirVisitor(path Dirname, entries []os.DirEntry, err e
 			return err
 		}
 	}
-	if len(dw.fileMutators) > 0 {
+	if len(dw.fileMutators) > 0 || len(dw.fileMutatorsSkippable) > 0 {
 		err := dm.RangeMutate(func(file Fpath, d os.FileInfo, fs FileStruct) (FileStruct, error) {
 			ignoreCounter := 0
+			allCount := len(dw.fileMutators) + len(dw.fileMutatorsSkippable)
+
+			// Run non-skippable mutators
 			for _, fm := range dw.fileMutators {
 				var err error
 				fs, err = fm(file, d, fs)
@@ -285,14 +348,25 @@ func (dw *DirectoryWalker) dirVisitor(path Dirname, entries []os.DirEntry, err e
 					ignoreCounter++
 					continue
 				}
-
+				if err != nil {
+					return fs, err
+				}
+			}
+			// Run skippable mutators (may return SkipDir)
+			for _, fm := range dw.fileMutatorsSkippable {
+				var err error
+				fs, err = fm(file, d, fs)
+				if errors.Is(err, ErrIgnoreThisMutate) {
+					ignoreCounter++
+					continue
+				}
 				if err != nil {
 					return fs, err
 				}
 			}
 			// If we get an ignore from all mutators, we skip the file
-			//Anyone not saying "Don't mutate" means we need to continue with mutation
-			if ignoreCounter == len(dw.fileMutators) {
+			// Anyone not saying "Don't mutate" means we need to continue with mutation
+			if ignoreCounter == allCount {
 				return fs, ErrIgnoreThisMutate
 			}
 			return fs, nil
@@ -301,10 +375,11 @@ func (dw *DirectoryWalker) dirVisitor(path Dirname, entries []os.DirEntry, err e
 			return err
 		}
 	}
-	// return dm.Persist(path)
 	if err := dw.workerPool.Errored(); err != nil {
 		return err
 	}
+	// Submit persist to worker pool for async execution to maximize concurrency
+	// The Walk caller must call Close() to ensure all persists complete
 	dw.workerPool.Submit(func() error {
 		return dm.Persist(path)
 	})

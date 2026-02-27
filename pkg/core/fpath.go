@@ -2,6 +2,7 @@ package core
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -101,9 +102,9 @@ func isHiddenDirectory(path string) bool {
 		path, _ = filepath.Split(path)
 	}
 	path = filepath.Clean(path)
-	pa := strings.Split(path, string(filepath.Separator))
+	pa := strings.SplitSeq(path, string(filepath.Separator))
 
-	for _, p := range pa {
+	for p := range pa {
 		if strings.HasPrefix(p, ".") {
 			return true
 		}
@@ -114,6 +115,17 @@ func hasSkipfile(directory string) bool {
 	skipFilePath := filepath.Join(directory, SkipDirFile)
 	if _, err := os.Stat(skipFilePath); !os.IsNotExist(err) {
 		return true
+	}
+	return false
+}
+
+// hasSkipfileInEntries checks if the skip file exists in the provided directory entries
+// This avoids an additional os.Stat call when we already have the directory entries
+func hasSkipfileInEntries(entries []fs.DirEntry) bool {
+	for _, entry := range entries {
+		if entry.Name() == SkipDirFile {
+			return true
+		}
 	}
 	return false
 }
