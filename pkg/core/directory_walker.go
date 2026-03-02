@@ -79,6 +79,8 @@ type DirectoryWalker struct {
 	fileVisitorsSkippable []ForEachCallback // Test-only: can return SkipDir
 	fileMutatorsSkippable []DmMutCallback   // Test-only: can return SkipDir
 	mutatePool            *mutatePool
+	// workerPool is used for async execution of file persists to maximize concurrency while walking
+	// It will be closed (externally coherent) when we are closed
 	workerPool            *workerPool
 }
 

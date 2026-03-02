@@ -43,7 +43,8 @@ type DirectoryMap struct {
 	lock *sync.RWMutex
 	dir  Dirname
 
-	visitFunc DmVisitFuncType
+	visitFunc  DmVisitFuncType
+	workerPool *workerPool
 	// Optional shared worker pool for RangeMutate operations
 	pool *mutatePool
 }
@@ -103,8 +104,8 @@ func updateDirEntry(dm DirectoryMap, path Fpath, d fs.DirEntry) error {
 	return nil
 }
 
-// NewDirectoryMap creates a new dm
-func NewDirectoryMap() *DirectoryMap {
+// newDirectoryMap creates a new dm
+func newDirectoryMap() *DirectoryMap {
 	itm := new(DirectoryMap)
 	itm.mp = make(map[Fname]FileStruct)
 	itm.fi = make(map[Fname]os.FileInfo)
@@ -214,8 +215,10 @@ func (dm DirectoryMap) Get(fn Fname) (FileStruct, bool) {
 // Literally just loads the file from disk (or creates an empty one)
 func DirectoryMapFromDir(directory Dirname) (dm DirectoryMap, err error) {
 	// Read in the xml structure to a map/array
-	dm = *NewDirectoryMap()
+	dm = *newDirectoryMap()
 	dm.dir = directory
+	dm.workerPool = nil
+
 	if dm.mp == nil {
 		return dm, errors.New("initialize malfunction")
 	}
@@ -254,37 +257,6 @@ func DirectoryMapFromDir(directory Dirname) (dm DirectoryMap, err error) {
 
 	return dm, dm.RangeMutate(fc)
 }
-
-// DirectoryMapFromDirWithScan loads the on-disk directory map (if present),
-// removes entries for missing files, and adds entries for any files that exist
-// on disk but are not present in the map. This ensures the returned map reflects
-// the current contents of the filesystem.
-// func DirectoryMapFromDirWithScan(directory Dirname) (DirectoryMap, error) {
-// 	dm, err := DirectoryMapFromDir(directory)
-// 	if err != nil {
-// 		return dm, err
-// 	}
-
-// 	entries, err := os.ReadDir(string(directory))
-// 	if err != nil {
-// 		return dm, err
-// 	}
-// 	dm.lock.Lock()
-// 	defer dm.lock.Unlock()
-// 	err = dm.updateFromDirEntry(directory, entries)
-// 	if err != nil {
-// 		return dm, err
-// 	}
-// 	// Any entries that have a dm, but no corresponding file info, must be stale
-// 	for fname := range dm.mp {
-// 		if _, ok := dm.fi[fname]; !ok {
-// 			delete(dm.mp, fname)
-// 			delete(dm.fi, fname)
-// 			*dm.stale = true
-// 		}
-// 	}
-// 	return dm, nil
-// }
 
 // DirectoryMapFromDirEntries Create A Directory Map from a directory and a set of os.DirEntry
 // As one can build from a single read of the directory
@@ -348,6 +320,9 @@ func (dm *DirectoryMap) updateFromDirEntry(directory Dirname, entries []os.DirEn
 }
 
 func (dm DirectoryMap) ChecksumCalc(workTokens chan struct{}) error {
+	return dm.checksumCalc(workTokens, false)
+}
+func (dm DirectoryMap) checksumCalc(workTokens chan struct{}, ignoreErrors bool) error {
 	if workTokens != nil {
 		// It's assumed that the caller has already acquired a token
 		// So we release it here
@@ -355,24 +330,45 @@ func (dm DirectoryMap) ChecksumCalc(workTokens chan struct{}) error {
 		defer func() { <-workTokens }()
 	}
 
-	fc := func(file Fpath, d os.FileInfo, fs FileStruct) (FileStruct, error) {
-		if fs.Checksum != "" {
-			return fs, nil
+	// Phase 1: Identify files needing checksum calculation (read-only)
+	var needsChecksum []checksumDat
+	dm.lock.RLock()
+	for name, fs := range dm.mp {
+		if fs.Checksum == "" {
+			needsChecksum = append(needsChecksum, checksumDat{Fname: name, fs: fs})
 		}
-		if workTokens != nil {
-			<-workTokens
-		}
+	}
+	dm.lock.RUnlock()
+	if len(needsChecksum) == 0 {
+		return nil
+	}
+
+	// Phase 2: Calculate checksums and update map (write lock needed for modifications)
+	updates := make(map[Fname]FileStruct)
+	for _, csd := range needsChecksum {
+		name := csd.Fname
+		fs := csd.fs
+
+		log.Println("[DM] Calculating  checksum for", fs.Directory(), fs.Name)
 		cks, err := CalcMd5File(string(fs.directory), string(fs.Name))
-		if workTokens != nil {
-			workTokens <- struct{}{}
-		}
 		if err != nil {
-			return fs, err
+			if !ignoreErrors {
+				return err
+			}
+			continue
 		}
 		fs.Checksum = cks
-		return fs, nil
+		updates[name] = fs
 	}
-	return dm.RangeMutate(fc)
+
+	// Apply updates with write lock
+	if len(updates) > 0 {
+		dm.lock.Lock()
+		maps.Copy(dm.mp, updates)
+		*dm.stale = true
+		dm.lock.Unlock()
+	}
+	return nil
 }
 
 // Stale returns true if the dm has been modified since writted
@@ -382,88 +378,32 @@ func (dm DirectoryMap) Stale() bool {
 	return *dm.stale
 }
 
+type checksumDat = struct {
+	Fname Fname
+	fs    FileStruct
+}
+
 // ForEachFile iterates over all files in the directory map
 // The callback receives the filename and file metadata
 // This guarantees that all returned metadata have valid checksums before the visitor is called
 func (dm DirectoryMap) ForEachFile(fn ForEachCallback) error {
-	// Phase 1: Identify files needing checksum calculation (read-only)
-	var needsChecksum []Fname
-	dm.lock.RLock()
-	for name, fs := range dm.mp {
-		if fs.Checksum == "" {
-			needsChecksum = append(needsChecksum, name)
-		}
-	}
-	dm.lock.RUnlock()
-
-	// Phase 2: Calculate checksums and update map (write lock needed for modifications)
-	if len(needsChecksum) > 0 {
-		updates := make(map[Fname]FileStruct)
-		for _, name := range needsChecksum {
-			dm.lock.RLock()
-			fs := dm.mp[name]
-			dm.lock.RUnlock()
-
-			log.Println("[DM] Calculating  checksum for", fs.Directory(), fs.Name)
-
-			cks, err := CalcMd5File(string(fs.directory), string(fs.Name))
-			if err != nil {
-				// Log but don't fail - allow visitor to handle the empty checksum
-				log.Printf("[DM] warning: failed to calculate checksum for %s/%s: %v\n", fs.directory, fs.Name, err)
-				continue
-			}
-			fs.Checksum = cks
-			updates[name] = fs
-		}
-
-		// Apply updates with write lock
-		if len(updates) > 0 {
-			dm.lock.Lock()
-			maps.Copy(dm.mp, updates)
-			*dm.stale = true
-			dm.lock.Unlock()
-		}
+	err := dm.ChecksumCalc(nil)
+	if err != nil {
+		return err
 	}
 
 	// Phase 3: Visit files with guaranteed valid checksums (read-only)
+	dm.lock.RLock()
+	defer dm.lock.RUnlock()
 	for name, fs := range dm.mp {
 		fsCopy := fs // Create a copy to avoid pointer issues
-		dm.lock.RLock()
-		fi, ok := dm.fi[name]
-		dm.lock.RUnlock()
-		if !ok {
-			// FIXME I REALLY don't want to do this - it should be removed.
-			statPath := filepath.Join(string(fs.directory), string(fs.Name))
-			fi, err := os.Stat(statPath)
-			if err != nil {
-				// If the file no longer exists (e.g., moved/deleted after scan), skip it
-				if errors.Is(err, os.ErrNotExist) {
-					continue
-				}
-				return err
-			}
-			dm.lock.Lock()
-			dm.fi[name] = fi
-			dm.lock.Unlock()
-			// return fmt.Errorf("internal error: missing FileInfo for %s", name)
-		}
+		fi := dm.fi[name]
 
 		if err := fn(name, &fsCopy, fi); err != nil {
 			return err
 		}
 	}
 	return nil
-}
-
-// selfCheck the directory map for obvious errors
-func (dm DirectoryMap) selfCheck(directory Dirname) error {
-	fc := func(fn Fname, fs FileMetadata, d os.FileInfo) error {
-		if fs.Directory() != directory {
-			return fmt.Errorf("%w FS has directory of %s for %s/%s", errSelfCheckProblem, fs.Directory(), directory, fn)
-		}
-		return nil
-	}
-	return dm.ForEachFile(fc)
 }
 
 var (
@@ -603,10 +543,6 @@ func (dm DirectoryMap) DeleteMissingFiles() error {
 
 // Persist self to disk
 func (dm DirectoryMap) Persist(directory Dirname) error {
-	err := dm.selfCheck(directory)
-	if err != nil {
-		return err
-	}
 	prepare := func() (bool, error) {
 		dm.lock.Lock()
 		defer dm.lock.Unlock()
@@ -675,7 +611,7 @@ func (dm DirectoryMap) UpdateValues(directory Dirname, d fs.DirEntry) error {
 }
 
 func (dm DirectoryMap) Copy() DirectoryEntryJournalableInterface {
-	cp := NewDirectoryMap()
+	cp := newDirectoryMap()
 	dm.lock.RLock()
 	maps.Copy(cp.mp, dm.mp)
 	visitFunc := dm.visitFunc
