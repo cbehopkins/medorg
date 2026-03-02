@@ -221,11 +221,14 @@ func buildSourceMapping(cfg Config) (map[FileKey][]SourceFileInfo, error) {
 			fileDir := filepath.Dir(path)
 
 			// Load the directory map to get file metadata
-			dm, err := core.DirectoryMapFromDir(core.Dirname(fileDir))
+			dm, err := core.DirectoryMapFromDir(core.Dirname(fileDir), nil)
 			if err != nil {
 				return fmt.Errorf("failed to load metadata for %s: %w", fileDir, err)
 			}
 
+			if err != nil {
+				return nil // Skip if no metadata
+			}
 			// Get the file struct
 			fileName := filepath.Base(path)
 			fs, ok := dm.Get(core.Fname(fileName))
@@ -287,7 +290,7 @@ func buildDestinationMapping(destDir string) (map[FileKey]bool, error) {
 		fileDir := filepath.Dir(path)
 
 		// Load the directory map
-		dm, err := core.DirectoryMapFromDir(core.Dirname(fileDir))
+		dm, err := core.DirectoryMapFromDir(core.Dirname(fileDir), nil)
 		if err != nil {
 			return nil // Skip if no metadata
 		}
@@ -344,7 +347,7 @@ func discoverAndUpdate(cfg Config, sourceMapping map[FileKey][]SourceFileInfo, d
 				// Load or get the directory map for this directory
 				dm, exists := dirtyDirs[srcFile.Directory]
 				if !exists {
-					loadedDM, err := core.DirectoryMapFromDir(core.Dirname(srcFile.Directory))
+					loadedDM, err := core.DirectoryMapFromDir(core.Dirname(srcFile.Directory), nil)
 					if err != nil {
 						return matchCount, updateCount, fmt.Errorf("failed to load directory map for %s: %w", srcFile.Directory, err)
 					}

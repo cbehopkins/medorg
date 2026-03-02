@@ -109,7 +109,7 @@ func checkTestDirectoryChecksums(dir string) error {
 
 		// Load the directory map for this file's directory
 		dirPath := filepath.Dir(path)
-		dm, loadErr := core.DirectoryMapFromDir(core.Dirname(dirPath))
+		dm, loadErr := core.DirectoryMapFromDir(core.Dirname(dirPath), nil)
 		if loadErr != nil {
 			return loadErr
 		}

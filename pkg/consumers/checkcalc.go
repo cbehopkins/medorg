@@ -114,7 +114,7 @@ func makeAutoFixVisitor(autoFix *AutoFix) core.ForEachCallback {
 		dirEntry := &fileInfoDirEntry{fi: fi}
 
 		// Get DirectoryMap - we need to create it temporarily for AutoFix
-		dm, err := core.DirectoryMapFromDir(fsPtr.Directory())
+		dm, err := core.DirectoryMapFromDir(fsPtr.Directory(), nil)
 		if err != nil {
 			return err
 		}

@@ -47,7 +47,7 @@ func createVolumeLabel(t *testing.T, dir string) string {
 // Helper: Check if a file has a specific backup destination tag
 func hasBackupDest(t *testing.T, dir core.Dirname, filename core.Fname, volumeLabel string) bool {
 	t.Helper()
-	dm, err := core.DirectoryMapFromDir(dir)
+	dm, err := core.DirectoryMapFromDir(dir, nil)
 	if err != nil {
 		t.Fatalf("Failed to load directory map for %s: %v", dir, err)
 	}
@@ -281,7 +281,7 @@ func TestDiscoverAlreadyTagged(t *testing.T) {
 	volumeLabel := createVolumeLabel(t, destDir)
 
 	// Manually tag the source file first
-	dm, _ := core.DirectoryMapFromDir(core.Dirname(sourceDir))
+	dm, _ := core.DirectoryMapFromDir(core.Dirname(sourceDir), nil)
 	fs, _ := dm.Get(core.Fname("test.txt"))
 	fs.AddTag(volumeLabel)
 	dm.Add(fs)

@@ -271,7 +271,7 @@ func TestBackupOrphanDetection(t *testing.T) {
 
 	// Get the list of files now in destination
 	destFilesAfterBackup := make(map[core.Fname]struct{})
-	collectFilesVisitor := func(dm core.DirectoryEntryInterface, dir core.Dirname, fn core.Fname, fileStruct core.FileStruct) error {
+	collectFilesVisitor := func(dm core.DirectoryMapInterface, dir core.Dirname, fn core.Fname, fileStruct core.FileStruct) error {
 		if fn != core.Md5FileName {
 			destFilesAfterBackup[fn] = struct{}{}
 		}

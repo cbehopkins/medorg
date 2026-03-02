@@ -897,7 +897,7 @@ func TestIntegration_BackupTagsInMedorgXML(t *testing.T) {
 	}
 
 	// THE MAIN TEST: Check source directory's medorg.xml for bd tag
-	srcRootDM, err := core.DirectoryMapFromDir(core.Dirname(dirs["src"]))
+	srcRootDM, err := core.DirectoryMapFromDir(core.Dirname(dirs["src"]), nil)
 	if err != nil {
 		t.Fatalf("Failed to load source root DirectoryMap: %v", err)
 	}
@@ -931,7 +931,7 @@ func TestIntegration_BackupTagsInMedorgXML(t *testing.T) {
 	}
 
 	// Verify destination directory's medorg.xml contains the file
-	dstRootDM, err := core.DirectoryMapFromDir(core.Dirname(dirs["dst"]))
+	dstRootDM, err := core.DirectoryMapFromDir(core.Dirname(dirs["dst"]), nil)
 	if err != nil {
 		t.Fatalf("Failed to load destination root DirectoryMap: %v", err)
 	}
@@ -1034,7 +1034,7 @@ func TestIntegration_BackupTagsRaceCondition(t *testing.T) {
 	}
 
 	// Check source directory's medorg.xml for bd tags on ALL files
-	srcRootDM, err := core.DirectoryMapFromDir(core.Dirname(dirs["src"]))
+	srcRootDM, err := core.DirectoryMapFromDir(core.Dirname(dirs["src"]), nil)
 	if err != nil {
 		t.Fatalf("Failed to load source root DirectoryMap: %v", err)
 	}
@@ -1159,7 +1159,7 @@ func TestIntegration_BackupTagsWithSubdirectories(t *testing.T) {
 	filesWithoutTag := 0
 
 	for dir, files := range dirsToCheck {
-		dm, err := core.DirectoryMapFromDir(core.Dirname(dir))
+		dm, err := core.DirectoryMapFromDir(core.Dirname(dir), nil)
 		if err != nil {
 			t.Errorf("Failed to load DirectoryMap for %s: %v", dir, err)
 			continue
@@ -1210,7 +1210,7 @@ func TestIntegration_BackupTagsWithSubdirectories(t *testing.T) {
 	}
 
 	for dir, files := range dstDirsToCheck {
-		dm, err := core.DirectoryMapFromDir(core.Dirname(dir))
+		dm, err := core.DirectoryMapFromDir(core.Dirname(dir), nil)
 		if err != nil {
 			t.Errorf("Failed to load destination DirectoryMap for %s: %v", dir, err)
 			continue

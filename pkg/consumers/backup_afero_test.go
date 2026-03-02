@@ -750,7 +750,7 @@ func TestBackupResumeUpdatesMetadata(t *testing.T) {
 		t.Fatalf("first run should succeed with new recovery logic, got %v", firstErr)
 	}
 
-	dm, err := core.DirectoryMapFromDir(core.Dirname(dstDir))
+	dm, err := core.DirectoryMapFromDir(core.Dirname(dstDir), nil)
 	if err != nil {
 		t.Fatalf("read directory map after first run: %v", err)
 	}
@@ -781,7 +781,7 @@ func TestBackupResumeUpdatesMetadata(t *testing.T) {
 		t.Fatalf("second run should succeed, got %v", secondErr)
 	}
 
-	dmFinal, err := core.DirectoryMapFromDir(core.Dirname(dstDir))
+	dmFinal, err := core.DirectoryMapFromDir(core.Dirname(dstDir), nil)
 	if err != nil {
 		t.Fatalf("read directory map after second run: %v", err)
 	}

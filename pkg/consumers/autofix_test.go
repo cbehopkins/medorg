@@ -13,7 +13,7 @@ import (
 func loadTestDirectoryMap(t *testing.T) (core.DirectoryMap, core.Dirname) {
 	t.Helper()
 	directory := core.Dirname(t.TempDir())
-	dm, err := core.DirectoryMapFromDir(directory)
+	dm, err := core.DirectoryMapFromDir(directory, nil)
 	if err != nil {
 		t.Fatalf("failed to load DirectoryMapFromDir: %v", err)
 	}

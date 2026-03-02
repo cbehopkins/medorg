@@ -39,7 +39,7 @@ func TestRunCheckCalcRegeneratesCorruptedMedorgXml(t *testing.T) {
 
 	// Now the .medorg.xml should be regenerated and valid
 	// Load it via DirectoryMapFromDir and validate entries
-	dm, err := core.DirectoryMapFromDir(core.Dirname(dir))
+	dm, err := core.DirectoryMapFromDir(core.Dirname(dir), nil)
 	if err != nil {
 		t.Fatalf("DirectoryMapFromDir returned error after regeneration: %v", err)
 	}
