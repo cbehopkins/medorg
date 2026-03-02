@@ -364,7 +364,12 @@ func copyPendingFiles(
 				if errors.As(err, &annotated) {
 					logFunc(fmt.Sprintf("No space left on device during copy of %s (copied %d of %d bytes)",
 						fp.String(), annotated.BytesCopied, annotated.FileSize))
-					targetSize = annotated.FileSize
+					// Make a jump to significantly smaller file target#
+					if annotated.FileSize > 1024 {
+						targetSize = annotated.FileSize / 2
+					} else {
+						targetSize = 0
+					}
 				} else {
 					logFunc("No space left on device during copy of " + fp.String())
 				}
