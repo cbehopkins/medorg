@@ -3,7 +3,6 @@ package consumers
 import (
 	crand "crypto/rand"
 	"errors"
-	"fmt"
 	"log"
 	"math/rand"
 	"os"
@@ -271,7 +270,7 @@ func TestBackupOrphanDetection(t *testing.T) {
 
 	// Get the list of files now in destination
 	destFilesAfterBackup := make(map[core.Fname]struct{})
-	collectFilesVisitor := func(dm core.DirectoryMapInterface, dir core.Dirname, fn core.Fname, fileStruct core.FileStruct) error {
+	collectFilesVisitor := func(dir core.Dirname, fn core.Fname, fileStruct core.FileStruct) error {
 		if fn != core.Md5FileName {
 			destFilesAfterBackup[fn] = struct{}{}
 		}
@@ -281,7 +280,7 @@ func TestBackupOrphanDetection(t *testing.T) {
 	dwDest := core.NewDirectoryWalker(core.MakeTokenChan(core.NumTrackerOutstanding))
 	defer dwDest.Close()
 	dwDest.AddFileVisitor(func(fn core.Fname, fm core.FileMetadata, fi os.FileInfo) error {
-		return collectFilesVisitor(nil, core.Dirname(destDir), fn, *fm.(*core.FileStruct))
+		return collectFilesVisitor(core.Dirname(destDir), fn, *fm.(*core.FileStruct))
 	})
 	if err := dwDest.Walk(destDir); err != nil {
 		t.Fatalf("DirectoryWalker collect error: %v", err)
@@ -343,156 +342,5 @@ func TestBackupOrphanDetection(t *testing.T) {
 		t.Errorf("Expected orphan callback to be invoked for stale files, but was not")
 	} else {
 		t.Logf("✓ Orphan detection working: %d orphaned files detected", orphanCount)
-	}
-}
-
-// TestDupeMapOperations tests the backupDupeMap basic operations
-func TestDupeMapOperations(t *testing.T) {
-	var bdm backupDupeMap
-
-	// Test Add and Get
-	fs1 := core.FileStruct{
-		Name:     "test1.txt",
-		Size:     1024,
-		Checksum: "abc123",
-	}
-	fs1.SetDirectory("/test")
-
-	bdm.Add(fs1)
-	if bdm.Len() != 1 {
-		t.Errorf("Expected len 1 after Add, got %d", bdm.Len())
-	}
-
-	key1 := newBackupKeyFromFileStruct(fs1)
-	path, ok := bdm.Get(key1)
-	if !ok {
-		t.Error("Expected to find added file")
-	}
-	expectedPath := core.NewFpath("/test", "test1.txt")
-	if path != expectedPath {
-		t.Errorf("Expected path '%s', got '%s'", expectedPath, path)
-	}
-
-	// Test duplicate key (same size and checksum)
-	fs2 := core.FileStruct{
-		Name:     "test2.txt", // Different name
-		Size:     1024,        // Same size
-		Checksum: "abc123",    // Same checksum
-	}
-	fs2.SetDirectory("/test2")
-
-	bdm.Add(fs2)
-	if bdm.Len() != 1 {
-		t.Errorf("Expected len 1 after adding duplicate, got %d", bdm.Len())
-	}
-
-	// Should get the latest one added
-	path, ok = bdm.Get(key1)
-	if !ok {
-		t.Error("Expected to find file after duplicate add")
-	}
-	expectedPath2 := core.NewFpath("/test2", "test2.txt")
-	if path != expectedPath2 {
-		t.Errorf("Expected updated path '%s', got '%s'", expectedPath2, path)
-	}
-
-	// Test Remove
-	bdm.Remove(key1)
-	if bdm.Len() != 0 {
-		t.Errorf("Expected len 0 after Remove, got %d", bdm.Len())
-	}
-
-	_, ok = bdm.Get(key1)
-	if ok {
-		t.Error("Expected not to find removed file")
-	}
-}
-
-// TestDupeMapConcurrency tests thread-safe operations on backupDupeMap
-func TestDupeMapConcurrency(t *testing.T) {
-	var bdm backupDupeMap
-	var wg sync.WaitGroup
-
-	// Add files concurrently
-	numGoroutines := 10
-	filesPerGoroutine := 5
-
-	for i := range numGoroutines {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
-			for j := 0; j < filesPerGoroutine; j++ {
-				fs := core.FileStruct{
-					Name:     core.Fname(fmt.Sprintf("file%d_%d.txt", idx, j)),
-					Size:     int64(idx*100 + j),
-					Checksum: fmt.Sprintf("hash%d%d", idx, j),
-				}
-				fs.SetDirectory(core.Dirname(fmt.Sprintf("/dir%d", idx)))
-				bdm.Add(fs)
-			}
-		}(i)
-	}
-
-	wg.Wait()
-
-	expectedLen := numGoroutines * filesPerGoroutine
-	if bdm.Len() != expectedLen {
-		t.Errorf("Expected %d files after concurrent adds, got %d", expectedLen, bdm.Len())
-	}
-
-	// Concurrent reads
-	errChan := make(chan error, numGoroutines)
-	for i := 0; i < numGoroutines; i++ {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
-			for j := 0; j < filesPerGoroutine; j++ {
-				key := backupKey{
-					size:     int64(idx*100 + j),
-					checksum: fmt.Sprintf("hash%d%d", idx, j),
-				}
-				_, ok := bdm.Get(key)
-				if !ok {
-					errChan <- fmt.Errorf("failed to get key for idx=%d, j=%d", idx, j)
-					return
-				}
-			}
-		}(i)
-	}
-
-	wg.Wait()
-	close(errChan)
-
-	for err := range errChan {
-		t.Error("Concurrent read error:", err)
-	}
-}
-
-// TestAddMetadataInterface tests the FileMetadata interface-based Add method
-func TestAddMetadataInterface(t *testing.T) {
-	var bdm backupDupeMap
-
-	fs := core.FileStruct{
-		Name:     "test.txt",
-		Size:     2048,
-		Checksum: "xyz789",
-	}
-	fs.SetDirectory("/testdir")
-
-	// Add using the interface method
-	bdm.AddMetadata(&fs)
-
-	if bdm.Len() != 1 {
-		t.Errorf("Expected len 1 after AddMetadata, got %d", bdm.Len())
-	}
-
-	key := backupKey{size: 2048, checksum: "xyz789"}
-	path, ok := bdm.Get(key)
-	if !ok {
-		t.Error("Expected to find file added via AddMetadata")
-	}
-	expectedPath := core.NewFpath("/testdir", "test.txt")
-	if path != expectedPath {
-		t.Errorf("Expected path '%s', got '%s'", expectedPath, path)
 	}
 }

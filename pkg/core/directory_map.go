@@ -34,23 +34,6 @@ type ForEachCallback func(Fname, FileMetadata, os.FileInfo) error
 // You can mutate the FileStruct as needed and it will be stored back in the DirectoryMap
 type FsFunc func(fs *FileStruct) error
 
-// DirectoryMapInterface any directory object needs to support this
-type DirectoryMapInterface interface {
-	Persist(Dirname) error
-	// Visitor(path Fpath, d fs.DirEntry) error
-}
-
-// DirectoryMapJournalableInterface if you want to store all info
-// to a journal, support this
-// type DirectoryMapJournalableInterface interface {
-// 	DirectoryMapInterface
-// 	ToXML(dir Dirname) (output []byte, err error)
-// 	FromXML(input []byte) (dir Dirname, err error)
-// 	Equal(DirectoryMapInterface) bool
-// 	Len() int
-// 	Copy() DirectoryMapJournalableInterface
-// }
-
 // DirectoryMap contains for the directory all the file structs
 type DirectoryMap struct {
 	mp    map[Fname]FileStruct
@@ -136,11 +119,11 @@ func newDirectoryMap() *DirectoryMap {
 // The visit func is called during directory traversal for each file
 // It runs early in the process and is quite integral to the DirectoryMap construction
 // One typically only overrides this for test purposes
-func (dm *DirectoryMap) SetVisitFunc(f DmVisitFuncType) {
-	dm.lock.Lock()
-	defer dm.lock.Unlock()
-	dm.visitFunc = f
-}
+// func (dm *DirectoryMap) SetVisitFunc(f DmVisitFuncType) {
+// 	dm.lock.Lock()
+// 	defer dm.lock.Unlock()
+// 	dm.visitFunc = f
+// }
 
 // Len gth of the directory map
 func (dm DirectoryMap) Len() int {
@@ -448,11 +431,26 @@ func (dm DirectoryMap) ForEachFile(fn ForEachCallback) error {
 	// Phase 3: Visit files with guaranteed valid checksums (read-only)
 	dm.lock.RLock()
 	defer dm.lock.RUnlock()
-	for name, fs := range dm.mp {
-		fsCopy := fs // Create a copy to avoid pointer issues
-		fi := dm.fi[name]
-
-		if err := fn(name, &fsCopy, fi); err != nil {
+	errChan := make(chan error, len(dm.mp))
+	go func() {
+		var wg sync.WaitGroup
+		wg.Add(len(dm.mp))
+		for name, fs := range dm.mp {
+			fi := dm.fi[name]
+			bob := func() error {
+				if err := fn(name, &fs, fi); err != nil {
+					errChan <- err
+				}
+				return nil
+			}
+			bob()
+			wg.Done()
+		}
+		wg.Wait()
+		close(errChan)
+	}()
+	for err := range errChan {
+		if err != nil {
 			return err
 		}
 	}
@@ -502,11 +500,7 @@ func (dm DirectoryMap) RangeMutate(fc DmMutCallback) error {
 	defer dm.lock.Unlock()
 	items := make([]mutateWorkItem, 0, len(dm.mp))
 	for fn, v := range dm.mp {
-		fi, ok := dm.fi[fn]
-		if !ok {
-			// FIXME this should do a lookup....
-			fi = nil
-		}
+		fi := dm.fi[fn]
 		dir := v.Directory()
 		if dir == "" && dm.dir != "" {
 			dir = dm.dir
@@ -625,16 +619,16 @@ func (dm DirectoryMap) Persist(directory Dirname) error {
 
 // Visitor satisfies DirectoryEntryInterface
 // It's saying, the walker is visiting this file.
-func (dm DirectoryMap) Visitor(path Fpath, d fs.DirEntry) error {
-	// Note the difference between this and VisitFunc
-	// We pass self in, so that the worker func can be declared once
-	// rather than always having to be a closure
-	// This is slightly odd, but requires fewer closures - and the costs associated
-	dm.lock.RLock()
-	visitFunc := dm.visitFunc
-	dm.lock.RUnlock()
-	return visitFunc(dm, path, d)
-}
+// func (dm DirectoryMap) Visitor(path Fpath, d fs.DirEntry) error {
+// 	// Note the difference between this and VisitFunc
+// 	// We pass self in, so that the worker func can be declared once
+// 	// rather than always having to be a closure
+// 	// This is slightly odd, but requires fewer closures - and the costs associated
+// 	dm.lock.RLock()
+// 	visitFunc := dm.visitFunc
+// 	dm.lock.RUnlock()
+// 	return visitFunc(dm, path, d)
+// }
 
 // UpdateValues in the DirectoryEntry to those found on the fs
 func (dm DirectoryMap) UpdateValues(directory Dirname, d fs.DirEntry) error {
