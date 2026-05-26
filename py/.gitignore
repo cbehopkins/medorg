@@ -2,3 +2,4 @@
 .vscode
 *_venv
 dist
+.virtualenv-app-data

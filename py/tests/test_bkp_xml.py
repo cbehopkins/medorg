@@ -131,7 +131,9 @@ def test_bkp_file_legacy_fallback_emits_deprecation_warning(tmp_path):
 
 
 @pytest.mark.asyncio
-@pytest.mark.filterwarnings("error:coroutine 'AsyncPath.stat' was never awaited:RuntimeWarning")
+@pytest.mark.filterwarnings(
+    "error:coroutine 'AsyncPath.stat' was never awaited:RuntimeWarning"
+)
 async def test_async_bkpxml_strict_roundtrip_no_asyncpath_warning(tmp_path):
     subdir = AsyncPath(tmp_path) / "subdir_roundtrip"
     await subdir.mkdir(parents=True, exist_ok=True)
@@ -244,4 +246,3 @@ async def test_files_are_created_with_expected_content(tmp_path):
     file_elem = root.find(".//fr[@fname='file1.txt']")
     assert len([c.tag for c in file_elem]) == 1
     assert file_elem[0].text == my_dest
-

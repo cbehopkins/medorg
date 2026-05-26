@@ -24,7 +24,6 @@ _log = logging.getLogger(__name__)
 
 
 class AsyncSessionWrapper:
-
     def __init__(
         self, session: AsyncSession, session_maker: Callable[[None], AsyncSession]
     ) -> None:
@@ -375,4 +374,3 @@ class Bdsa(AsyncSessionWrapper):
                     await callback(
                         local_path, AsyncPath(remote_file.file_path) / remote_file.name
                     )
-

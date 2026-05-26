@@ -486,4 +486,3 @@ cli.add_command(add_src)
 
 if __name__ == "__main__":
     cli()
-

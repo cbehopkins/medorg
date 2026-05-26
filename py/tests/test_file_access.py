@@ -4,6 +4,7 @@ import os
 import random
 import shutil
 import string
+from unittest import mock
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -251,7 +252,7 @@ async def test_walk_runner(tmp_path):
         assert len(files) == 7
         filenames = {Path(f.filename).name for f in files}
         for i in range(7):
-            assert f"file{i+1}.txt" in filenames
+            assert f"file{i + 1}.txt" in filenames
         prev_size = None
         for entry in files:
             assert entry.size > 0
@@ -288,8 +289,6 @@ async def test_update_source_directory_entries(tmp_path):
         # Then all those files are marked as backed up
         files = list(await db_session.for_backup(my_dest))
         assert len(files) == 7
-
-
 
 
 def list_files(pth: os.PathLike) -> list[str]:
@@ -444,4 +443,3 @@ async def test_discovery(tmp_path):
 
 
 def test_backup_from_a_src_with_multiple_files_same_hash_works(): ...
-

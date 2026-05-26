@@ -39,7 +39,9 @@ def test_update_file_elem_strict_does_not_use_io_boundary(monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.filterwarnings("error:coroutine 'AsyncPath.stat' was never awaited:RuntimeWarning")
+@pytest.mark.filterwarnings(
+    "error:coroutine 'AsyncPath.stat' was never awaited:RuntimeWarning"
+)
 async def test_async_bkpxml_strict_setitem_no_asyncpath_warning(tmp_path):
     async_root = AsyncPath(tmp_path)
     subdir = async_root / "subdir1"

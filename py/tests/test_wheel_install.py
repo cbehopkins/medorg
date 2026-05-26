@@ -64,9 +64,9 @@ def _run_test_one_command(arg0, venv_dir):
     result = run_command_in_venv(arg0, venv_dir)
     assert result.returncode == 0
     # Check if the output contains the expected help message
-    assert (
-        "Usage:" in result.stdout
-    ), "CLI command did not produce the expected help message"
+    assert "Usage:" in result.stdout, (
+        "CLI command did not produce the expected help message"
+    )
 
     return result
 
