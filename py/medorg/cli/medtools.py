@@ -50,7 +50,7 @@ async def md5_clash(session_db: Path):
     found_hashes: dict[tuple[str, int], BackupFile] = {}
     async with db_handler.session_scope() as db_session:
         file: BackupFile
-        async for file in db_session.aquery_generator(BackupFile):
+        for file in await db_session.aquery_generator(BackupFile):
             key = (file.md5_hash, file.size)
             if key in found_hashes:
                 _log.info(

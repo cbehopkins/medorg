@@ -1,3 +1,11 @@
+[project]
+name = "medorg"
+dynamic = ["version"]
+description = "Media organizer"
+requires-python = ">=3.12,<4.0"
+authors = [{name = "Chris Hopkins", email = "cbehopkins@gmail.com"}]
+license = {text = "MIT"}
+
 [tool.poetry]
 name = "medorg"
 version = "0.0.0"  # Placeholder version, will be overridden by the plugin
@@ -36,17 +44,3 @@ build-backend = "poetry_dynamic_versioning.backend"
 [tool.poetry.scripts]
 medback= "medorg.cli.medback:cli"
 medtools= "medorg.cli.medtools:cli"
-
-[tool.ruff]
-target-version = "py312"
-line-length = 100
-
-[tool.ruff.lint]
-select = ["E", "F", "I"]
-ignore = ["E501"]
-
-[tool.ruff.lint.per-file-ignores]
-"tests/*.py" = ["S101"]
-
-[tool.ruff.format]
-quote-style = "double"

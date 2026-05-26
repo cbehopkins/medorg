@@ -128,7 +128,7 @@ class Bdsa(AsyncSessionWrapper):
         Args:
             src_dir (Path): The source directory to add
         """
-        src_dir_r = await AsyncPath(src_dir).resolve()
+        src_dir_r = Path(str(src_dir)).resolve()
         _log.debug(f"Resolving {src_dir} to {src_dir_r} for adding")
         new_dir = BackupSrc(path=str(src_dir_r))
         # Check if the directory is already in the database

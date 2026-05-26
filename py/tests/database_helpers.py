@@ -14,7 +14,7 @@ _log = logging.getLogger(__name__)
 
 
 async def query_src_dir(bdsa: Bdsa, src_dir: Path) -> BackupSrc:
-    src_dir_r = await AsyncPath(src_dir).resolve()
+    src_dir_r = Path(str(src_dir)).resolve()
     _log.debug(f"Resolving {src_dir} to {src_dir_r} for query")
     result = (
         (

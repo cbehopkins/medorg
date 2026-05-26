@@ -109,3 +109,15 @@ This will read the target and any files on the target that match the hash and si
 
 TBD add backup restore command
 That shows which files have not been restored, which is the best next target to use.
+
+# Testing
+
+## Warning-as-error lane
+
+Run a targeted lane that treats known AsyncPath unawaited-coroutine warnings as errors:
+
+Windows PowerShell:
+`./scripts/run_warning_lane.ps1`
+
+Linux/macOS:
+`./scripts/run_warning_lane.sh`
