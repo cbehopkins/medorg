@@ -135,7 +135,6 @@ async def copy_best_files(
 ):
     tasks = []
     for file_entry in await session.for_backup(dest_id):
-
         src_full_path, dest_file_path = await generate_src_dest_full_paths(
             file_entry, dest_path
         )
@@ -160,9 +159,9 @@ async def _backup_file(
     if not await src_file_path.is_file():
         _log.error(f"File {src_file_path} not found in _backup_file")
         return
-    assert (
-        not file_entry.visited
-    ), "When backing up the file, it should not have been visited already"
+    assert not file_entry.visited, (
+        "When backing up the file, it should not have been visited already"
+    )
     try:
         await dest_file_path.parent.mkdir(parents=True, exist_ok=True)
     except Exception as e:
@@ -212,7 +211,6 @@ async def update_source_directory_entries(bdsa: Bdsa, dest_id: VolumeId):
     async with AsyncBkpXmlManager() as bkp_xmls:
 
         async def update_file_entry(file_entry: BackupFile):
-
             await bdsa.add_bkp_dest_to_backup_file(dest_id, file_entry)
             full_src_filepath = AsyncPath(file_entry.src_path) / file_entry.filename
             assert await full_src_filepath.is_file()
@@ -237,4 +235,3 @@ async def update_source_directory_entries(bdsa: Bdsa, dest_id: VolumeId):
 
         for entry in await bdsa.aquery_generator(BackupFile, BackupFile.visited != 0):
             await update_file_entry(entry)
-

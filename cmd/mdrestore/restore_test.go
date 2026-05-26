@@ -206,6 +206,9 @@ func TestParseJournalAndInsert(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewMdConfig failed: %v", err)
 	}
+	if err := xc.SetRestoreDestination("test", filepath.Join(tmpDir, "restore")); err != nil {
+		t.Fatalf("SetRestoreDestination failed: %v", err)
+	}
 
 	journalContent := `<mdj alias="test">
   <dr dir="summer">
@@ -229,7 +232,7 @@ func TestParseJournalAndInsert(t *testing.T) {
 		t.Fatalf("expected 1 restore target, got %d", len(results))
 	}
 
-	expectedPath := filepath.Join("/restore", "test", "summer", "photo.jpg")
+	expectedPath := filepath.Join(tmpDir, "restore", "summer", "photo.jpg")
 	if results[0].TargetAbsPath != expectedPath {
 		t.Fatalf("unexpected target path: want %s got %s", expectedPath, results[0].TargetAbsPath)
 	}

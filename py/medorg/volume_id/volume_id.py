@@ -13,7 +13,6 @@ _log = logging.getLogger(__name__)
 
 
 class VolumeIdSrc:
-
     def __init__(self, path: os.PathLike) -> None:
         self.path = Path(path)
         self._volume_id = None

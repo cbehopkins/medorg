@@ -283,4 +283,3 @@ class AsyncBkpXmlManager(dict[AsyncPath, AsyncBkpXml]):
                 await bkp_xml.commit()
             except AsyncBkpXmlError as e:
                 _log.error(f"Failed to commit changes for {bkp_xml.path}: {e}")
-
