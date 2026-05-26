@@ -18,11 +18,7 @@ import (
 // This test isolates the vault-backed treap operations to debug why
 // many files are added but few are yielded by the iterator.
 func TestPriorityCollectionFromJSONL(t *testing.T) {
-	// Check if JSONL file exists
-	jsonlPath := "backup_priority_queue.jsonl"
-	if _, err := os.Stat(jsonlPath); os.IsNotExist(err) {
-		t.Skipf("JSONL file %s not found - run a real backup to generate it", jsonlPath)
-	}
+	jsonlPath := createPriorityQueueJSONL(t, 10000)
 
 	// Create a temporary vault for this test
 	tmpDir := t.TempDir()
