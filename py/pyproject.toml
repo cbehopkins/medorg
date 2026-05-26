@@ -28,6 +28,8 @@ black = "^24.8.0"
 rich = "^13.0.0"
 greenlet = "^3.0.0"
 InquirerPy = "^0.3.0"
+ruff = "^0.11.13"
+tox = "^4.26.0"
 
 [tool.poetry-dynamic-versioning]
 enable = true
@@ -38,10 +40,6 @@ bump="true"
 [build-system]
 requires = ["poetry-core>=1.0.0", "poetry-dynamic-versioning>=1.0.0,<2.0.0"]
 build-backend = "poetry_dynamic_versioning.backend"
-
-[project.scripts]
-medback= "medorg.cli.medback:cli"
-medtools= "medorg.cli.medtools:cli"
 
 [tool.poetry.scripts]
 medback= "medorg.cli.medback:cli"
