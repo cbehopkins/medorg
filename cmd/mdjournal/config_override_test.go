@@ -44,6 +44,7 @@ func TestCLI_ConfigPathOverride(t *testing.T) {
 		"USERPROFILE="+homeDir,
 		"HOMEDRIVE=",
 		"HOMEPATH=",
+		"GOFLAGS=-modcacherw",
 	)
 
 	output, err := cmd.CombinedOutput()
