@@ -276,6 +276,19 @@ func parseJournalAndInsert(r io.Reader, db *consumers.RestoreDB, xc *core.MdConf
 				continue
 			}
 
+			// Resolve restore base path from config for this alias.
+			restoreBasePath, found := xc.GetRestoreDestination(currentAlias)
+			if !found {
+				if srcDir, ok := xc.GetSourceDirectory(currentAlias); ok {
+					restoreBasePath = srcDir.Path
+					found = true
+				}
+			}
+			if !found || restoreBasePath == "" {
+				failedCount++
+				continue
+			}
+
 			var fileName string
 			var checksum string
 			var size int64
@@ -297,8 +310,8 @@ func parseJournalAndInsert(r io.Reader, db *consumers.RestoreDB, xc *core.MdConf
 				}
 			}
 
-			// Create restore target path based on alias, dir, and filename
-			targetAbsPath := filepath.Join("/restore", currentAlias, filepath.Base(currentDir), fileName)
+			// Create restore target path rooted in configured restore destination.
+			targetAbsPath := filepath.Join(restoreBasePath, filepath.Base(currentDir), fileName)
 			taskID := fmt.Sprintf("%s:%d:%s", checksum, size, targetAbsPath)
 
 			target := &consumers.RestoreTaskTarget{

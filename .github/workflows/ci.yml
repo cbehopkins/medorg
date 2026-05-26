@@ -60,7 +60,7 @@ jobs:
           pip install poetry==2.2.1
 
       - name: Install dependencies
-        run: poetry install --no-interaction --no-root
+        run: poetry install --no-interaction
 
       - name: Run Python tests
         run: poetry run pytest
