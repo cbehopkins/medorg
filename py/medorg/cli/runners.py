@@ -194,7 +194,7 @@ async def _backup_file(
         assert await src_file_path.is_file()
         assert await dest_file_path.parent.is_dir()
         await async_copy_file(src_file_path, dest_file_path)
-    except IOError as e:
+    except IOError:
         # As long as we return without marking it as visited...
         return
     assert current_file_data_dest.mtime != "None"
@@ -237,3 +237,4 @@ async def update_source_directory_entries(bdsa: Bdsa, dest_id: VolumeId):
 
         for entry in await bdsa.aquery_generator(BackupFile, BackupFile.visited != 0):
             await update_file_entry(entry)
+

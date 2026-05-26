@@ -10,7 +10,8 @@ from lxml import etree
 from medorg.bkp_p.async_bkp_xml import AsyncBkpXml, AsyncBkpXmlManager
 from medorg.bkp_p.backup_xml_walker import BackupXmlWalker
 from medorg.common import XML_NAME
-from medorg.common.bkp_file import BkpFile, calculate_md5
+from medorg.common.bkp_file import BkpFile
+from medorg.common.checksum import calculate_md5
 
 
 def test_bkp_file_xml_render():
@@ -243,3 +244,4 @@ async def test_files_are_created_with_expected_content(tmp_path):
     file_elem = root.find(".//fr[@fname='file1.txt']")
     assert len([c.tag for c in file_elem]) == 1
     assert file_elem[0].text == my_dest
+
