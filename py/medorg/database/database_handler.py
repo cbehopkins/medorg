@@ -31,14 +31,14 @@ class DatabaseHandler:
 
     @asynccontextmanager
     async def session_scope(self) -> AsyncGenerator[Bdsa, None]:
-        async with AsyncSession(self.engine) as session:
+        async with AsyncSession(self.engine, expire_on_commit=False) as session:
             bdsa = Bdsa(session, self.session_maker)
             yield bdsa
             await bdsa.clear_all_visited()
             await session.commit()
 
     def session_maker(self) -> AsyncSession:
-        return AsyncSession(self.engine)
+        return AsyncSession(self.engine, expire_on_commit=False)
 
     @property
     async def db_path(self) -> AsyncPath:

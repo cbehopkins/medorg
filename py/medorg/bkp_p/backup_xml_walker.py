@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+from pathlib import Path
 import stat
 from typing import AsyncIterable, Awaitable, Callable, Iterator, Optional
 
@@ -175,6 +176,6 @@ class BackupXmlWalker(AsyncBkpXmlManager):
                 await self._decr_cnt(1)
 
         # Start the directory walk
-        walk_path = await self.root_dir.resolve(strict=True)
+        walk_path = AsyncPath(Path(str(self.root_dir)).resolve(strict=True))
         _log.debug(f"Starting directory walk at: {walk_path}")
         await walk(walk_path)

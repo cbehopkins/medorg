@@ -421,7 +421,7 @@ async def update(session_db: Path | None, interactive: bool) -> None:
     db_handler = DatabaseHandler(session_db)
     await db_handler.create_session()
     async with db_handler.session_scope() as db_session:
-        sources = [src async for src in db_session.aquery_generator(BackupSrc)]
+        sources = list(await db_session.aquery_generator(BackupSrc))
 
         if interactive:
             choices = [{"name": str(src), "value": src} for src in sources]

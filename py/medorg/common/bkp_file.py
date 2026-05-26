@@ -2,11 +2,15 @@ from dataclasses import dataclass, field
 import os
 from pathlib import Path
 from typing import Self
+import warnings
 
 from lxml import etree
 
+from medorg.common.io_boundary import (
+    calculate_md5_for_existing_file,
+    require_existing_file,
+)
 from medorg.common.types import Checksum, VolumeId
-
 from .checksum import calculate_md5
 
 
@@ -28,19 +32,13 @@ class BkpFile:
         self.update_file_elem(file_elem)
         return etree.tounicode(file_elem, pretty_print=True)
 
-    def update_stat_result(self, stat_result_i: os.stat_result):
-        current_size = stat_result_i.st_size
-
-    def update_file_elem(self, file_elem: etree.Element) -> Self:
+    def _write_xml_attrs(self, file_elem: etree.Element) -> None:
         file_elem.set("fname", str(self.name))
         file_elem.set("mtime", str(self.mtime))
         file_elem.set("size", str(self.size))
-        if not self.md5:
-            self.file_path = Path(self.file_path)
-            if not self.file_path.is_file():
-                raise FileNotFoundError(f"File {self.file_path} not found")
-            self.md5 = calculate_md5(str(self.file_path))
         file_elem.set("checksum", self.md5)
+
+    def _write_xml_children(self, file_elem: etree.Element) -> None:
         # Remove any current bd elements, before adding new ones...
         [file_elem.remove(elem) for elem in file_elem.xpath("bd")]
 
@@ -48,6 +46,44 @@ class BkpFile:
             for backup_dest in self.bkp_dests:
                 bkp_elm = etree.SubElement(file_elem, "bd")
                 bkp_elm.text = backup_dest
+
+    def update_file_elem_strict(self, file_elem: etree.Element) -> Self:
+        """Serialize this model without performing any filesystem I/O."""
+        if not self.name:
+            raise ValueError("name must be set")
+        if self.mtime is None:
+            raise ValueError("mtime must be set")
+        if self.size is None:
+            raise ValueError("size must be set")
+        if not self.md5:
+            raise ValueError("md5 must be set")
+
+        self._write_xml_attrs(file_elem)
+        self._write_xml_children(file_elem)
+        return self
+
+    def update_stat_result(self, stat_result_i: os.stat_result):
+        current_size = stat_result_i.st_size
+
+    def update_file_elem(self, file_elem: etree.Element) -> Self:
+        if not self.name:
+            raise ValueError("name must be set")
+        if self.mtime is None:
+            raise ValueError("mtime must be set")
+        if self.size is None:
+            raise ValueError("size must be set")
+        if not self.md5:
+            # Explicit sync boundary: this model method performs sync I/O.
+            warnings.warn(
+                "update_file_elem fallback md5 calculation is deprecated; "
+                "prepopulate md5 and use strict serializers in async flows.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            self.file_path = require_existing_file(self.file_path)
+            self.md5 = calculate_md5_for_existing_file(self.file_path)
+        self._write_xml_attrs(file_elem)
+        self._write_xml_children(file_elem)
         return self
 
     @classmethod

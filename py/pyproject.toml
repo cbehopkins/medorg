@@ -1,3 +1,11 @@
+[project]
+name = "medorg"
+dynamic = ["version"]
+description = "Media organizer"
+requires-python = ">=3.12,<4.0"
+authors = [{name = "Chris Hopkins", email = "cbehopkins@gmail.com"}]
+license = {text = "MIT"}
+
 [tool.poetry]
 name = "medorg"
 version = "0.0.0"  # Placeholder version, will be overridden by the plugin

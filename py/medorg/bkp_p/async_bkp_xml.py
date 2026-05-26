@@ -240,7 +240,7 @@ class AsyncBkpXml:
         file_elem = self._lkup_elem(key)
         if file_elem is None:
             file_elem = etree.SubElement(self.root, "fr")
-        value.update_file_elem(file_elem)
+        value.update_file_elem_strict(file_elem)
 
     def _remove_if_not_in_set(self, file_set: set[str]) -> None:
         file: etree.Element
