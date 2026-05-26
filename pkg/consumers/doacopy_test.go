@@ -61,7 +61,7 @@ func TestDoACopySuccess(t *testing.T) {
 	}
 
 	// Verify source directory map was updated with tag
-	dmSrc, err := core.DirectoryMapFromDir(core.Dirname(srcDir))
+	dmSrc, err := core.DirectoryMapFromDir(core.Dirname(srcDir), nil)
 	if err != nil {
 		t.Fatalf("failed to read source directory map: %v", err)
 	}
@@ -74,7 +74,7 @@ func TestDoACopySuccess(t *testing.T) {
 	}
 
 	// Verify destination directory map was updated
-	dmDst, err := core.DirectoryMapFromDir(core.Dirname(destDir))
+	dmDst, err := core.DirectoryMapFromDir(core.Dirname(destDir), nil)
 	if err != nil {
 		t.Fatalf("failed to read destination directory map: %v", err)
 	}
@@ -276,7 +276,7 @@ func TestDoACopyMultipleTags(t *testing.T) {
 	}
 
 	// Verify source has vol1 tag
-	dmSrc, _ := core.DirectoryMapFromDir(core.Dirname(srcDir))
+	dmSrc, _ := core.DirectoryMapFromDir(core.Dirname(srcDir), nil)
 	srcFS, _ := dmSrc.Get(core.Fname("test.txt"))
 	if !srcFS.HasTag("vol1") {
 		t.Error("source file should have vol1 tag")
@@ -289,7 +289,7 @@ func TestDoACopyMultipleTags(t *testing.T) {
 	}
 
 	// Verify source now has both tags
-	dmSrc, _ = core.DirectoryMapFromDir(core.Dirname(srcDir))
+	dmSrc, _ = core.DirectoryMapFromDir(core.Dirname(srcDir), nil)
 	srcFS, _ = dmSrc.Get(core.Fname("test.txt"))
 	if !srcFS.HasTag("vol1") {
 		t.Error("source file should still have vol1 tag")

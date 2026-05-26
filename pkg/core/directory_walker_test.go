@@ -45,7 +45,7 @@ func TestDirectoryWalkerHandlesEmptyDirectory(t *testing.T) {
 	dir := t.TempDir()
 
 	// persist an empty directory map so the walker has metadata to read
-	dm := NewDirectoryMap()
+	dm := newDirectoryMap()
 	if err := dm.Persist(Dirname(dir)); err != nil {
 		t.Fatalf("persist empty dm: %v", err)
 	}
@@ -175,7 +175,7 @@ func TestDirectoryWalkerFileVisitorCorrectValues(t *testing.T) {
 	}
 
 	// Create a DirectoryMap with pre-populated checksum and backup destination
-	dm := NewDirectoryMap()
+	dm := newDirectoryMap()
 	fs, err := NewFileStruct(root, filename)
 	if err != nil {
 		t.Fatalf("NewFileStruct failed: %v", err)
@@ -297,7 +297,7 @@ func TestDirectoryWalkerInvalidChecksumRecalculation(t *testing.T) {
 	}
 
 	// Create a DirectoryMap with an INVALID checksum
-	dm := NewDirectoryMap()
+	dm := newDirectoryMap()
 	fs, err := NewFileStruct(root, filename)
 	if err != nil {
 		t.Fatalf("NewFileStruct failed: %v", err)
@@ -378,7 +378,7 @@ func TestDirectoryWalkerFileSizeChangeRecalculation(t *testing.T) {
 	}
 
 	// Create DirectoryMap with initial state
-	dm := NewDirectoryMap()
+	dm := newDirectoryMap()
 	fs, err := NewFileStruct(root, filename)
 	if err != nil {
 		t.Fatalf("NewFileStruct failed: %v", err)
@@ -551,7 +551,7 @@ func TestDirectoryWalkerCancelChannelResponsiveness(t *testing.T) {
 			t.Fatalf("failed to write file: %v", err)
 		}
 		// Persist empty DirectoryMap for each dir to ensure the walker processes them
-		dm := NewDirectoryMap()
+		dm := newDirectoryMap()
 		dm.Add(FileStruct{Name: Fname("file.txt"), Checksum: "test"})
 		if err := dm.Persist(Dirname(dir)); err != nil {
 			t.Fatalf("failed to persist: %v", err)
@@ -632,7 +632,7 @@ func TestDirectoryWalkerSkipDirFile(t *testing.T) {
 		}
 
 		// Persist empty directory map
-		dm := NewDirectoryMap()
+		dm := newDirectoryMap()
 		fs := FileStruct{Name: Fname("file.txt"), Checksum: "test"}
 		dm.Add(fs)
 		if err := dm.Persist(Dirname(dirPath)); err != nil {
@@ -695,7 +695,7 @@ func TestDirectoryWalkerIgnoreFunction(t *testing.T) {
 		}
 
 		// Persist directory map
-		dm := NewDirectoryMap()
+		dm := newDirectoryMap()
 		fs := FileStruct{Name: Fname("file.txt"), Checksum: "test"}
 		dm.Add(fs)
 		if err := dm.Persist(Dirname(dirPath)); err != nil {
@@ -766,7 +766,7 @@ func TestDirectoryWalkerSkipAll(t *testing.T) {
 		}
 
 		// Persist directory map
-		dm := NewDirectoryMap()
+		dm := newDirectoryMap()
 		fs := FileStruct{Name: Fname("file.txt"), Checksum: "test"}
 		dm.Add(fs)
 		if err := dm.Persist(Dirname(dirPath)); err != nil {

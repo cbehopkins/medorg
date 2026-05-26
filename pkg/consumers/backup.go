@@ -121,95 +121,6 @@ func (cs *checksumSet) Get(checksum string) (checksumRecord, bool) {
 	return rec, ok
 }
 
-// Add an entry to the map (legacy concrete type version)
-func (bdm *backupDupeMap) Add(fs core.FileStruct) {
-	key := newBackupKeyFromFileStruct(fs)
-	bdm.Lock()
-	if bdm.dupeMap == nil {
-		bdm.dupeMap = make(map[backupKey]core.Fpath)
-	}
-	bdm.dupeMap[key] = fs.Path()
-	bdm.Unlock()
-}
-
-// AddMetadata adds an entry using the FileMetadata interface
-func (bdm *backupDupeMap) AddMetadata(fm core.FileMetadata) {
-	key := newBackupKeyFromMetadata(fm)
-	bdm.Lock()
-	if bdm.dupeMap == nil {
-		bdm.dupeMap = make(map[backupKey]core.Fpath)
-	}
-	bdm.dupeMap[key] = fm.Path()
-	bdm.Unlock()
-}
-
-func (bdm *backupDupeMap) Len() int {
-	if bdm.dupeMap == nil {
-		return 0
-	}
-	bdm.Lock()
-	defer bdm.Unlock()
-	return len(bdm.dupeMap)
-}
-
-// Remove an entry from the dumap
-func (bdm *backupDupeMap) Remove(key backupKey) {
-	if bdm.dupeMap == nil {
-		return
-	}
-	bdm.Lock()
-	delete(bdm.dupeMap, key)
-	bdm.Unlock()
-}
-
-// Get an item from the map
-func (bdm *backupDupeMap) Get(key backupKey) (core.Fpath, bool) {
-	if bdm.dupeMap == nil {
-		return core.Fpath{}, false
-	}
-	bdm.Lock()
-	defer bdm.Unlock()
-	v, ok := bdm.dupeMap[key]
-	return v, ok
-}
-
-func (bdm *backupDupeMap) AddVisit(dm core.DirectoryEntryInterface, dir, fn string, fileStruct core.FileStruct) error {
-	bdm.Add(fileStruct)
-	return nil
-}
-
-func (bdm *backupDupeMap) NewSrcVisitor(
-	lookupFunc func(core.Fpath, bool) error,
-	backupDestination *backupDupeMap, volumeName string,
-) func(dm core.DirectoryEntryInterface, dir, fn string, fileStruct core.FileStruct) error {
-	return func(dm core.DirectoryEntryInterface, dir, fn string, fileStruct core.FileStruct) error {
-		// If it exists in the destination already
-		path, ok := backupDestination.Get(newBackupKeyFromFileStruct(fileStruct))
-		if lookupFunc != nil {
-			err := lookupFunc(path, ok)
-			if err != nil {
-				return err
-			}
-		}
-		if ok {
-			// Then mark in the source as already backed up
-			if added := fileStruct.AddTag(volumeName); !added {
-				return fmt.Errorf("failed to add tag %s", volumeName)
-			}
-		}
-		if !ok && fileStruct.HasTag(volumeName) {
-			if removed := fileStruct.RemoveTag(volumeName); !removed {
-				return fmt.Errorf("failed to remove tag %s", volumeName)
-			}
-		}
-
-		bdm.Add(fileStruct)
-		adm, _ := dm.(core.DirectoryMap)
-		adm.Add(fileStruct)
-		return nil
-	}
-}
-
 type (
 	fpathList     []core.Fpath
 	fpathListList []fpathList
@@ -364,7 +275,12 @@ func copyPendingFiles(
 				if errors.As(err, &annotated) {
 					logFunc(fmt.Sprintf("No space left on device during copy of %s (copied %d of %d bytes)",
 						fp.String(), annotated.BytesCopied, annotated.FileSize))
-					targetSize = annotated.FileSize
+					// Make a jump to significantly smaller file target#
+					if annotated.FileSize > 1024 {
+						targetSize = annotated.FileSize / 2
+					} else {
+						targetSize = 0
+					}
 				} else {
 					logFunc("No space left on device during copy of " + fp.String())
 				}
@@ -421,7 +337,7 @@ func updateSourceDirectoryMap(dir core.Dirname, filename core.Fname, backupLabel
 	srcLock.Lock()
 	defer srcLock.Unlock()
 
-	dmSrc, err := core.DirectoryMapFromDir(dir)
+	dmSrc, err := core.DirectoryMapFromDir(dir, nil)
 	if err != nil {
 		return core.FileStruct{}, err
 	}
@@ -515,7 +431,7 @@ func doACopy(
 	dstLock.Lock()
 	defer dstLock.Unlock()
 	log.Println("Lock achieved for ", destDirForLock)
-	dmDst, err := core.DirectoryMapFromDir(destDirForLock)
+	dmDst, err := core.DirectoryMapFromDir(destDirForLock, nil)
 	if err != nil {
 		return core.FileStruct{}, err
 	}

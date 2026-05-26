@@ -52,7 +52,7 @@ func TestBackupDuplicateContentFiles(t *testing.T) {
 	}
 
 	// Verify that file1 and file2 have the same checksum
-	dm, err := core.DirectoryMapFromDir(core.Dirname(srcDir))
+	dm, err := core.DirectoryMapFromDir(core.Dirname(srcDir), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,8 +219,8 @@ func TestBackupDuplicateContentInSubdirs(t *testing.T) {
 	}
 
 	// Verify checksums match across subdirectories
-	dm1, _ := core.DirectoryMapFromDir(core.Dirname(subdir1))
-	dm2, _ := core.DirectoryMapFromDir(core.Dirname(subdir2))
+	dm1, _ := core.DirectoryMapFromDir(core.Dirname(subdir1), nil)
+	dm2, _ := core.DirectoryMapFromDir(core.Dirname(subdir2), nil)
 
 	fs1, _ := dm1.Get("IMG_001.jpg")
 	fs2, _ := dm2.Get("copy_of_IMG_001.jpg")

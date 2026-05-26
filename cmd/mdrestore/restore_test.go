@@ -2,11 +2,13 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/cbehopkins/medorg/pkg/cli"
+	"github.com/cbehopkins/medorg/pkg/consumers"
 	"github.com/cbehopkins/medorg/pkg/core"
 )
 
@@ -187,5 +189,60 @@ func TestMdrestoreMissingVolume(t *testing.T) {
 
 	if !bytes.Contains([]byte(outputStr), []byte("Missing volumes needed")) {
 		t.Errorf("Output should mention missing volumes\nOutput: %s", outputStr)
+	}
+}
+
+func TestParseJournalAndInsert(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "restore.db")
+
+	db, err := consumers.OpenRestoreDB(dbPath)
+	if err != nil {
+		t.Fatalf("OpenRestoreDB failed: %v", err)
+	}
+	defer db.Close()
+
+	xc, err := core.NewMdConfig(filepath.Join(tmpDir, ".core.xml"))
+	if err != nil {
+		t.Fatalf("NewMdConfig failed: %v", err)
+	}
+
+	journalContent := `<mdj alias="test">
+  <dr dir="summer">
+    <fr fname="photo.jpg" checksum="checksum123" mtime="1234567890" size="12" bd="VOL_A" />
+  </dr>
+</mdj>`
+
+	inserted, failed, err := parseJournalAndInsert(bytes.NewReader([]byte(journalContent)), db, xc)
+	if err != nil {
+		t.Fatalf("parseJournalAndInsert failed: %v", err)
+	}
+	if inserted != 1 || failed != 0 {
+		t.Fatalf("expected 1 inserted and 0 failed, got %d inserted and %d failed", inserted, failed)
+	}
+
+	results, err := db.FindPendingByContent("checksum123", 12)
+	if err != nil {
+		t.Fatalf("FindPendingByContent failed: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 restore target, got %d", len(results))
+	}
+
+	expectedPath := filepath.Join("/restore", "test", "summer", "photo.jpg")
+	if results[0].TargetAbsPath != expectedPath {
+		t.Fatalf("unexpected target path: want %s got %s", expectedPath, results[0].TargetAbsPath)
+	}
+
+	if results[0].TaskID != fmt.Sprintf("%s:%d:%s", "checksum123", 12, expectedPath) {
+		t.Fatalf("unexpected task id: %s", results[0].TaskID)
+	}
+
+	counts, err := db.CountPendingByBackupDest()
+	if err != nil {
+		t.Fatalf("CountPendingByBackupDest failed: %v", err)
+	}
+	if counts["VOL_A"] != 1 {
+		t.Fatalf("expected VOL_A count to be 1, got %d", counts["VOL_A"])
 	}
 }

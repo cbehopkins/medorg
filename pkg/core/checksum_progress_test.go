@@ -257,8 +257,7 @@ func BenchmarkCalcMd5FileWithProgress(b *testing.B) {
 		b.Fatalf("Failed to create test file: %v", err)
 	}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, err := CalcMd5FileWithProgress(tmpDir, "benchmark.bin", func(int64, time.Time) {})
 		if err != nil {
 			b.Fatalf("CalcMd5FileWithProgress failed: %v", err)
@@ -281,8 +280,7 @@ func BenchmarkCalcMd5File(b *testing.B) {
 		b.Fatalf("Failed to create test file: %v", err)
 	}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, err := CalcMd5File(tmpDir, "benchmark.bin")
 		if err != nil {
 			b.Fatalf("CalcMd5File failed: %v", err)

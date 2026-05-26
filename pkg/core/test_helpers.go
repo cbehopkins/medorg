@@ -13,7 +13,7 @@ import (
 // helper to create files and persist a directory map for a directory
 func writeDirMap(t *testing.T, dir string, files []string) int {
 	t.Helper()
-	dm := NewDirectoryMap()
+	dm := newDirectoryMap()
 	count := 0
 	for _, name := range files {
 		// ensure directory exists

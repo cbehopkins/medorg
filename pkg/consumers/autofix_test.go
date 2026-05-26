@@ -3,11 +3,22 @@ package consumers
 import (
 	"fmt"
 	"log"
+	"path/filepath"
 	"sync"
 	"testing"
 
 	"github.com/cbehopkins/medorg/pkg/core"
 )
+
+func loadTestDirectoryMap(t *testing.T) (core.DirectoryMap, core.Dirname) {
+	t.Helper()
+	directory := core.Dirname(t.TempDir())
+	dm, err := core.DirectoryMapFromDir(directory, nil)
+	if err != nil {
+		t.Fatalf("failed to load DirectoryMapFromDir: %v", err)
+	}
+	return dm, directory
+}
 
 func TestRename0(t *testing.T) {
 	testMode = true
@@ -85,7 +96,7 @@ func TestRename1(t *testing.T) {
 // TestWkFunZeroLengthFile tests WkFun handling of zero-length files
 func TestWkFunZeroLengthFile(t *testing.T) {
 	testMode = true
-	dm := core.NewDirectoryMap()
+	dm, directory := loadTestDirectoryMap(t)
 
 	// Add a zero-length file
 	zeroFile := core.FileStruct{
@@ -93,14 +104,14 @@ func TestWkFunZeroLengthFile(t *testing.T) {
 		Size:     0,
 		Checksum: "d41d8cd98f00b204e9800998ecf8427e", // MD5 of empty file
 	}
-	zeroFile.SetDirectory("/test")
+	zeroFile.SetDirectory(directory)
 	dm.Add(zeroFile)
 
 	// Test without delete enabled
 	af := NewAutoFix([]string{})
 	af.SilenceLogging = true
 
-	err := af.WkFun(*dm, "/test", "empty.txt", nil)
+	err := af.WkFun(dm, directory, "empty.txt", nil)
 	if err != nil {
 		t.Fatalf("WkFun failed for zero-length file without delete: %v", err)
 	}
@@ -112,7 +123,7 @@ func TestWkFunZeroLengthFile(t *testing.T) {
 
 	// Test with delete enabled
 	af.DeleteFiles = true
-	err = af.WkFun(*dm, "/test", "empty.txt", nil)
+	err = af.WkFun(dm, directory, "empty.txt", nil)
 	if err != nil {
 		t.Fatalf("WkFun failed for zero-length file with delete: %v", err)
 	}
@@ -126,10 +137,10 @@ func TestWkFunZeroLengthFile(t *testing.T) {
 // TestWkFunNonExistentFile tests error handling for files not in DirectoryMap
 func TestWkFunNonExistentFile(t *testing.T) {
 	testMode = true
-	dm := core.NewDirectoryMap()
+	dm, directory := loadTestDirectoryMap(t)
 	af := NewAutoFix([]string{})
 
-	err := af.WkFun(*dm, "/test", "nonexistent.txt", nil)
+	err := af.WkFun(dm, directory, "nonexistent.txt", nil)
 	if err == nil {
 		t.Fatal("Expected error when WkFun called with non-existent file")
 	}
@@ -146,7 +157,7 @@ func TestWkFunRenameFile(t *testing.T) {
 		"(.*)_calc",
 	}
 
-	dm := core.NewDirectoryMap()
+	dm, directory := loadTestDirectoryMap(t)
 
 	// Add a file that should be renamed
 	fs := core.FileStruct{
@@ -154,14 +165,14 @@ func TestWkFunRenameFile(t *testing.T) {
 		Size:     1024,
 		Checksum: "abcd1234",
 	}
-	fs.SetDirectory("/test")
+	fs.SetDirectory(directory)
 	dm.Add(fs)
 
 	af := NewAutoFix(DomainList)
 	af.RenameFiles = true
 	af.SilenceLogging = true
 
-	err := af.WkFun(*dm, "/test", "video_calc.mp4", nil)
+	err := af.WkFun(dm, directory, "video_calc.mp4", nil)
 	if err != nil {
 		t.Fatalf("WkFun failed for rename: %v", err)
 	}
@@ -184,7 +195,9 @@ func TestWkFunRenameFile(t *testing.T) {
 // TestWkFunDuplicateDetection tests duplicate file detection
 func TestWkFunDuplicateDetection(t *testing.T) {
 	testMode = true
-	dm := core.NewDirectoryMap()
+	dm, baseDir := loadTestDirectoryMap(t)
+	favsDir := core.Dirname(filepath.Join(string(baseDir), "favs"))
+	toDir := core.Dirname(filepath.Join(string(baseDir), "to"))
 
 	// First file
 	fs1 := core.FileStruct{
@@ -192,7 +205,7 @@ func TestWkFunDuplicateDetection(t *testing.T) {
 		Size:     2048,
 		Checksum: "hash123",
 	}
-	fs1.SetDirectory("/test/favs")
+	fs1.SetDirectory(favsDir)
 	dm.Add(fs1)
 
 	// Second file with same size and checksum (duplicate)
@@ -201,20 +214,20 @@ func TestWkFunDuplicateDetection(t *testing.T) {
 		Size:     2048,
 		Checksum: "hash123",
 	}
-	fs2.SetDirectory("/test/to")
+	fs2.SetDirectory(toDir)
 	dm.Add(fs2)
 
 	af := NewAutoFix([]string{})
 	af.SilenceLogging = true
 
 	// Process first file
-	err := af.WkFun(*dm, "/test/favs", "original.jpg", nil)
+	err := af.WkFun(dm, favsDir, "original.jpg", nil)
 	if err != nil {
 		t.Fatalf("WkFun failed for first file: %v", err)
 	}
 
 	// Process duplicate
-	err = af.WkFun(*dm, "/test/to", "duplicate.jpg", nil)
+	err = af.WkFun(dm, toDir, "duplicate.jpg", nil)
 	if err != nil {
 		t.Fatalf("WkFun failed for duplicate file: %v", err)
 	}
@@ -226,15 +239,15 @@ func TestWkFunDuplicateDetection(t *testing.T) {
 	af.FhLock.RUnlock()
 
 	// The file from favs should be kept
-	if finalFs.Directory() != "/test/favs" {
-		t.Fatalf("Expected file from /test/favs to be kept, got %s", finalFs.Directory())
+	if finalFs.Directory() != favsDir {
+		t.Fatalf("Expected file from %s to be kept, got %s", favsDir, finalFs.Directory())
 	}
 }
 
 // TestWkFunMultipleFiles tests processing multiple files with different characteristics
 func TestWkFunMultipleFiles(t *testing.T) {
 	testMode = true
-	dm := core.NewDirectoryMap()
+	dm, directory := loadTestDirectoryMap(t)
 
 	files := []core.FileStruct{
 		{Name: "file1.jpg", Size: 1000, Checksum: "aaa"},
@@ -244,7 +257,7 @@ func TestWkFunMultipleFiles(t *testing.T) {
 	}
 
 	for i := range files {
-		files[i].SetDirectory("/test")
+		files[i].SetDirectory(directory)
 		dm.Add(files[i])
 	}
 
@@ -253,7 +266,7 @@ func TestWkFunMultipleFiles(t *testing.T) {
 
 	// Process all files
 	for _, fs := range files {
-		err := af.WkFun(*dm, "/test", fs.Name, nil)
+		err := af.WkFun(dm, directory, fs.Name, nil)
 		if err != nil {
 			t.Fatalf("WkFun failed for %s: %v", fs.Name, err)
 		}
@@ -283,7 +296,7 @@ func TestWkFunMultipleFiles(t *testing.T) {
 // TestWkFunUnknownExtension tests handling of files with unrecognized extensions
 func TestWkFunUnknownExtension(t *testing.T) {
 	testMode = true
-	dm := core.NewDirectoryMap()
+	dm, directory := loadTestDirectoryMap(t)
 
 	// File with unknown extension
 	fs := core.FileStruct{
@@ -291,14 +304,14 @@ func TestWkFunUnknownExtension(t *testing.T) {
 		Size:     500,
 		Checksum: "xyz789",
 	}
-	fs.SetDirectory("/test")
+	fs.SetDirectory(directory)
 	dm.Add(fs)
 
 	af := NewAutoFix([]string{"(.*)_test"})
 	af.RenameFiles = true
 	af.SilenceLogging = true
 
-	err := af.WkFun(*dm, "/test", "document.txt", nil)
+	err := af.WkFun(dm, directory, "document.txt", nil)
 	if err != nil {
 		t.Fatalf("WkFun failed for unknown extension: %v", err)
 	}
@@ -321,7 +334,7 @@ func TestWkFunUnknownExtension(t *testing.T) {
 // TestWkFunConcurrentAccess tests thread-safety of WkFun
 func TestWkFunConcurrentAccess(t *testing.T) {
 	testMode = true
-	dm := core.NewDirectoryMap()
+	dm, directory := loadTestDirectoryMap(t)
 
 	// Add multiple files (start from 1 to avoid size 0)
 	for i := 1; i <= 10; i++ {
@@ -330,7 +343,7 @@ func TestWkFunConcurrentAccess(t *testing.T) {
 			Size:     int64(i * 100),
 			Checksum: fmt.Sprintf("hash%d", i),
 		}
-		fs.SetDirectory("/test")
+		fs.SetDirectory(directory)
 		dm.Add(fs)
 	}
 
@@ -346,7 +359,7 @@ func TestWkFunConcurrentAccess(t *testing.T) {
 		go func(idx int) {
 			defer wg.Done()
 			fileName := core.Fname(fmt.Sprintf("file%d.jpg", idx))
-			err := af.WkFun(*dm, core.Dirname("/test"), fileName, nil)
+			err := af.WkFun(dm, directory, fileName, nil)
 			if err != nil {
 				errChan <- err
 			}

@@ -132,7 +132,7 @@ func TestBackupDestinationMetadataRecovery(t *testing.T) {
 	}
 
 	// Verify destination metadata has correct checksums
-	dm, err := core.DirectoryMapFromDir(core.Dirname(dstDir))
+	dm, err := core.DirectoryMapFromDir(core.Dirname(dstDir), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

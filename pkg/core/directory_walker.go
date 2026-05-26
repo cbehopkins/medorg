@@ -79,7 +79,9 @@ type DirectoryWalker struct {
 	fileVisitorsSkippable []ForEachCallback // Test-only: can return SkipDir
 	fileMutatorsSkippable []DmMutCallback   // Test-only: can return SkipDir
 	mutatePool            *mutatePool
-	workerPool            *workerPool
+	// workerPool is used for async execution of file persists to maximize concurrency while walking
+	// It will be closed (externally coherent) when we are closed
+	workerPool *workerPool
 }
 
 func (dw *DirectoryWalker) AddFileMutator(fm DmMutCallback) {
@@ -304,7 +306,7 @@ func (dw *DirectoryWalker) dirVisitor(path Dirname, entries []os.DirEntry, err e
 	dw.grabWorkToken()
 	defer dw.releaseWorkToken()
 
-	dm, err := DirectoryMapFromDirEntries(path, entries)
+	dm, err := DirectoryMapFromDirEntries(path, entries, nil)
 	if err != nil {
 		return err
 	}

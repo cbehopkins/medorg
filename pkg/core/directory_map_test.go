@@ -23,7 +23,7 @@ func TestDeleteMissingFiles(t *testing.T) {
 	}
 
 	// Create a DirectoryMap and add file entries
-	dm := NewDirectoryMap()
+	dm := newDirectoryMap()
 
 	// Add all three files to the map (file3 will not exist on disk)
 	dm.Add(FileStruct{Name: "file1.txt", directory: tmpDir})
@@ -63,7 +63,7 @@ func TestDeleteMissingFiles(t *testing.T) {
 // TestDeleteMissingFilesEmpty verifies that DeleteMissingFiles handles
 // an empty DirectoryMap correctly
 func TestDeleteMissingFilesEmpty(t *testing.T) {
-	dm := NewDirectoryMap()
+	dm := newDirectoryMap()
 
 	// Call DeleteMissingFiles on empty map
 	err := dm.DeleteMissingFiles()
@@ -92,7 +92,7 @@ func TestDeleteMissingFilesAllExist(t *testing.T) {
 	}
 
 	// Create a DirectoryMap with files that all exist
-	dm := NewDirectoryMap()
+	dm := newDirectoryMap()
 	dm.Add(FileStruct{Name: "file1.txt", directory: tmpDir})
 	dm.Add(FileStruct{Name: "file2.txt", directory: tmpDir})
 
@@ -126,7 +126,7 @@ func TestDeleteMissingFilesAllMissing(t *testing.T) {
 	tmpDir := Dirname(t.TempDir())
 
 	// Create a DirectoryMap with files that don't exist on disk
-	dm := NewDirectoryMap()
+	dm := newDirectoryMap()
 	dm.Add(FileStruct{Name: "missing1.txt", directory: tmpDir})
 	dm.Add(FileStruct{Name: "missing2.txt", directory: tmpDir})
 	dm.Add(FileStruct{Name: "missing3.txt", directory: tmpDir})

@@ -274,7 +274,7 @@ func readJournal(path string) (*Journal, error) {
 
 // calculateChecksums runs check_calc on a directory
 func calculateChecksums(dir core.Dirname) (*core.DirectoryMap, error) {
-	dm, err := core.DirectoryMapFromDir(dir)
+	dm, err := core.DirectoryMapFromDir(dir, nil)
 	if err != nil {
 		return nil, err
 	}

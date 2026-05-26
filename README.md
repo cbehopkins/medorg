@@ -90,7 +90,7 @@ mdbackup /media/music /backup/volume2
 
 # The backup process:
 # - Labels each volume (e.g., VOL_1, VOL_2)
-# - Updates source .md5_list.xml to track which volume has each file
+# - Updates source .medorg.xml to track which volume has each file
 # - Skips files already on the destination volume
 # - Prioritizes files not yet backed up
 ```
@@ -305,7 +305,7 @@ mdbackup --recalc /media/photos /backup/volume1
 1. Labels the destination volume (or uses existing label)
 2. Calculates checksums for source and destination
 3. Detects duplicates between source and destination
-4. Updates source `.md5_list.xml` to mark files already on this volume
+4. Updates source `.medorg.xml` to mark files already on this volume
 5. Copies files not yet on this volume, prioritizing:
    - Files not backed up anywhere
    - Larger files (by configured size categories)
@@ -350,7 +350,7 @@ mdrestore --config /path/to/config.xml --journal backup.xml /backup/volume1
 
 ## File Tracking
 
-Each directory maintains a `.md5_list.xml` file containing:
+Each directory maintains a `.medorg.xml` file containing:
 - File name, size, timestamp
 - MD5 checksum
 - Backup volume references (which volumes have this file)

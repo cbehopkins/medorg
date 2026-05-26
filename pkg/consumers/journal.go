@@ -248,7 +248,7 @@ func (jo *Journal) PopulateFromDirectories(directory string, alias string) error
 		}
 
 		// Load the DirectoryMap for this directory
-		dm, err := core.DirectoryMapFromDir(core.Dirname(path))
+		dm, err := core.DirectoryMapFromDir(core.Dirname(path), nil)
 		if err != nil {
 			// Log but don't fail - we still want to continue walking
 			fmt.Fprintf(io.Discard, "Warning: failed to load directory map for %s: %v\n", path, err)
