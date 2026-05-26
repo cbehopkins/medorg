@@ -358,7 +358,7 @@ func main() {
 		LogOutput:      f,
 		MessageWriter:  os.Stdout,
 		ShutdownChan:   shutdownChan,
-		UseProgressBar: true,
+		UseProgressBar: os.Getenv("MEDORG_NO_PROGRESS") == "",
 	}
 
 	logMemoryStats("[BEFORE RUN]")

@@ -691,7 +691,7 @@ func TestBackupWithIdenticalSourceAndOrphan(t *testing.T) {
 	t.Logf("File correctly preserved when matching source")
 }
 
-// TestBackupResumeUpdatesMetadata ensures that metadata (.md5_list.xml) is
+// TestBackupResumeUpdatesMetadata ensures that metadata (.medorg.xml) is
 // updated across interrupted runs: first run writes partial entries, second
 // run completes and the directory map reflects all files.
 func TestBackupResumeUpdatesMetadata(t *testing.T) {

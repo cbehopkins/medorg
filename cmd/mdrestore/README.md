@@ -2,6 +2,14 @@
 
 Restore files from backup using journal files.
 
+## Design Proposal
+
+For the planned two-phase restore redesign with a bobbob intermediary database,
+see [REWORK_TWO_PHASE_RESTORE.md](REWORK_TWO_PHASE_RESTORE.md).
+
+For the locked initial DB schema/semantics used during migration, see
+[RESTORE_DB_CONTRACT.md](RESTORE_DB_CONTRACT.md).
+
 ## Usage
 
 Before restoring, configure restore destinations using `mdsource`:
