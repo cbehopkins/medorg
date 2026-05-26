@@ -24,7 +24,7 @@ from medorg.cli.runners import (
 )
 from medorg.common.bkp_file import BkpFile
 from medorg.common.file_utils import async_copy_file
-from medorg.common.types import BackupFile, BackupSrc
+from medorg.common.types import BackupSrc
 
 
 from medorg.database.database_handler import DatabaseHandler
@@ -486,3 +486,4 @@ cli.add_command(add_src)
 
 if __name__ == "__main__":
     cli()
+

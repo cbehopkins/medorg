@@ -11,7 +11,6 @@ from medorg.common.io_boundary import (
     require_existing_file,
 )
 from medorg.common.types import Checksum, VolumeId
-from .checksum import calculate_md5
 
 
 @dataclass
@@ -63,7 +62,8 @@ class BkpFile:
         return self
 
     def update_stat_result(self, stat_result_i: os.stat_result):
-        current_size = stat_result_i.st_size
+        self.size = stat_result_i.st_size
+        self.mtime = int(stat_result_i.st_mtime)
 
     def update_file_elem(self, file_elem: etree.Element) -> Self:
         if not self.name:
@@ -112,3 +112,4 @@ class BkpFile:
             md5=md5_hash,
             bkp_dests=bkp_dests,
         )
+

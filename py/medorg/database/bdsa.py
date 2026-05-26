@@ -235,7 +235,7 @@ class Bdsa(AsyncSessionWrapper):
             result = await self.session.execute(select(BackupFile))
 
         size_by_length = defaultdict(int)
-        for bkp_file in bkp_file in result.unique().scalars():
+        for bkp_file in result.unique().scalars():
             length = len(bkp_file.backup_dest)
             size_by_length[length] += bkp_file.size
         return size_by_length
@@ -375,3 +375,4 @@ class Bdsa(AsyncSessionWrapper):
                     await callback(
                         local_path, AsyncPath(remote_file.file_path) / remote_file.name
                     )
+
