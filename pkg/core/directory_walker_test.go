@@ -481,6 +481,7 @@ func TestDirectoryWalkerCancelChannel(t *testing.T) {
 
 	// Create a walker with a cancel channel
 	walker := NewDirectoryWalker(nil)
+	defer walker.Close()
 	cancelChan := walker.cancelChan
 
 	visitedFiles := 0
@@ -560,6 +561,7 @@ func TestDirectoryWalkerCancelChannelResponsiveness(t *testing.T) {
 
 	// Create a walker with a cancel channel
 	walker := NewDirectoryWalker(nil)
+	defer walker.Close()
 	cancelChan := walker.cancelChan
 
 	var directoriesVisited int
@@ -705,6 +707,7 @@ func TestDirectoryWalkerIgnoreFunction(t *testing.T) {
 
 	// Walk with ignore function that skips "temp" and "cache" directories
 	walker := NewDirectoryWalker(nil)
+	defer walker.Close()
 	walker.shouldIgnore = func(path string) bool {
 		baseName := filepath.Base(path)
 		// Skip directories named "temp" or "cache"
