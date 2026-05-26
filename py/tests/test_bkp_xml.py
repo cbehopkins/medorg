@@ -10,7 +10,8 @@ from lxml import etree
 from medorg.bkp_p.async_bkp_xml import AsyncBkpXml, AsyncBkpXmlManager
 from medorg.bkp_p.backup_xml_walker import BackupXmlWalker
 from medorg.common import XML_NAME
-from medorg.common.bkp_file import BkpFile, calculate_md5
+from medorg.common.bkp_file import BkpFile
+from medorg.common.checksum import calculate_md5
 
 
 def test_bkp_file_xml_render():
@@ -130,7 +131,9 @@ def test_bkp_file_legacy_fallback_emits_deprecation_warning(tmp_path):
 
 
 @pytest.mark.asyncio
-@pytest.mark.filterwarnings("error:coroutine 'AsyncPath.stat' was never awaited:RuntimeWarning")
+@pytest.mark.filterwarnings(
+    "error:coroutine 'AsyncPath.stat' was never awaited:RuntimeWarning"
+)
 async def test_async_bkpxml_strict_roundtrip_no_asyncpath_warning(tmp_path):
     subdir = AsyncPath(tmp_path) / "subdir_roundtrip"
     await subdir.mkdir(parents=True, exist_ok=True)

@@ -4,6 +4,7 @@ import os
 import random
 import shutil
 import string
+from unittest import mock
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -22,7 +23,8 @@ from medorg.cli.runners import (
 )
 from medorg.common import XML_NAME
 from medorg.common.async_walker import walk
-from medorg.common.bkp_file import BkpFile, calculate_md5
+from medorg.common.bkp_file import BkpFile
+from medorg.common.checksum import calculate_md5
 from medorg.database.database_handler import DatabaseHandler
 from tests.database_helpers import aquery_all_files, query_all_files
 
@@ -250,7 +252,7 @@ async def test_walk_runner(tmp_path):
         assert len(files) == 7
         filenames = {Path(f.filename).name for f in files}
         for i in range(7):
-            assert f"file{i+1}.txt" in filenames
+            assert f"file{i + 1}.txt" in filenames
         prev_size = None
         for entry in files:
             assert entry.size > 0
@@ -287,9 +289,6 @@ async def test_update_source_directory_entries(tmp_path):
         # Then all those files are marked as backed up
         files = list(await db_session.for_backup(my_dest))
         assert len(files) == 7
-
-
-from unittest import mock
 
 
 def list_files(pth: os.PathLike) -> list[str]:

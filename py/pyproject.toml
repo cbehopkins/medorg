@@ -19,15 +19,17 @@ click = "^8.2.0"
 aiofiles="23.2.1"
 aiopath="^0.7.0"
 isort="5.13.2"
-lxml="5.0.0"
+lxml="6.1.0"
 SQLAlchemy="2.0.25"
 pytest-asyncio="0.23.5"
 aiosqlite="0.20.0"
 pytest = "^8.3.3"
-black = "^24.8.0"
+black = ">=24.8,<27.0"
 rich = "^13.0.0"
 greenlet = "^3.0.0"
 InquirerPy = "^0.3.0"
+ruff = "^0.11.13"
+tox = "^4.26.0"
 
 [tool.poetry-dynamic-versioning]
 enable = true
@@ -38,10 +40,6 @@ bump="true"
 [build-system]
 requires = ["poetry-core>=1.0.0", "poetry-dynamic-versioning>=1.0.0,<2.0.0"]
 build-backend = "poetry_dynamic_versioning.backend"
-
-[project.scripts]
-medback= "medorg.cli.medback:cli"
-medtools= "medorg.cli.medtools:cli"
 
 [tool.poetry.scripts]
 medback= "medorg.cli.medback:cli"

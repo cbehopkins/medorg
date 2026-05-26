@@ -49,6 +49,31 @@ go install ./cmd/...
 go test ./...
 ```
 
+## Development Checks
+
+This repository runs validation for both Go and Python code.
+
+Go checks:
+
+```bash
+go test ./...
+go vet ./...
+```
+
+Python checks (from `py/`):
+
+```bash
+tox -e lint
+tox -e format
+tox -e py312
+```
+
+You can also run all Python checks in one command:
+
+```bash
+tox -e qa
+```
+
 ## Typical Backup/Restore Workflow
 
 ### Initial Setup

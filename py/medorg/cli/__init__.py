@@ -7,7 +7,11 @@ try:
 except ImportError:
     import importlib_metadata
 
-VERSION = importlib_metadata.version("medorg")
+try:
+    VERSION = importlib_metadata.version("medorg")
+except importlib_metadata.PackageNotFoundError:
+    # Running from source tree (e.g., tox) without installed dist metadata.
+    VERSION = "0.0.0"
 
 
 def coro(f):

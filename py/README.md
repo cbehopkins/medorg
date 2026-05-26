@@ -41,6 +41,28 @@ This is an xml file that represents the directory structure of the backed up sys
 Create a venv, install the package, whatever works for you...
 (More detail here for newbies...)
 
+# Development checks
+
+The Python subproject uses `tox` as the command runner and `ruff` for linting/format checks.
+
+From this directory:
+
+`tox -e lint`
+
+Runs Ruff lint checks.
+
+`tox -e format`
+
+Runs Ruff formatting checks in check-only mode.
+
+`tox -e py312`
+
+Runs the pytest suite on Python 3.12.
+
+`tox -e qa`
+
+Runs lint, format, and tests in sequence.
+
 # Process
 
 To run a backup please first decide where you want your (ephemeral) backup database to live. It will default to \~/.bkup\_dest I have assumed in these instructions you will use the default, all commands accept --session-db {path} if you wish to specify a different path to the default.

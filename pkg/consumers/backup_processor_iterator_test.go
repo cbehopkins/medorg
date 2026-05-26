@@ -17,11 +17,7 @@ import (
 // This test loads the JSONL file from an actual backup run and reproduces
 // the iterator behavior under production conditions.
 func TestIteratorFromProductionJSONL(t *testing.T) {
-	jsonlPath := "backup_priority_queue.jsonl"
-	if _, err := os.Stat(jsonlPath); os.IsNotExist(err) {
-		// t.Skipf("JSONL file %s not found - run backup to generate it", jsonlPath)
-		panic(fmt.Sprintf("JSONL file %s not found - run backup to generate it", jsonlPath))
-	}
+	jsonlPath := createPriorityQueueJSONL(t, 10000)
 
 	tmpDir := t.TempDir()
 	tmpFile := tmpDir + "/test_iter.db"
@@ -153,10 +149,7 @@ func TestIteratorFromProductionJSONL(t *testing.T) {
 
 // TestVaultSessionStability checks if vault session is staying alive during iteration
 func TestVaultSessionStability(t *testing.T) {
-	jsonlPath := "backup_priority_queue.jsonl"
-	if _, err := os.Stat(jsonlPath); os.IsNotExist(err) {
-		t.Skipf("JSONL file %s not found", jsonlPath)
-	}
+	jsonlPath := createPriorityQueueJSONL(t, 5000)
 
 	tmpDir := t.TempDir()
 	tmpFile := tmpDir + "/test_vault_stability.db"
@@ -255,10 +248,7 @@ func TestVaultSessionStability(t *testing.T) {
 // TestIteratorMemoryPressure tests iterator behavior under memory constraints
 // similar to production Raspberry Pi conditions
 func TestIteratorMemoryPressure(t *testing.T) {
-	jsonlPath := "backup_priority_queue.jsonl"
-	if _, err := os.Stat(jsonlPath); os.IsNotExist(err) {
-		t.Skipf("JSONL file %s not found", jsonlPath)
-	}
+	jsonlPath := createPriorityQueueJSONL(t, 25000)
 
 	tmpDir := t.TempDir()
 	tmpFile := tmpDir + "/test_mem_pressure.db"

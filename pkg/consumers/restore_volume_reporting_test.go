@@ -1,14 +1,13 @@
 package consumers
 
 import (
-	"os"
+	"path/filepath"
 	"testing"
 )
 
 // TestCountPendingByBackupDest verifies that CountPendingByBackupDest accurately groups pending targets by volume.
 func TestCountPendingByBackupDest(t *testing.T) {
-	tmpDB := "test_count_pending_by_dest.db"
-	defer os.Remove(tmpDB)
+	tmpDB := filepath.Join(t.TempDir(), "test_count_pending_by_dest.db")
 
 	db, err := OpenRestoreDB(tmpDB)
 	if err != nil {
@@ -71,8 +70,7 @@ func TestCountPendingByBackupDest(t *testing.T) {
 
 // TestCountPendingByBackupDestAfterMove verifies that counts update correctly after moving targets to copied.
 func TestCountPendingByBackupDestAfterMove(t *testing.T) {
-	tmpDB := "test_count_after_move.db"
-	defer os.Remove(tmpDB)
+	tmpDB := filepath.Join(t.TempDir(), "test_count_after_move.db")
 
 	db, err := OpenRestoreDB(tmpDB)
 	if err != nil {

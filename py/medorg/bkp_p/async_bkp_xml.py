@@ -3,7 +3,6 @@ import contextlib
 import logging
 import stat
 from os import PathLike, stat_result
-from xml.sax.saxutils import escape
 
 from aiopath import AsyncPath
 from lxml import etree
