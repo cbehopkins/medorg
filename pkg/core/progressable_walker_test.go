@@ -15,6 +15,11 @@ func TestProgressableDirectoryWalkerVisitsAllFiles(t *testing.T) {
 	expected += writeDirMap(t, sub, []string{"child.txt"})
 
 	walker := NewProgressableDirectoryWalker(nil, root)
+	t.Cleanup(func() {
+		if err := walker.Close(); err != nil {
+			t.Errorf("walker.Close(): %v", err)
+		}
+	})
 	fileCount := 0
 	walker.AddFileVisitor(func(name Fname, fm FileMetadata, fi os.FileInfo) error {
 		fileCount++
