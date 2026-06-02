@@ -74,6 +74,8 @@ You can also run all Python checks in one command:
 tox -e qa
 ```
 
+The Python subproject is currently pinned to Python 3.12 via `py/.python-version` because `aiopath` does not yet run cleanly on newer CPython releases.
+
 ## Typical Backup/Restore Workflow
 
 ### Initial Setup

@@ -57,11 +57,13 @@ Runs Ruff formatting checks in check-only mode.
 
 `tox -e py312`
 
-Runs the pytest suite on Python 3.12.
+Runs the pytest suite.
 
 `tox -e qa`
 
 Runs lint, format, and tests in sequence.
+
+The Python environment is currently pinned to Python 3.12 in `.python-version` because `aiopath` does not yet run cleanly on newer CPython releases.
 
 # Process
 

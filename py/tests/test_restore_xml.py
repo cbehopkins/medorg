@@ -22,14 +22,12 @@ def test_restore_file_to_xml():
     xml_str = etree.tostring(xml_element, pretty_print=True, encoding="unicode")
 
     # Expected XML string
-    expected_xml = textwrap.dedent(
-        """\
+    expected_xml = textwrap.dedent("""\
     <file name="example.txt" size="1024" mtime="1633036800" md5="d41d8cd98f00b204e9800998ecf8427e">
       <bd>backup2</bd>
       <bd>backup1</bd>
     </file>
-    """
-    )
+    """)
 
     # Parse the generated and expected XML strings
     generated_element = etree.fromstring(xml_str)
@@ -75,8 +73,7 @@ def test_restore_directory_to_xml():
     xml_str = etree.tostring(xml_element, pretty_print=True, encoding="unicode")
 
     # Expected XML string
-    expected_xml = textwrap.dedent(
-        """\
+    expected_xml = textwrap.dedent("""\
         <dr name="example_dir">
           <file name="file1.txt" size="2048" mtime="1633036801" md5="d41d8cd98f00b204e9800998ecf8427e">
             <bd>backup1</bd>
@@ -85,8 +82,7 @@ def test_restore_directory_to_xml():
             <bd>backup2</bd>
           </file>
         </dr>
-        """
-    )
+        """)
 
     # Compare the generated XML with the expected XML
     assert xml_str.strip() == expected_xml.strip()
@@ -128,8 +124,7 @@ async def test_restore_context_to_xml():
     xml_str = etree.tostring(xml_element, pretty_print=True, encoding="unicode")
 
     # Expected XML string
-    expected_xml = textwrap.dedent(
-        """\
+    expected_xml = textwrap.dedent("""\
   <root>
     <rc src_path="src1">
       <dr name="dir1">
@@ -142,8 +137,7 @@ async def test_restore_context_to_xml():
       </dr>
     </rc>
   </root>
-  """
-    )
+  """)
 
     # Compare the generated XML with the expected XML
     assert xml_str.strip() == expected_xml.strip()
@@ -151,14 +145,12 @@ async def test_restore_context_to_xml():
 
 def test_restore_file_from_xml():
     # XML string for a RestoreFile
-    xml_str = textwrap.dedent(
-        """\
+    xml_str = textwrap.dedent("""\
         <file name="example.txt" size="1024" mtime="1633036800" md5="d41d8cd98f00b204e9800998ecf8427e">
           <bd>backup1</bd>
           <bd>backup2</bd>
         </file>
-        """
-    )
+        """)
     # Parse XML string to an etree.Element
     element = etree.fromstring(xml_str)
 
@@ -181,8 +173,7 @@ def test_restore_file_from_xml():
 
 def test_restore_directory_from_xml():
     # XML string for a RestoreDirectory
-    xml_str = textwrap.dedent(
-        """\
+    xml_str = textwrap.dedent("""\
         <dr name="example_dir">
           <file name="file1.txt" size="2048" mtime="1633036801" md5="d41d8cd98f00b204e9800998ecf8427e">
             <bd>backup1</bd>
@@ -191,8 +182,7 @@ def test_restore_directory_from_xml():
             <bd>backup2</bd>
           </file>
         </dr>
-        """
-    )
+        """)
     # Parse XML string to an etree.Element
     element = etree.fromstring(xml_str)
 
@@ -229,8 +219,7 @@ def test_restore_directory_from_xml():
 @pytest.mark.asyncio
 async def test_restore_context_from_xml():
     # XML string for a RestoreContext
-    xml_str = textwrap.dedent(
-        """\
+    xml_str = textwrap.dedent("""\
         <root>
           <rc src_path="src1">
             <dr name="dir1">
@@ -243,8 +232,7 @@ async def test_restore_context_from_xml():
             </dr>
           </rc>
         </root>
-        """
-    )
+        """)
     # Parse XML string to an etree.Element
     element = etree.fromstring(xml_str)
 

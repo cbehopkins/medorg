@@ -15,15 +15,13 @@ from medorg.common.checksum import calculate_md5
 
 
 def test_bkp_file_xml_render():
-    expected_output = textwrap.dedent(
-        """\
+    expected_output = textwrap.dedent("""\
         <dr>
           <file fname="my file" mtime="256" size="128" checksum="deadbeef">
             <bd>abc</bd>
           </file>
         </dr>
-        """
-    )
+        """)
     src = BkpFile(
         name="my file",
         file_path=Path("/home/test/"),
@@ -40,15 +38,13 @@ def test_bkp_file_xml_render():
 
 
 def test_bkp_file_xml_render_strict():
-    expected_output = textwrap.dedent(
-        """\
+    expected_output = textwrap.dedent("""\
         <dr>
           <file fname="my file" mtime="256" size="128" checksum="deadbeef">
             <bd>abc</bd>
           </file>
         </dr>
-        """
-    )
+        """)
     src = BkpFile(
         name="my file",
         file_path=Path("/home/test/"),
@@ -164,8 +160,7 @@ async def test_async_bkpxml_strict_roundtrip_no_asyncpath_warning(tmp_path):
 
 
 def test_example_xml(tmp_path):
-    example = textwrap.dedent(
-        """\
+    example = textwrap.dedent("""\
     <dr>
         <fr fname="file2.txt" mtime="1728309119" size="150" checksum="0n4+rJ6OUsZkd321mIiHIw">
             <bd>some first destination</bd>
@@ -176,8 +171,7 @@ def test_example_xml(tmp_path):
             <bd>some second destination</bd>
         </fr>
     </dr>
-    """
-    )
+    """)
     axml = AsyncBkpXml(path=tmp_path)
     axml.root = axml._tree_from_string(example)
     axml._validate_xml(axml.root)

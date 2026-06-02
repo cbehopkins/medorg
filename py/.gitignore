@@ -3,3 +3,6 @@
 *_venv
 dist
 .virtualenv-app-data
+.venv
+.tox
+__pycache__

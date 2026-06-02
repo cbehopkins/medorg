@@ -1,46 +1,38 @@
 [project]
 name = "medorg"
-dynamic = ["version"]
+version = "0.1.0"
 description = "Media organizer"
 requires-python = ">=3.12,<4.0"
 authors = [{name = "Chris Hopkins", email = "cbehopkins@gmail.com"}]
 license = {text = "MIT"}
+dependencies = [
+    "click>=8.2.0",
+    "aiofiles==23.2.1",
+    "aiopath>=0.7.0",
+    "lxml>=6.1.0",
+    "SQLAlchemy==2.0.25",
+    "aiosqlite==0.20.0",
+    "rich>=13.0.0",
+    "greenlet>=3.0.0",
+    "InquirerPy>=0.3.0",
+]
 
-[tool.poetry]
-name = "medorg"
-version = "0.0.0"  # Placeholder version, will be overridden by the plugin
-description = "Media organizer"
-license = "MIT"
-authors = ["Chris Hopkins <cbehopkins@gmail.com>"]
+[project.scripts]
+medback = "medorg.cli.medback:cli"
+medtools = "medorg.cli.medtools:cli"
 
-[tool.poetry.dependencies]
-python = "^3.12"
-click = "^8.2.0"
-aiofiles="23.2.1"
-aiopath="^0.7.0"
-isort="5.13.2"
-lxml="6.1.0"
-SQLAlchemy="2.0.25"
-pytest-asyncio="0.23.5"
-aiosqlite="0.20.0"
-pytest = "^8.3.3"
-black = ">=24.8,<27.0"
-rich = "^13.0.0"
-greenlet = "^3.0.0"
-InquirerPy = "^0.3.0"
-ruff = "^0.11.13"
-tox = "^4.26.0"
-
-[tool.poetry-dynamic-versioning]
-enable = true
-vcs = "git"
-style = "pep440"
-bump="true"
+[dependency-groups]
+dev = [
+    "pytest>=8.3.3",
+    "pytest-asyncio==0.23.5",
+    "ruff>=0.11.13",
+    "tox>=4.26",
+]
 
 [build-system]
-requires = ["poetry-core>=1.0.0", "poetry-dynamic-versioning>=1.0.0,<2.0.0"]
-build-backend = "poetry_dynamic_versioning.backend"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
-[tool.poetry.scripts]
-medback= "medorg.cli.medback:cli"
-medtools= "medorg.cli.medtools:cli"
+# uv reads `.python-version`; keep this repo on Python 3.12 until aiopath supports newer CPython releases.
+[tool.uv]
+link-mode = "copy"
