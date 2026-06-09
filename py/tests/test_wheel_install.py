@@ -44,7 +44,7 @@ def test_install_cli(tmp_path):
         python_executable = venv_dir / "bin" / "python"
 
     # Build the package
-    run_command("poetry build")
+    run_command("uv build")
 
     # Find the built wheel file
     dist_dir = Path("dist")
