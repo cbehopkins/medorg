@@ -7,11 +7,11 @@ authors = [{name = "Chris Hopkins", email = "cbehopkins@gmail.com"}]
 license = {text = "MIT"}
 dependencies = [
     "click>=8.2.0",
-    "aiofiles==23.2.1",
+    "aiofiles>=25.1.0",
     "aiopath>=0.7.0",
     "lxml>=6.1.0",
-    "SQLAlchemy==2.0.25",
-    "aiosqlite==0.20.0",
+    "sqlalchemy>=2.1.1",
+    "aiosqlite>=0.22.1",
     "rich>=13.0.0",
     "greenlet>=3.0.0",
     "InquirerPy>=0.3.0",
