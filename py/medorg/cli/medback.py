@@ -1,16 +1,16 @@
-from collections import defaultdict
 import logging
 import logging.config
 import os
+from collections import defaultdict
 from pathlib import Path
-from typing import IO, Optional
+from typing import IO
 
 import click
 from aiopath import AsyncPath
+from InquirerPy import prompt
 from rich.console import Console
 from rich.logging import RichHandler
 from rich.table import Table
-from InquirerPy import prompt
 
 from medorg.bkp_p.async_bkp_xml import AsyncBkpXml, AsyncBkpXmlManager
 from medorg.bkp_p.backup_xml_walker import BackupXmlWalker
@@ -25,8 +25,6 @@ from medorg.cli.runners import (
 from medorg.common.bkp_file import BkpFile
 from medorg.common.file_utils import async_copy_file
 from medorg.common.types import BackupSrc
-
-
 from medorg.database.database_handler import DatabaseHandler
 from medorg.restore.structs import RestoreContext
 from medorg.volume_id.volume_id import VolumeIdSrc
@@ -107,7 +105,7 @@ def bytes_to_human_readable(byte_count: int) -> str:
 @click.option("--log-level", default="CRITICAL")
 @click.option("--log-file", default=None)
 @click.version_option(VERSION)
-def cli(log_level: Optional[str], log_file: Optional[str]):
+def cli(log_level: str | None, log_file: str | None):
     logging_setup = DEFAULT_LOGGING_SETUP.copy()
     if log_level:
         logging_setup["handlers"]["stdout"]["level"] = logging.getLevelName(log_level)

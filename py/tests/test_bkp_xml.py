@@ -1,7 +1,7 @@
 import os
 import textwrap
-from pathlib import Path
 import warnings
+from pathlib import Path
 
 import pytest
 from aiopath import AsyncPath

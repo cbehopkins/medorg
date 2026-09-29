@@ -2,9 +2,9 @@ import base64
 import hashlib
 import shutil
 import xml.etree.ElementTree as ET
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
 from unittest import mock
 
 import pytest
@@ -235,7 +235,7 @@ def test_delete_src_files_between_backups(tmp_path: Path, example_files):
 
 
 def test_create_new_files_in_source(tmp_path: Path, example_files):
-    files, subdirs = example_files
+    _files, subdirs = example_files
     session_db = tmp_path / "session"
     target_dir = tmp_path / "target"
     target_dir.mkdir()

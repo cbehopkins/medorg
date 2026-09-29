@@ -4,8 +4,8 @@ import pytest
 from aiopath import AsyncPath
 from lxml import etree
 
-import medorg.common.io_boundary as io_boundary
 from medorg.bkp_p.async_bkp_xml import AsyncBkpXmlManager
+from medorg.common import io_boundary
 from medorg.common.bkp_file import BkpFile
 
 

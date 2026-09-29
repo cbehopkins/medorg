@@ -6,7 +6,7 @@ from pathlib import Path
 
 from aiopath import AsyncPath
 
-from medorg.bkp_p.async_bkp_xml import AsyncBkpXml, AsyncBkpXmlManager
+from medorg.bkp_p.async_bkp_xml import AsyncBkpXml, AsyncBkpXmlError, AsyncBkpXmlManager
 from medorg.bkp_p.backup_xml_walker import BackupXmlWalker
 from medorg.common.bkp_file import BkpFile
 from medorg.common.file_utils import async_copy_file
@@ -144,7 +144,7 @@ async def copy_best_files(
         tasks.append(task)
     try:
         await asyncio.gather(*tasks)
-    except Exception as e:
+    except (OSError, AsyncBkpXmlError) as e:
         _log.error(f"Error backing up files: {e}")
     print(tasks)
 
@@ -164,7 +164,7 @@ async def _backup_file(
     )
     try:
         await dest_file_path.parent.mkdir(parents=True, exist_ok=True)
-    except Exception as e:
+    except OSError as e:
         _log.error(f"Failed to create directory {dest_file_path.parent}: {e}")
         return
     bkp_xml_src = bkp_xmls[src_file_path.parent]
@@ -178,7 +178,7 @@ async def _backup_file(
     bkp_xml_dest: AsyncBkpXml = bkp_xmls[dest_file_path.parent]
     try:
         await bkp_xml_dest.init_structs()  # FIXME this is awful
-    except Exception as e:
+    except OSError as e:
         _log.error(f"Failed to init structs for {dest_file_path.parent}: {e}")
         return
     if bkp_xml_dest.root is None:
@@ -193,7 +193,7 @@ async def _backup_file(
         assert await src_file_path.is_file()
         assert await dest_file_path.parent.is_dir()
         await async_copy_file(src_file_path, dest_file_path)
-    except IOError:
+    except OSError:
         # As long as we return without marking it as visited...
         return
     assert current_file_data_dest.mtime != "None"

@@ -1,9 +1,9 @@
 import asyncio
 import logging
 import os
-from pathlib import Path
 import stat
-from typing import AsyncIterable, Awaitable, Callable, Iterator, Optional
+from collections.abc import AsyncIterable, Awaitable, Callable, Iterator
+from pathlib import Path
 
 from aiopath import AsyncPath
 
@@ -15,7 +15,7 @@ _log = logging.getLogger(__name__)
 
 
 DirWalker = Callable[
-    [AsyncPath, AsyncPath, os.stat_result, AsyncBkpXml], Optional[Awaitable]
+    [AsyncPath, AsyncPath, os.stat_result, AsyncBkpXml], Awaitable | None
 ]
 entryStat = tuple[AsyncPath, os.stat_result]
 entryStats = list[entryStat]

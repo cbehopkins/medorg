@@ -1,10 +1,11 @@
 import sys
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import AsyncGenerator
 
 from aiopath import AsyncPath
 from sqlalchemy import delete
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from medorg.common.types import BackupFile, Base
@@ -62,7 +63,7 @@ class DatabaseHandler:
         populate_tables = not await db_path.is_file()
         try:
             self._create_engine(f"sqlite+aiosqlite:///{db_path}")
-        except Exception as e:
+        except SQLAlchemyError as e:
             print(f"Error creating database: {e}")
             # FIXME Exceptionize this
             sys.exit(1)

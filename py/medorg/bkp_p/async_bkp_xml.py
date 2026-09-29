@@ -25,17 +25,15 @@ class Counter:
         self._condition = asyncio.Condition()
 
     async def increment(self):
-        async with self._condition:
-            async with self.lock:
-                self._value += 1
-                self._condition.notify_all()
+        async with self._condition, self.lock:
+            self._value += 1
+            self._condition.notify_all()
 
     async def decrement(self):
-        async with self._condition:
-            async with self.lock:
-                self._value -= 1
-                if self._value == 0:
-                    self._condition.notify_all()
+        async with self._condition, self.lock:
+            self._value -= 1
+            if self._value == 0:
+                self._condition.notify_all()
 
     async def wait_for_zero(self):
         async with self._condition:
@@ -110,9 +108,7 @@ class AsyncBkpXml:
         # sourcery skip: assign-if-exp, boolean-if-exp-identity, reintroduce-else, remove-unnecessary-cast
         if cand.mtime != int(sr.st_mtime):
             return False
-        if cand.size != sr.st_size:
-            return False
-        return True
+        return cand.size == sr.st_size
 
     async def visit_file(self, entry: AsyncPath, sr: stat_result):
         # Visiting a file is saying:
@@ -175,7 +171,7 @@ class AsyncBkpXml:
             self._validate_xml(root)
             self._validate_values(root)
             return root
-        except Exception as e:
+        except (OSError, UnicodeError, AsyncBkpXmlError) as e:
             _log.error(f"Failed to read XML from {self.xml_path}: {e}")
             return etree.Element("dr")
 
@@ -186,8 +182,6 @@ class AsyncBkpXml:
             return tree
         except etree.XMLSyntaxError as e:
             _log.error(f"XML syntax error: {e}")
-        except Exception as e:
-            _log.error(f"Failed to parse XML string: {e}")
         return etree.Element("dr")
 
     def _validate_xml(self, root):

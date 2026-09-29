@@ -1,7 +1,7 @@
 import logging
-from datetime import datetime
+from collections.abc import Iterable
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Iterable, Union
 
 from aiopath import AsyncPath
 from sqlalchemy import select
@@ -81,16 +81,18 @@ async def query_files_visited(bdsa) -> list[BackupFile]:
 async def add_file(
     bdsa: Bdsa,
     file_name: str,
-    dest_names: Union[VolumeId, list[VolumeId]] = [""],
+    dest_names: VolumeId | list[VolumeId] | None = None,
     size: int = 0,
-    timestamp: Union[int] = 0,
+    timestamp: int = 0,
     md5_hash: str = "",
     visited: bool = False,
     src_path: str = "./",
 ) -> None:
     # This should only really be used in testbenches to setup files...
+    if dest_names is None:
+        dest_names = [""]
     if isinstance(timestamp, int):
-        timestamp = datetime.fromtimestamp(timestamp)
+        timestamp = datetime.fromtimestamp(timestamp, tz=UTC).replace(tzinfo=None)
     assert not AsyncPath(file_name).is_absolute()
     # Add a new file with a specified tag
     new_file = BackupFile(

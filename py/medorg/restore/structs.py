@@ -61,7 +61,7 @@ class RestoreDirectory:
     def __init__(self, name: str):
         self.name = name
         self.files: list[RestoreFile] = []
-        self.subdirectories: list["RestoreDirectory"] = []
+        self.subdirectories: list[RestoreDirectory] = []
 
     def add_file(self, file: RestoreFile):
         self.files.append(file)

@@ -8,7 +8,7 @@ import pytest
 
 def run_command(command, env=None):
     result = subprocess.run(
-        command, capture_output=True, text=True, shell=True, env=env
+        command, capture_output=True, text=True, shell=True, env=env, check=False
     )
     if result.returncode != 0:
         print(
@@ -28,7 +28,9 @@ def run_command_in_venv(command, venv_path):
         activate_script = os.path.join(venv_path, "bin", "activate")
         full_command = f'bash -c "source {activate_script} && {command}"'
 
-    return subprocess.run(full_command, shell=True, capture_output=True, text=True)
+    return subprocess.run(
+        full_command, shell=True, capture_output=True, text=True, check=False
+    )
 
 
 def test_install_cli(tmp_path):

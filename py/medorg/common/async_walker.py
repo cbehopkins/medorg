@@ -58,5 +58,5 @@ async def _walk(top, onerror, followlinks):
 
 
 async def walk(top, onerror=None, followlinks=False):
-    async for top, dirs, nondirs in _walk(top, onerror, followlinks):
-        yield top, dirs, nondirs
+    async for current_top, dirs, nondirs in _walk(top, onerror, followlinks):
+        yield current_top, dirs, nondirs

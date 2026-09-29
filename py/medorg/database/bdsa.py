@@ -1,9 +1,10 @@
 import asyncio
-from collections import Counter, defaultdict
 import logging
-from datetime import datetime
+from collections import Counter, defaultdict
+from collections.abc import AsyncGenerator, Awaitable, Callable, Iterable, Sequence
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, AsyncGenerator, Awaitable, Callable, Iterable, Sequence
+from typing import Any
 
 from aiopath import AsyncPath
 from sqlalchemy import desc, select
@@ -69,7 +70,7 @@ class AsyncSessionWrapper:
         self,
         select_type: DatabaseBase,
         filter_options: list[tuple[BinaryExpression, Any]],
-        on_fail: Callable[[Any], DatabaseBase] = None,
+        on_fail: Callable[[Any], DatabaseBase] | None = None,
     ) -> list[DatabaseBase | None]:
         def handle_fail(result: DatabaseBase | None, val: Any) -> DatabaseBase | None:
             if result is None:
@@ -275,7 +276,9 @@ class Bdsa(AsyncSessionWrapper):
         entry.size = src_file.size
         entry.md5_hash = src_file.md5
         entry.visited = 0
-        entry.timestamp = datetime.fromtimestamp(src_file.mtime)
+        entry.timestamp = datetime.fromtimestamp(src_file.mtime, tz=UTC).replace(
+            tzinfo=None
+        )
         entry.src_path = str(src_dir)
         if add_entry:
             async with self._lock:
@@ -314,7 +317,7 @@ class Bdsa(AsyncSessionWrapper):
             self.add_tag_obj_to_backup_file(tag_obj, matching_file)
 
     async def add_restore_context(self, restore_context: RestoreContext):
-        for src_path, _ in restore_context.file_structure.items():
+        for src_path in restore_context.file_structure:
             # Check for existing entries in the database
             for _ in await self.aquery_generator(
                 BackupFile, BackupFile.src_path == src_path
@@ -338,7 +341,9 @@ class Bdsa(AsyncSessionWrapper):
                 filename=str(Path(parent_path) / restore_file.name),
                 size=restore_file.size,
                 md5_hash=restore_file.md5,
-                timestamp=datetime.fromtimestamp(restore_file.mtime or 0),
+                timestamp=datetime.fromtimestamp(
+                    restore_file.mtime or 0, tz=UTC
+                ).replace(tzinfo=None),
             )
             await self.add_bkp_dests_to_backup_file(restore_file.bkp_dests, backup_file)
             async with self._lock:

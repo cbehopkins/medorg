@@ -4,9 +4,9 @@ import os
 import random
 import shutil
 import string
-from unittest import mock
 from dataclasses import dataclass
 from pathlib import Path
+from unittest import mock
 
 import pytest
 from aiopath import AsyncPath
@@ -347,7 +347,7 @@ async def test_backup_filling_drive(mock_copy, tmp_path):
 
     def dummy_copy(src, dest, *args, **kwargs):
         if src.name == "file5.txt":
-            raise IOError(
+            raise OSError(
                 "Drive is full-ish, still some space, but I can't accept a file that big"
             )
         shutil.copy2(str(src), str(dest))
@@ -402,7 +402,7 @@ async def test_discovery(tmp_path):
     # Check - has the xml been updated to include the dest_id
     root = etree.parse(tmp_src / XML_NAME).getroot()
     file_elem = root.find(".//fr[@fname='file1.txt']")
-    file_elem[0].text == my_dest
+    assert file_elem[0].text == my_dest
 
     # Hacky bit, just grab the md5s:
     md5_map = {}
