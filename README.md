@@ -29,7 +29,10 @@ The project follows standard Go layout conventions:
 - `cmd/` - Command-line executable tools
   - `cmd/mdcalc/` - Checksum calculation and file operations
   - `cmd/mdsource/` - Source directory and restore destination management
+  - `cmd/mddiscover/` - Discover files already present on backup volumes
   - `cmd/mdbackup/` - Multi-volume backup management
+  - `cmd/mdlabel/` - Volume label management for backup destinations
+  - `cmd/mddumpobj/` - Inspect raw objects in bobbob vault files
   - `cmd/mdjournal/` - Directory journaling and tracking
   - `cmd/mdrestore/` - Journal-based restore operations
 - `pkg/core/` - Core library code (checksums, file operations, XML handling)
@@ -286,6 +289,47 @@ Source aliases are used in:
 
 ---
 
+## mddiscover - Discover Already-Backed-Up Files
+
+Scan configured source directories and a backup destination to mark files that are already present on that destination volume.
+
+**Usage:**
+```bash
+# Discover files already present on a backup destination
+mddiscover /backup/volume1
+
+# Preview changes without updating source metadata
+mddiscover --dry-run /backup/volume1
+
+# Use custom config for source directory definitions
+mddiscover --config /path/to/config.xml /backup/volume1
+```
+
+**Notes:**
+- Source directories come from `.mdcfg.xml` (configured via `mdsource add`)
+- Destination must already have a volume label (`.mdbackup.xml`), typically created with `mdlabel create`
+- Matching is done by checksum and size; matching source files are updated with the destination volume label
+
+---
+
+## mdlabel - Volume Label Management
+
+Create, show, or replace backup volume labels (`.mdbackup.xml`) used by backup/discovery/restore tools.
+
+**Usage:**
+```bash
+# Create a new label on a destination volume
+mdlabel create /backup/volume1
+
+# Show the label associated with a path
+mdlabel show /backup/volume1
+
+# Replace an existing label (advanced; can orphan old metadata links)
+mdlabel recreate /backup/volume1
+```
+
+---
+
 ## mdjournal - Directory Journaling
 
 Create journal files that record the current state of directories for backup/restore tracking.
@@ -308,6 +352,31 @@ Journal files record:
 - File checksums, sizes, and metadata
 - Which backup volumes contain each file
 - Source directory aliases
+
+---
+
+## mddumpobj - Vault Object Inspection
+
+Debug/forensics utility to inspect raw objects in bobbob vault files.
+
+**Usage:**
+```bash
+# Dump object bytes as hex (default)
+mddumpobj -vault /tmp/backup.db -id 6755110
+
+# Output base64 and limit displayed bytes
+mddumpobj -vault /tmp/backup.db -id 6755110 -out base64 -limit 256
+
+# Write full raw object bytes to a file
+mddumpobj -vault /tmp/backup.db -id 6755110 -out raw -out-file object.bin -limit 0
+```
+
+**Options:**
+- `-vault` path to vault file (required)
+- `-id` object ID, decimal or `0x` hex (required)
+- `-out` output format: `hex`, `base64`, or `raw`
+- `-out-file` optional file path to persist raw bytes
+- `-limit` max bytes printed (`0` means no limit)
 
 ---
 
