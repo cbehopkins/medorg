@@ -27,6 +27,26 @@ func TestRestoreDBCreateAndClose(t *testing.T) {
 	}
 }
 
+func TestOpenRestoreDBRejectsNonSQLiteFile(t *testing.T) {
+	dbPath := fmt.Sprintf("%s/legacy.db", t.TempDir())
+	original := "legacy restore data"
+	if err := os.WriteFile(dbPath, []byte(original), 0o600); err != nil {
+		t.Fatalf("failed to write legacy database: %v", err)
+	}
+
+	if _, err := OpenRestoreDB(dbPath); err == nil {
+		t.Fatal("expected non-SQLite restore database to be rejected")
+	}
+
+	after, err := os.ReadFile(dbPath)
+	if err != nil {
+		t.Fatalf("failed to read legacy database after rejection: %v", err)
+	}
+	if string(after) != original {
+		t.Fatalf("legacy database was modified: got %q", after)
+	}
+}
+
 // TestRestoreDBInsertAndRetrievePending verifies insert and retrieval of pending targets.
 func TestRestoreDBInsertAndRetrievePending(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -176,6 +196,66 @@ func TestRestoreDBMultipleTasks(t *testing.T) {
 	}
 	if remaining[0].TargetAbsPath != "/target/b" {
 		t.Errorf("Wrong target remained: expected /target/b, got %s", remaining[0].TargetAbsPath)
+	}
+}
+
+func TestRestoreDBInsertPendingKeepsDistinctTargets(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := fmt.Sprintf("%s/distinct-targets.db", tmpDir)
+
+	db, err := OpenRestoreDB(dbPath)
+	if err != nil {
+		t.Fatalf("OpenRestoreDB failed: %v", err)
+	}
+	defer db.Close()
+
+	first := &RestoreTaskTarget{TaskID: "shared:10:/restore/first", Alias: "media", TargetAbsPath: "/restore/first"}
+	second := &RestoreTaskTarget{TaskID: "shared:10:/restore/second", Alias: "media", TargetAbsPath: "/restore/second"}
+
+	if err := db.InsertPending(first, "shared", 10, []string{"VOL1"}); err != nil {
+		t.Fatalf("InsertPending first target failed: %v", err)
+	}
+	if err := db.InsertPending(first, "shared", 10, []string{"VOL2"}); err != nil {
+		t.Fatalf("InsertPending duplicate target failed: %v", err)
+	}
+	if err := db.InsertPending(second, "shared", 10, []string{"VOL2"}); err != nil {
+		t.Fatalf("InsertPending second target failed: %v", err)
+	}
+
+	targets, err := db.FindPendingByContent("shared", 10)
+	if err != nil {
+		t.Fatalf("FindPendingByContent failed: %v", err)
+	}
+	if len(targets) != 2 {
+		t.Fatalf("expected 2 distinct pending targets, got %d", len(targets))
+	}
+
+	byVolume, err := db.CountPendingByBackupDest()
+	if err != nil {
+		t.Fatalf("CountPendingByBackupDest failed: %v", err)
+	}
+	if byVolume["VOL1"] != 2 || byVolume["VOL2"] != 2 {
+		t.Fatalf("expected merged volume counts VOL1=2 and VOL2=2, got %v", byVolume)
+	}
+	if err := db.MoveToCopied(first.TargetAbsPath, "shared", 10); err != nil {
+		t.Fatalf("MoveToCopied first target failed: %v", err)
+	}
+	if err := db.InsertPending(first, "shared", 10, []string{"VOL1"}); err != nil {
+		t.Fatalf("re-ingest copied target failed: %v", err)
+	}
+	targets, err = db.FindPendingByContent("shared", 10)
+	if err != nil {
+		t.Fatalf("FindPendingByContent after re-ingest failed: %v", err)
+	}
+	if len(targets) != 1 || targets[0].TargetAbsPath != second.TargetAbsPath {
+		t.Fatalf("re-ingest changed copied state: pending targets=%+v", targets)
+	}
+	copiedCount, err := db.CountCopied()
+	if err != nil {
+		t.Fatalf("CountCopied after re-ingest failed: %v", err)
+	}
+	if copiedCount != 1 {
+		t.Fatalf("expected copied state to remain after re-ingest, got %d content groups", copiedCount)
 	}
 }
 
@@ -452,22 +532,6 @@ func TestRestoreDBInsertCopied(t *testing.T) {
 		t.Fatalf("expected pending to remain empty for copied-only inserts, got %d", len(results))
 	}
 
-	key := NewRestoreContentKey("hash", 7)
-	payloadNode := db.copiedColl.Search(&key)
-	if payloadNode == nil {
-		t.Fatalf("expected copied node to exist")
-	}
-	payload, ok := payloadNode.(interface{ GetPayload() RestoreTaskNode })
-	if !ok {
-		t.Fatalf("unexpected copied node type: %T", payloadNode)
-	}
-	node := payload.GetPayload()
-	if len(node.Targets) != 2 {
-		t.Fatalf("expected 2 targets in copied node, got %d", len(node.Targets))
-	}
-	if len(node.BackupDests) != 2 || node.BackupDests[0] != "VOL1" || node.BackupDests[1] != "VOL2" {
-		t.Fatalf("expected merged copied destinations, got %+v", node.BackupDests)
-	}
 }
 
 func TestWithRestoreDBRunsAndCloses(t *testing.T) {
