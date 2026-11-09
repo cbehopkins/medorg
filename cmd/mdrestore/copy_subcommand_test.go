@@ -78,3 +78,75 @@ func TestCopySubcommand_TriggersCopyFromPlan(t *testing.T) {
 		t.Fatalf("expected 2 copy calls, got %d", copyCalls)
 	}
 }
+
+func TestCopySubcommandLeavesTargetPendingAfterCopyFailure(t *testing.T) {
+	tmpDir := t.TempDir()
+	sourceDir := filepath.Join(tmpDir, "source")
+	dbPath := filepath.Join(tmpDir, "restore.db")
+	configPath := filepath.Join(tmpDir, "test.mdcfg.xml")
+	if err := os.MkdirAll(sourceDir, 0o755); err != nil {
+		t.Fatalf("failed to create source dir: %v", err)
+	}
+
+	db, err := consumers.OpenRestoreDB(dbPath)
+	if err != nil {
+		t.Fatalf("OpenRestoreDB failed: %v", err)
+	}
+	target := &consumers.RestoreTaskTarget{TaskID: "hash:10:/restore/file.txt", Alias: "test", TargetAbsPath: "/restore/file.txt"}
+	if err := db.InsertPending(target, "hash", 10, []string{"VOL1"}); err != nil {
+		t.Fatalf("InsertPending failed: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	originalScan := scanSourceForPendingFunc
+	originalExecute := executeCopyOperationFunc
+	defer func() {
+		scanSourceForPendingFunc = originalScan
+		executeCopyOperationFunc = originalExecute
+	}()
+	scanSourceForPendingFunc = func(source string, _ *consumers.RestoreDB) (*consumers.CopyPlan, error) {
+		return &consumers.CopyPlan{
+			SourcePath:   source,
+			MatchedCount: 1,
+			Operations: []consumers.CopyOperation{{
+				SourcePath: filepath.Join(source, "file.txt"), DestinationPath: target.TargetAbsPath,
+				MD5: "hash", Size: 10, Alias: "test",
+			}},
+		}, nil
+	}
+	copyCalls := 0
+	executeCopyOperationFunc = func(*consumers.CopyOperation) error {
+		copyCalls++
+		return os.ErrPermission
+	}
+
+	exitCode, err := copySubcommand([]string{"-config", configPath, "-db", dbPath, sourceDir})
+	if err != nil {
+		t.Fatalf("copySubcommand returned error: %v", err)
+	}
+	if exitCode != cli.ExitRestoreError {
+		t.Fatalf("expected exit code %d, got %d", cli.ExitRestoreError, exitCode)
+	}
+	if copyCalls != 1 {
+		t.Fatalf("expected 1 copy attempt, got %d", copyCalls)
+	}
+
+	db, err = consumers.OpenRestoreDB(dbPath)
+	if err != nil {
+		t.Fatalf("OpenRestoreDB after copy failed: %v", err)
+	}
+	defer db.Close()
+	pendingCount, err := db.CountPending()
+	if err != nil {
+		t.Fatalf("CountPending after copy failed: %v", err)
+	}
+	copiedCount, err := db.CountCopied()
+	if err != nil {
+		t.Fatalf("CountCopied after copy failed: %v", err)
+	}
+	if pendingCount != 1 || copiedCount != 0 {
+		t.Fatalf("copy failure changed restore state: pending=%d copied=%d", pendingCount, copiedCount)
+	}
+}

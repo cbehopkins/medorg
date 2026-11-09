@@ -1,318 +1,357 @@
 package consumers
 
 import (
+	"database/sql"
+	"encoding/json"
 	"fmt"
+	"io"
+	"os"
 	"sync"
 
-	"github.com/cbehopkins/bobbob/yggdrasil/treap"
-	"github.com/cbehopkins/bobbob/yggdrasil/vault"
+	_ "modernc.org/sqlite"
 )
 
-// RestoreDB manages the restore task collections (pending and copied).
+const (
+	restoreStatePending = "pending"
+	restoreStateCopied  = "copied"
+)
+
+// RestoreDB manages persistent restore targets for one active restore context.
 type RestoreDB struct {
-	session      *vault.VaultSession
-	pendingColl  *treap.PersistentPayloadTreap[restoreContentKey, RestoreTaskNode]
-	copiedColl   *treap.PersistentPayloadTreap[restoreContentKey, RestoreTaskNode]
-	filePath     string
-	mu           sync.Mutex
-	opsWg        sync.WaitGroup // Tracks active operations
-	done         chan struct{}  // Closed to signal shutdown
-	closeOnce    sync.Once      // Ensures Close is called only once
-	persistQueue chan persistRequest
-	persistWg    sync.WaitGroup
+	db        *sql.DB
+	mu        sync.Mutex
+	closed    bool
+	closeOnce sync.Once
+	closeErr  error
 }
 
-type persistRequest struct {
-	fn    func() error
-	errCh chan error
-}
-
-// OpenRestoreDB opens or creates a restore DB at the given path.
+// OpenRestoreDB opens or creates a SQLite restore database at the given path.
 func OpenRestoreDB(filePath string) (*RestoreDB, error) {
-	session, colls, err := vault.OpenVaultWithIdentity(
-		filePath,
-		vault.PayloadIdentitySpec[string, restoreContentKey, RestoreTaskNode]{
-			Identity:        RestoreCollectionPending,
-			LessFunc:        restoreContentKeyLess,
-			KeyTemplate:     (*restoreContentKey)(new(restoreContentKey)),
-			PayloadTemplate: RestoreTaskNode{},
-		},
-		vault.PayloadIdentitySpec[string, restoreContentKey, RestoreTaskNode]{
-			Identity:        RestoreCollectionCopied,
-			LessFunc:        restoreContentKeyLess,
-			KeyTemplate:     (*restoreContentKey)(new(restoreContentKey)),
-			PayloadTemplate: RestoreTaskNode{},
-		},
-	)
+	if err := rejectNonSQLiteRestoreDB(filePath); err != nil {
+		return nil, err
+	}
+
+	sqlDB, err := sql.Open("sqlite", filePath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open vault: %w", err)
+		return nil, fmt.Errorf("open restore database: %w", err)
 	}
-
-	pendingColl, ok := colls[RestoreCollectionPending].(*treap.PersistentPayloadTreap[restoreContentKey, RestoreTaskNode])
-	if !ok {
-		return nil, fmt.Errorf("pending collection has wrong type: got %T", colls[RestoreCollectionPending])
+	sqlDB.SetMaxOpenConns(1)
+	db := &RestoreDB{db: sqlDB}
+	if err := sqlDB.Ping(); err != nil {
+		_ = sqlDB.Close()
+		return nil, fmt.Errorf("connect to restore database: %w", err)
 	}
-
-	copiedColl, ok := colls[RestoreCollectionCopied].(*treap.PersistentPayloadTreap[restoreContentKey, RestoreTaskNode])
-	if !ok {
-		return nil, fmt.Errorf("copied collection has wrong type: got %T", colls[RestoreCollectionCopied])
+	for _, statement := range []string{
+		`CREATE TABLE IF NOT EXISTS restore_content (
+			md5 TEXT NOT NULL,
+			size INTEGER NOT NULL,
+			backup_dests TEXT NOT NULL,
+			PRIMARY KEY (md5, size)
+		)`,
+		`CREATE TABLE IF NOT EXISTS restore_targets (
+			md5 TEXT NOT NULL,
+			size INTEGER NOT NULL,
+			target_abs_path TEXT NOT NULL,
+			task_id TEXT NOT NULL,
+			alias TEXT NOT NULL,
+			created_at_unix INTEGER NOT NULL,
+			updated_at_unix INTEGER NOT NULL,
+			completed_at_unix INTEGER NOT NULL,
+			copy_source_path TEXT NOT NULL,
+			state TEXT NOT NULL CHECK (state IN ('pending', 'copied')),
+			PRIMARY KEY (md5, size, target_abs_path),
+			FOREIGN KEY (md5, size) REFERENCES restore_content (md5, size)
+		)`,
+		`CREATE INDEX IF NOT EXISTS restore_targets_by_state
+			ON restore_targets (state, md5, size)`,
+	} {
+		if _, err := sqlDB.Exec(statement); err != nil {
+			_ = sqlDB.Close()
+			return nil, fmt.Errorf("initialise restore database: %w", err)
+		}
 	}
-
-	// Disable background monitoring (we'll use explicit persist)
-	session.Vault.SetBackgroundMonitoring(false)
-
-	db := &RestoreDB{
-		session:      session,
-		pendingColl:  pendingColl,
-		copiedColl:   copiedColl,
-		filePath:     filePath,
-		done:         make(chan struct{}),
-		persistQueue: make(chan persistRequest, 100),
-	}
-
-	db.persistWg.Add(1)
-	go db.persistWorker()
-
 	return db, nil
 }
 
-func (db *RestoreDB) persistWorker() {
-	defer db.persistWg.Done()
-	for req := range db.persistQueue {
-		req.errCh <- req.fn()
+func rejectNonSQLiteRestoreDB(filePath string) error {
+	info, err := os.Stat(filePath)
+	if os.IsNotExist(err) || (err == nil && info.Size() == 0) {
+		return nil
 	}
+	if err != nil {
+		return fmt.Errorf("inspect restore database: %w", err)
+	}
+
+	file, err := os.Open(filePath)
+	if err != nil {
+		return fmt.Errorf("read restore database header: %w", err)
+	}
+	defer file.Close()
+
+	header := make([]byte, 16)
+	read, readErr := io.ReadFull(file, header)
+	if readErr != nil || read != len(header) || string(header) != "SQLite format 3\x00" {
+		return fmt.Errorf("restore database %q is not SQLite; existing bobbob databases are not supported", filePath)
+	}
+	return nil
 }
 
-func (db *RestoreDB) beginOp() (func(), error) {
-	db.opsWg.Add(1)
-	select {
-	case <-db.done:
-		db.opsWg.Done()
-		return nil, fmt.Errorf("RestoreDB is shutting down")
-	default:
-		return db.opsWg.Done, nil
-	}
-}
-
-// InsertPending adds a target to the pending collection, creating or appending to the content node.
+// InsertPending adds a target to the pending state, preserving one row per distinct target.
 func (db *RestoreDB) InsertPending(target *RestoreTaskTarget, md5 string, size int64, backupDests []string) error {
-	finisher, err := db.beginOp()
-	if err != nil {
-		return err
-	}
-	defer finisher()
-
 	db.mu.Lock()
 	defer db.mu.Unlock()
-
-	key := NewRestoreContentKey(md5, size)
-
-	// Check if this content already exists
-	node := db.pendingColl.Search(&key)
-	if node != nil {
-		// Append to existing node
-		existing := node.GetPayload()
-		existing = existing.WithTarget(*target, backupDests)
-		return db.pendingColl.UpdatePayload(&key, existing)
+	if err := db.ensureOpenLocked(); err != nil {
+		return err
 	}
 
-	// Create new node
-	newNode := NewRestoreTaskNode(*target, md5, size, backupDests)
-	return db.pendingColl.Insert(&key, newNode)
+	tx, err := db.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin pending insert: %w", err)
+	}
+	defer tx.Rollback()
+
+	if err := mergeRestoreContentDestinations(tx, md5, size, backupDests); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`
+		INSERT INTO restore_targets (
+			md5, size, target_abs_path, task_id, alias, created_at_unix,
+			updated_at_unix, completed_at_unix, copy_source_path, state
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT (md5, size, target_abs_path) DO NOTHING`,
+		md5, size, target.TargetAbsPath, target.TaskID, target.Alias,
+		target.CreatedAtUnix, target.UpdatedAtUnix, target.CompletedAtUnix,
+		target.CopySourcePath, restoreStatePending); err != nil {
+		return fmt.Errorf("insert pending restore target: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit pending restore target: %w", err)
+	}
+	return nil
 }
 
-// InsertCopied adds a target to the copied collection.
+// InsertCopied adds a target directly to the copied state.
 func (db *RestoreDB) InsertCopied(target *RestoreTaskTarget, md5 string, size int64, backupDests []string) error {
-	finisher, err := db.beginOp()
-	if err != nil {
-		return err
-	}
-	defer finisher()
-
 	db.mu.Lock()
 	defer db.mu.Unlock()
-
-	key := NewRestoreContentKey(md5, size)
-
-	// Check if this content already exists in copied
-	node := db.copiedColl.Search(&key)
-	if node != nil {
-		// Append to existing node
-		existing := node.GetPayload()
-		existing = existing.WithTarget(*target, backupDests)
-		return db.copiedColl.UpdatePayload(&key, existing)
+	if err := db.ensureOpenLocked(); err != nil {
+		return err
 	}
 
-	// Create new node
-	newNode := NewRestoreTaskNode(*target, md5, size, backupDests)
-	return db.copiedColl.Insert(&key, newNode)
+	tx, err := db.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin copied insert: %w", err)
+	}
+	defer tx.Rollback()
+
+	if err := mergeRestoreContentDestinations(tx, md5, size, backupDests); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`
+		INSERT INTO restore_targets (
+			md5, size, target_abs_path, task_id, alias, created_at_unix,
+			updated_at_unix, completed_at_unix, copy_source_path, state
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT (md5, size, target_abs_path) DO UPDATE SET state = excluded.state`,
+		md5, size, target.TargetAbsPath, target.TaskID, target.Alias,
+		target.CreatedAtUnix, target.UpdatedAtUnix, target.CompletedAtUnix,
+		target.CopySourcePath, restoreStateCopied); err != nil {
+		return fmt.Errorf("insert copied restore target: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit copied restore target: %w", err)
+	}
+	return nil
 }
 
-// FindPendingByContent searches the pending collection for targets with matching (md5, size).
-// Uses efficient Search instead of full scan.
-func (db *RestoreDB) FindPendingByContent(md5 string, size int64) ([]RestoreTaskTarget, error) {
-	finisher, err := db.beginOp()
+func mergeRestoreContentDestinations(tx *sql.Tx, md5 string, size int64, backupDests []string) error {
+	var existingJSON string
+	var existing []string
+	err := tx.QueryRow(`SELECT backup_dests FROM restore_content WHERE md5 = ? AND size = ?`, md5, size).Scan(&existingJSON)
+	switch {
+	case err == nil:
+		if err := json.Unmarshal([]byte(existingJSON), &existing); err != nil {
+			return fmt.Errorf("decode restore backup destinations: %w", err)
+		}
+	case err != sql.ErrNoRows:
+		return fmt.Errorf("read restore content: %w", err)
+	}
+
+	mergedJSON, err := json.Marshal(mergeBackupDestinations(existing, backupDests))
 	if err != nil {
+		return fmt.Errorf("encode restore backup destinations: %w", err)
+	}
+	if _, err := tx.Exec(`
+		INSERT INTO restore_content (md5, size, backup_dests) VALUES (?, ?, ?)
+		ON CONFLICT (md5, size) DO UPDATE SET backup_dests = excluded.backup_dests`,
+		md5, size, string(mergedJSON)); err != nil {
+		return fmt.Errorf("save restore content: %w", err)
+	}
+	return nil
+}
+
+// FindPendingByContent returns pending targets matching the checksum and size.
+func (db *RestoreDB) FindPendingByContent(md5 string, size int64) ([]RestoreTaskTarget, error) {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	if err := db.ensureOpenLocked(); err != nil {
 		return nil, err
 	}
-	defer finisher()
 
-	db.mu.Lock()
-	defer db.mu.Unlock()
-
-	key := NewRestoreContentKey(md5, size)
-	node := db.pendingColl.Search(&key)
-	if node == nil {
-		return []RestoreTaskTarget{}, nil
+	rows, err := db.db.Query(`
+		SELECT task_id, alias, target_abs_path, created_at_unix,
+			updated_at_unix, completed_at_unix, copy_source_path
+		FROM restore_targets
+		WHERE md5 = ? AND size = ? AND state = ?
+		ORDER BY rowid`, md5, size, restoreStatePending)
+	if err != nil {
+		return nil, fmt.Errorf("find pending restore targets: %w", err)
 	}
+	defer rows.Close()
 
-	payloadNode, ok := node.(treap.PersistentPayloadNodeInterface[restoreContentKey, RestoreTaskNode])
-	if !ok {
-		return nil, fmt.Errorf("unexpected node type %T", node)
+	targets := make([]RestoreTaskTarget, 0)
+	for rows.Next() {
+		var target RestoreTaskTarget
+		if err := rows.Scan(
+			&target.TaskID, &target.Alias, &target.TargetAbsPath,
+			&target.CreatedAtUnix, &target.UpdatedAtUnix, &target.CompletedAtUnix,
+			&target.CopySourcePath,
+		); err != nil {
+			return nil, fmt.Errorf("read pending restore target: %w", err)
+		}
+		targets = append(targets, target)
 	}
-
-	return payloadNode.GetPayload().Targets, nil
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate pending restore targets: %w", err)
+	}
+	return targets, nil
 }
 
-// MoveToCopied moves a specific target from pending to copied collection.
-// Removes target from pending node, appends to copied node.
+// MoveToCopied atomically marks one pending target copied after its file copy succeeds.
 func (db *RestoreDB) MoveToCopied(targetPath string, md5 string, size int64) error {
-	finisher, err := db.beginOp()
-	if err != nil {
-		return err
-	}
-	defer finisher()
-
 	db.mu.Lock()
 	defer db.mu.Unlock()
-
-	key := NewRestoreContentKey(md5, size)
-
-	// Get pending node
-	pendingNode := db.pendingColl.Search(&key)
-	if pendingNode == nil {
-		return fmt.Errorf("content not found in pending: %s, %d", md5, size)
+	if err := db.ensureOpenLocked(); err != nil {
+		return err
 	}
 
-	payloadNode, ok := pendingNode.(treap.PersistentPayloadNodeInterface[restoreContentKey, RestoreTaskNode])
-	if !ok {
-		return fmt.Errorf("unexpected node type %T", pendingNode)
+	tx, err := db.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin restore state transition: %w", err)
 	}
+	defer tx.Rollback()
 
-	pending := payloadNode.GetPayload()
-
-	// Find and remove target from pending
-	updatedPending, removedTarget, ok := pending.RemoveTarget(targetPath)
-	if !ok {
+	var exists int
+	if err := tx.QueryRow(`SELECT 1 FROM restore_content WHERE md5 = ? AND size = ?`, md5, size).Scan(&exists); err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("content not found in pending: %s, %d", md5, size)
+		}
+		return fmt.Errorf("find restore content: %w", err)
+	}
+	result, err := tx.Exec(`
+		UPDATE restore_targets SET state = ?
+		WHERE md5 = ? AND size = ? AND target_abs_path = ? AND state = ?`,
+		restoreStateCopied, md5, size, targetPath, restoreStatePending)
+	if err != nil {
+		return fmt.Errorf("move restore target to copied: %w", err)
+	}
+	updated, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("check restore state transition: %w", err)
+	}
+	if updated == 0 {
 		return fmt.Errorf("target %s not found in pending", targetPath)
 	}
-
-	// If pending is now empty, delete the node; otherwise update it
-	if len(updatedPending.Targets) == 0 {
-		if err := db.pendingColl.Delete(&key); err != nil {
-			return fmt.Errorf("failed to delete empty pending node: %w", err)
-		}
-	} else {
-		if err := db.pendingColl.UpdatePayload(&key, updatedPending); err != nil {
-			return fmt.Errorf("failed to update pending: %w", err)
-		}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit restore state transition: %w", err)
 	}
-
-	// Add to copied
-	copiedNode := db.copiedColl.Search(&key)
-	if copiedNode != nil {
-		// Append to existing copied node
-		payloadNode, ok := copiedNode.(treap.PersistentPayloadNodeInterface[restoreContentKey, RestoreTaskNode])
-		if !ok {
-			return fmt.Errorf("unexpected copied node type %T", copiedNode)
-		}
-		existing := payloadNode.GetPayload()
-		existing = existing.WithTarget(removedTarget, nil)
-		return db.copiedColl.UpdatePayload(&key, existing)
-	}
-
-	// Create new copied node
-	newCopied := NewRestoreTaskNode(removedTarget, md5, size, pending.BackupDests)
-	return db.copiedColl.Insert(&key, newCopied)
+	return nil
 }
 
-// CountPending returns the number of tasks in the pending collection.
+// CountPending returns the number of content groups with pending targets.
 func (db *RestoreDB) CountPending() (int, error) {
-	finisher, err := db.beginOp()
-	if err != nil {
-		return 0, err
-	}
-	defer finisher()
-
-	db.mu.Lock()
-	defer db.mu.Unlock()
-
-	count, err := db.pendingColl.Count()
-	return count, err
+	return db.countContentGroups(restoreStatePending)
 }
 
-// CountCopied returns the number of tasks in the copied collection.
+// CountCopied returns the number of content groups with copied targets.
 func (db *RestoreDB) CountCopied() (int, error) {
-	finisher, err := db.beginOp()
-	if err != nil {
-		return 0, err
-	}
-	defer finisher()
-
-	db.mu.Lock()
-	defer db.mu.Unlock()
-
-	count, err := db.copiedColl.Count()
-	return count, err
+	return db.countContentGroups(restoreStateCopied)
 }
 
-// CountPendingByBackupDest returns a map of backup destination to count of pending targets.
-// This allows reporting which volumes still have pending files to restore.
-func (db *RestoreDB) CountPendingByBackupDest() (map[string]int, error) {
-	finisher, err := db.beginOp()
+func (db *RestoreDB) countContentGroups(state string) (int, error) {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	if err := db.ensureOpenLocked(); err != nil {
+		return 0, err
+	}
+
+	var count int
+	err := db.db.QueryRow(`
+		SELECT COUNT(*) FROM (
+			SELECT md5, size FROM restore_targets WHERE state = ? GROUP BY md5, size
+		)`, state).Scan(&count)
 	if err != nil {
+		return 0, fmt.Errorf("count %s restore content: %w", state, err)
+	}
+	return count, nil
+}
+
+// CountPendingByBackupDest groups pending target counts by required backup volume.
+func (db *RestoreDB) CountPendingByBackupDest() (map[string]int, error) {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	if err := db.ensureOpenLocked(); err != nil {
 		return nil, err
 	}
-	defer finisher()
 
-	db.mu.Lock()
-	defer db.mu.Unlock()
+	rows, err := db.db.Query(`
+		SELECT content.backup_dests, COUNT(*)
+		FROM restore_content AS content
+		JOIN restore_targets AS target USING (md5, size)
+		WHERE target.state = ?
+		GROUP BY content.md5, content.size`, restoreStatePending)
+	if err != nil {
+		return nil, fmt.Errorf("count pending targets by backup volume: %w", err)
+	}
+	defer rows.Close()
 
 	result := make(map[string]int)
-
-	// Iterate through all pending content nodes
-	err = db.pendingColl.InOrderVisit(func(node treap.TreapNodeInterface[restoreContentKey]) error {
-		payloadNode, ok := node.(treap.PersistentPayloadNodeInterface[restoreContentKey, RestoreTaskNode])
-		if !ok {
-			return fmt.Errorf("unexpected node type %T", node)
+	for rows.Next() {
+		var destinationsJSON string
+		var targetCount int
+		if err := rows.Scan(&destinationsJSON, &targetCount); err != nil {
+			return nil, fmt.Errorf("read pending backup volume counts: %w", err)
 		}
-
-		payload := payloadNode.GetPayload()
-		// Each target needs this content from one of the backup destinations
-		for _, dest := range payload.BackupDests {
-			result[dest] += len(payload.Targets)
+		var destinations []string
+		if err := json.Unmarshal([]byte(destinationsJSON), &destinations); err != nil {
+			return nil, fmt.Errorf("decode pending backup volumes: %w", err)
 		}
-		return nil
-	})
-
-	if err != nil {
-		return nil, err
+		for _, destination := range destinations {
+			result[destination] += targetCount
+		}
 	}
-
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate pending backup volume counts: %w", err)
+	}
 	return result, nil
 }
 
-// Close closes the restore DB and releases resources.
+func (db *RestoreDB) ensureOpenLocked() error {
+	if db.closed {
+		return fmt.Errorf("RestoreDB is shutting down")
+	}
+	return nil
+}
+
+// Close closes the restore database and releases resources.
 func (db *RestoreDB) Close() error {
-	var closeErr error
 	db.closeOnce.Do(func() {
-		close(db.done)
-		db.opsWg.Wait()
-		close(db.persistQueue)
-		db.persistWg.Wait()
-		closeErr = db.session.Close()
+		db.mu.Lock()
+		defer db.mu.Unlock()
+		db.closed = true
+		db.closeErr = db.db.Close()
 	})
-	return closeErr
+	return db.closeErr
 }
 
 // WithRestoreDB opens a restore DB, runs fn, and always closes the DB.
