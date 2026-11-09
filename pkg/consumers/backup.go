@@ -3,6 +3,7 @@ package consumers
 import (
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -204,6 +205,8 @@ func scanSrcTree(
 	dwSrc.AddFileVisitor(srcVisitor)
 
 	if err := dwSrc.Walk(srcDir); err != nil {
+		prefix := fmt.Sprintf("[SOURCE SCAN ERROR] root=%q error=%v", srcDir, err)
+		core.LogMemoryStats(io.MultiWriter(os.Stderr, log.Writer()), prefix)
 		return fmt.Errorf("error scanning source: %w", err)
 	}
 	logFunc("Completed source scan")
@@ -540,6 +543,8 @@ func BackupRunner(
 	})
 
 	if err := dwDest.Walk(destDir); err != nil {
+		prefix := fmt.Sprintf("[DESTINATION SCAN ERROR] root=%q error=%v", destDir, err)
+		core.LogMemoryStats(io.MultiWriter(os.Stderr, log.Writer()), prefix)
 		return fmt.Errorf("error scanning destination: %w", err)
 	}
 
