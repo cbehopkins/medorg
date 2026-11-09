@@ -39,3 +39,6 @@ _testmain.go
 .github/*
 *.jsonl
 .vscode/**
+
+.agents/
+skills-lock.json

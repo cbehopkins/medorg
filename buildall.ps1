@@ -1,4 +1,7 @@
 #!/usr/bin/env pwsh
+
+# Build into the server spot...
+# .\buildall.ps1 -BaseBinDir 'P:\git'
 param(
     [string]$BaseBinDir
 )
