@@ -10,16 +10,21 @@ import (
 
 // RestoreDB manages the restore task collections (pending and copied).
 type RestoreDB struct {
-	session        *vault.VaultSession
-	pendingColl    *treap.PersistentPayloadTreap[restoreContentKey, RestoreTaskNode]
-	copiedColl     *treap.PersistentPayloadTreap[restoreContentKey, RestoreTaskNode]
-	filePath       string
-	mu             sync.Mutex
-	opsWg          sync.WaitGroup // Tracks active operations
-	done           chan struct{}   // Closed to signal shutdown
-	closeOnce      sync.Once       // Ensures Close is called only once
-	persistQueue   chan persistRequest
-	persistWg      sync.WaitGroup
+	session      *vault.VaultSession
+	pendingColl  *treap.PersistentPayloadTreap[restoreContentKey, RestoreTaskNode]
+	copiedColl   *treap.PersistentPayloadTreap[restoreContentKey, RestoreTaskNode]
+	filePath     string
+	mu           sync.Mutex
+	opsWg        sync.WaitGroup // Tracks active operations
+	done         chan struct{}  // Closed to signal shutdown
+	closeOnce    sync.Once      // Ensures Close is called only once
+	persistQueue chan persistRequest
+	persistWg    sync.WaitGroup
+}
+
+type persistRequest struct {
+	fn    func() error
+	errCh chan error
 }
 
 // OpenRestoreDB opens or creates a restore DB at the given path.
@@ -281,7 +286,7 @@ func (db *RestoreDB) CountPendingByBackupDest() (map[string]int, error) {
 		if !ok {
 			return fmt.Errorf("unexpected node type %T", node)
 		}
-		
+
 		payload := payloadNode.GetPayload()
 		// Each target needs this content from one of the backup destinations
 		for _, dest := range payload.BackupDests {

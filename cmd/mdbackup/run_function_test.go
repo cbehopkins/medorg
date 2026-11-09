@@ -74,6 +74,40 @@ func TestRunWithMissingSources(t *testing.T) {
 	}
 }
 
+func TestRunCancelledWithEmptyTrees(t *testing.T) {
+	root := t.TempDir()
+	srcDir := filepath.Join(root, "src")
+	dstDir := filepath.Join(root, "dst")
+	if err := os.MkdirAll(srcDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dstDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	xc := newXMLCfgAt(t, dstDir)
+	setupVolumeConfigs(t, xc, srcDir, dstDir)
+	shutdown := make(chan struct{})
+	close(shutdown)
+	var logBuf, msgBuf bytes.Buffer
+
+	exitCode, err := Run(Config{
+		ProjectConfig: xc,
+		Destination:   dstDir,
+		Sources:       []string{srcDir},
+		SkipCheckCalc: true,
+		ShutdownChan:  shutdown,
+		LogOutput:     &logBuf,
+		MessageWriter: &msgBuf,
+	})
+	if exitCode != cli.ExitIncompleteBackup {
+		t.Errorf("expected exit code %d, got %d", cli.ExitIncompleteBackup, exitCode)
+	}
+	if err == nil {
+		t.Fatal("expected cancelled backup to return an error")
+	}
+}
+
 // TestRunStatsMode tests Run with StatsMode=true
 func TestRunStatsMode(t *testing.T) {
 	tmpDir := t.TempDir()

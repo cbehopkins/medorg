@@ -173,7 +173,11 @@ func scanSrcTree(
 		}
 		checksum := fm.GetChecksum()
 
-		if dstPath, exists := bp.checkDstFileExists(checksum); exists {
+		dstPath, exists, err := bp.checkDstFileExists(checksum)
+		if err != nil {
+			return fmt.Errorf("check destination inventory for %s: %w", fp, err)
+		}
+		if exists {
 			// File already exists in destination with same checksum
 			// Add to srcFileCollection so Compare knows it's in both (not an orphan)
 			if err := bp.addSrcFile(checksum, fm.GetSize(), fm.BackupDestinations(), fp); err != nil {
@@ -221,13 +225,14 @@ func copyPendingFiles(
 	ignoreFunc func(path string) bool,
 	bp *BackupProcessor,
 	maxNumBackups int,
+	shutdownChan <-chan struct{},
 ) error {
 	if fileCopyCallback == nil {
 		return nil
 	}
 
 	logFunc("Starting file copy")
-	iter, err := bp.prioritizedSrcFiles(maxNumBackups)
+	iter, err := bp.prioritizedSrcFiles(maxNumBackups, shutdownChan)
 	if err != nil {
 		return err
 	}
@@ -235,29 +240,35 @@ func copyPendingFiles(
 	lastSize := int64(0)
 	targetSize := int64(0)
 	yieldCount := 0
-	for fd := range iter {
+	var copyErr error
+	iterErr := iter(func(fd fileData) bool {
+		if err := checkBackupShutdown(shutdownChan); err != nil {
+			copyErr = err
+			return false
+		}
 		yieldCount++
 		fp := fd.Fpath
 		fileSize := fd.Size
 		log.Printf("copyPendingFiles: processing file %d: %s (size: %d)", yieldCount, fp, fileSize)
 		if targetSize > 0 && fileSize > targetSize {
 			log.Println("copyPendingFiles Skipping as space probably insufficient")
-			continue
+			return true
 		}
 
 		// Determine which source root this file belongs to
 		srcRoot, found := findSourceRoot(srcDirs, fp.String())
 		if !found {
-			return fmt.Errorf("unable to determine source root for %s", fp)
+			copyErr = fmt.Errorf("unable to determine source root for %s", fp)
+			return false
 		}
 
 		if ignoreFunc != nil && ignoreFunc(fp.String()) {
 			log.Println("copyPendingFiles skipping as ignoreFunc")
-			continue
+			return true
 		}
 		if diskFilling && fileSize > lastSize {
 			logFunc("Completing copy due to disk full condition - and we've started getting larger files")
-			break
+			return false
 		}
 		lastSize = fileSize
 
@@ -267,7 +278,7 @@ func copyPendingFiles(
 			log.Println("doACopy Error during file copy:", err)
 			if errors.Is(err, ErrDummyCopy) {
 				// Dummy copy: no actual work done, skip BackupProcessor updates
-				continue
+				return true
 			}
 			if errors.Is(err, ErrNoSpace) {
 				// Check if we have detailed progress information
@@ -286,22 +297,32 @@ func copyPendingFiles(
 				}
 				// Move onto the next file which should be smaller
 				diskFilling = true
-				continue
+				return true
 			}
-			return err
+			copyErr = err
+			return false
 		}
 		log.Println("copyPendingFiles: finished ", fp)
 
 		// Update BackupProcessor's internal state (doACopy already updated DirectoryMaps)
 		rel, err := filepath.Rel(srcRoot, fp.String())
 		if err != nil {
-			return err
+			copyErr = err
+			return false
 		}
 		dstPath := core.NewFpath(destDir, rel)
 		if err := bp.addDstFile(fs.Checksum, fs.Size, fs.BackupDest, dstPath); err != nil {
 			log.Printf("ERROR: addDstFile failed after processing %d files: %v (file: %s)", yieldCount, err, fp)
-			return err
+			copyErr = err
+			return false
 		}
+		return true
+	})
+	if copyErr != nil {
+		return copyErr
+	}
+	if iterErr != nil {
+		return iterErr
 	}
 
 	log.Printf("Completed iteration: successfully processed %d files", yieldCount)
@@ -471,6 +492,13 @@ func BackupRunner(
 	if len(srcDirs) == 0 {
 		return fmt.Errorf("at least one source directory required")
 	}
+	if shutdownChan != nil {
+		select {
+		case <-shutdownChan:
+			return fmt.Errorf("shutdown requested")
+		default:
+		}
+	}
 	if logFunc == nil {
 		logFunc = func(msg string) {
 			log.Println(msg)
@@ -566,19 +594,31 @@ func BackupRunner(
 	// Phase 3: delete orphans now that all sources are known
 	if orphanFunc != nil {
 		logFunc("Reporting orphaned destination files")
-		orphansIter, err := bp.getOrphanFiles()
+		orphansIter, err := bp.getOrphanFiles(shutdownChan)
 		if err != nil {
 			return err
 		}
-		for orphan := range orphansIter {
-			if err := orphanFunc(orphan.String()); err != nil {
-				return err
+		var orphanErr error
+		if err := orphansIter(func(orphan core.Fpath) bool {
+			if shutdownErr := checkBackupShutdown(shutdownChan); shutdownErr != nil {
+				orphanErr = shutdownErr
+				return false
 			}
+			if err := orphanFunc(orphan.String()); err != nil {
+				orphanErr = err
+				return false
+			}
+			return true
+		}); err != nil {
+			return err
+		}
+		if orphanErr != nil {
+			return orphanErr
 		}
 	}
 
 	// Phase 4: perform copies using the populated plan
-	if err := copyPendingFiles(srcDirs, destDir, backupLabelName, fileCopyCallback, logFunc, ignoreFunc, bp, maxNumBackups); err != nil {
+	if err := copyPendingFiles(srcDirs, destDir, backupLabelName, fileCopyCallback, logFunc, ignoreFunc, bp, maxNumBackups, shutdownChan); err != nil {
 		return err
 	}
 
