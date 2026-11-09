@@ -16,6 +16,11 @@ const (
 	restoreStateCopied  = "copied"
 )
 
+type restoreContent struct {
+	key         restoreContentKey
+	backupDests []string
+}
+
 // RestoreDB manages persistent restore targets for one active restore context.
 type RestoreDB struct {
 	db        *sql.DB
@@ -110,7 +115,8 @@ func (db *RestoreDB) InsertPending(target *RestoreTaskTarget, md5 string, size i
 	}
 	defer tx.Rollback()
 
-	if err := mergeRestoreContentDestinations(tx, md5, size, backupDests); err != nil {
+	content := restoreContent{key: NewRestoreContentKey(md5, size), backupDests: backupDests}
+	if err := mergeRestoreContentDestinations(tx, content); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(`
@@ -119,7 +125,7 @@ func (db *RestoreDB) InsertPending(target *RestoreTaskTarget, md5 string, size i
 			updated_at_unix, completed_at_unix, copy_source_path, state
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (md5, size, target_abs_path) DO NOTHING`,
-		md5, size, target.TargetAbsPath, target.TaskID, target.Alias,
+		content.key.MD5, content.key.Size, target.TargetAbsPath, target.TaskID, target.Alias,
 		target.CreatedAtUnix, target.UpdatedAtUnix, target.CompletedAtUnix,
 		target.CopySourcePath, restoreStatePending); err != nil {
 		return fmt.Errorf("insert pending restore target: %w", err)
@@ -144,7 +150,8 @@ func (db *RestoreDB) InsertCopied(target *RestoreTaskTarget, md5 string, size in
 	}
 	defer tx.Rollback()
 
-	if err := mergeRestoreContentDestinations(tx, md5, size, backupDests); err != nil {
+	content := restoreContent{key: NewRestoreContentKey(md5, size), backupDests: backupDests}
+	if err := mergeRestoreContentDestinations(tx, content); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(`
@@ -153,7 +160,7 @@ func (db *RestoreDB) InsertCopied(target *RestoreTaskTarget, md5 string, size in
 			updated_at_unix, completed_at_unix, copy_source_path, state
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (md5, size, target_abs_path) DO UPDATE SET state = excluded.state`,
-		md5, size, target.TargetAbsPath, target.TaskID, target.Alias,
+		content.key.MD5, content.key.Size, target.TargetAbsPath, target.TaskID, target.Alias,
 		target.CreatedAtUnix, target.UpdatedAtUnix, target.CompletedAtUnix,
 		target.CopySourcePath, restoreStateCopied); err != nil {
 		return fmt.Errorf("insert copied restore target: %w", err)
@@ -164,10 +171,10 @@ func (db *RestoreDB) InsertCopied(target *RestoreTaskTarget, md5 string, size in
 	return nil
 }
 
-func mergeRestoreContentDestinations(tx *sql.Tx, md5 string, size int64, backupDests []string) error {
+func mergeRestoreContentDestinations(tx *sql.Tx, content restoreContent) error {
 	var existingJSON string
 	var existing []string
-	err := tx.QueryRow(`SELECT backup_dests FROM restore_content WHERE md5 = ? AND size = ?`, md5, size).Scan(&existingJSON)
+	err := tx.QueryRow(`SELECT backup_dests FROM restore_content WHERE md5 = ? AND size = ?`, content.key.MD5, content.key.Size).Scan(&existingJSON)
 	switch {
 	case err == nil:
 		if err := json.Unmarshal([]byte(existingJSON), &existing); err != nil {
@@ -177,14 +184,14 @@ func mergeRestoreContentDestinations(tx *sql.Tx, md5 string, size int64, backupD
 		return fmt.Errorf("read restore content: %w", err)
 	}
 
-	mergedJSON, err := json.Marshal(mergeBackupDestinations(existing, backupDests))
+	mergedJSON, err := json.Marshal(mergeBackupDestinations(existing, content.backupDests))
 	if err != nil {
 		return fmt.Errorf("encode restore backup destinations: %w", err)
 	}
 	if _, err := tx.Exec(`
 		INSERT INTO restore_content (md5, size, backup_dests) VALUES (?, ?, ?)
 		ON CONFLICT (md5, size) DO UPDATE SET backup_dests = excluded.backup_dests`,
-		md5, size, string(mergedJSON)); err != nil {
+		content.key.MD5, content.key.Size, string(mergedJSON)); err != nil {
 		return fmt.Errorf("save restore content: %w", err)
 	}
 	return nil
