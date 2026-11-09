@@ -6,6 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/cbehopkins/medorg/pkg/consumers"
+	"github.com/cbehopkins/medorg/pkg/core"
 )
 
 // TestFullBackupRestoreWorkflow is an end-to-end integration test that:
@@ -26,13 +29,12 @@ func TestFullBackupRestoreWorkflow(t *testing.T) {
 	sourceDir := filepath.Join(tmpRoot, "source")
 	vol1Dir := filepath.Join(tmpRoot, "VOL1")
 	vol2Dir := filepath.Join(tmpRoot, "VOL2")
-	vol3Dir := filepath.Join(tmpRoot, "VOL3")
 	journalFile := filepath.Join(tmpRoot, "backup.journal.xml")
 	restoreDir := filepath.Join(tmpRoot, "restored")
 	dbFile := filepath.Join(tmpRoot, "restore.db")
 	testConfigFile := filepath.Join(tmpRoot, "test.mdcfg.xml")
 
-	for _, dir := range []string{sourceDir, vol1Dir, vol2Dir, vol3Dir, restoreDir} {
+	for _, dir := range []string{sourceDir, vol1Dir, vol2Dir, restoreDir} {
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			t.Fatalf("Failed to create dir %s: %v", dir, err)
 		}
@@ -106,65 +108,89 @@ func TestFullBackupRestoreWorkflow(t *testing.T) {
 	}
 	t.Logf("Found %d .medorg.xml files", len(medorgFiles))
 
+	backupVolumes := []struct {
+		dir           string
+		sourceSubdirs []string
+	}{
+		{dir: vol1Dir, sourceSubdirs: []string{"photos", "music"}},
+		{dir: vol2Dir, sourceSubdirs: []string{"docs", "videos", "archive"}},
+	}
+	volumeForSourceSubdir := make(map[string]string)
+	for _, volume := range backupVolumes {
+		for _, sourceSubdir := range volume.sourceSubdirs {
+			volumeForSourceSubdir[sourceSubdir] = volume.dir
+		}
+	}
+
 	// Label volumes before backup (mdlabel generates random labels)
 	t.Log("Labeling backup volumes...")
-	for _, volInfo := range []struct {
-		dir  string
-		name string
-	}{
-		{vol1Dir, "VOL1"},
-		{vol2Dir, "VOL2"},
-		{vol3Dir, "VOL3"},
-	} {
+	for _, volume := range backupVolumes {
 		// Create label using mdlabel
-		cmd = exec.Command(mdlabelBin, "create", volInfo.dir)
+		cmd = exec.Command(mdlabelBin, "create", volume.dir)
 		output, err := cmd.CombinedOutput()
 		if err != nil {
-			t.Fatalf("mdlabel create failed for %s: %v\nOutput: %s", volInfo.dir, err, output)
+			t.Fatalf("mdlabel create failed for %s: %v\nOutput: %s", filepath.Base(volume.dir), err, output)
 		}
 		// Read back the label using mdlabel show
-		cmd = exec.Command(mdlabelBin, "show", volInfo.dir)
+		cmd = exec.Command(mdlabelBin, "show", volume.dir)
 		labelOutput, err := cmd.CombinedOutput()
 		if err != nil {
-			t.Logf("Warning: Could not read label for %s: %v", volInfo.name, err)
+			t.Logf("Warning: Could not read label for %s: %v", filepath.Base(volume.dir), err)
 		} else {
 			if strings.TrimSpace(string(labelOutput)) == "" {
-				t.Logf("Warning: Empty label output for %s", volInfo.name)
+				t.Logf("Warning: Empty label output for %s", filepath.Base(volume.dir))
 			} else {
-				t.Logf("Created label for %s", volInfo.name)
+				t.Logf("Created label for %s", filepath.Base(volume.dir))
 			}
 		}
 	}
 
 	// Step 2: Backup to multiple volumes
-	t.Log("Step 2: Backing up to VOL1...")
-	cmd = exec.Command(mdbackupBin, vol1Dir, sourceDir)
-	cmd.Env = append(os.Environ(), "MEDORG_NO_PROGRESS=1", "NO_COLOR=1", "TERM=dumb")
-	err = cmd.Run()
-	if err != nil {
-		t.Fatalf("mdbackup VOL1 failed: %v", err)
+	for _, volume := range backupVolumes {
+		t.Logf("Backing up to %s...", filepath.Base(volume.dir))
+		args := []string{volume.dir}
+		for _, sourceSubdir := range volume.sourceSubdirs {
+			args = append(args, filepath.Join(sourceDir, sourceSubdir))
+		}
+		cmd = exec.Command(mdbackupBin, args...)
+		cmd.Env = append(os.Environ(), "MEDORG_NO_PROGRESS=1", "NO_COLOR=1", "TERM=dumb")
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("mdbackup %s failed: %v\nOutput: %s", filepath.Base(volume.dir), err, output)
+		}
+		t.Logf("mdbackup %s completed", filepath.Base(volume.dir))
 	}
-	t.Log("mdbackup VOL1 completed")
 
-	// Backup remaining files to VOL2
-	t.Log("Step 2b: Backing up remaining to VOL2...")
-	cmd = exec.Command(mdbackupBin, vol2Dir, sourceDir)
-	cmd.Env = append(os.Environ(), "MEDORG_NO_PROGRESS=1", "NO_COLOR=1", "TERM=dumb")
-	err = cmd.Run()
-	if err != nil {
-		t.Fatalf("mdbackup VOL2 failed: %v", err)
-	}
-	t.Log("mdbackup VOL2 completed")
+	for relPath := range testFiles {
+		relDir := filepath.Dir(relPath)
+		sourceFileDir := sourceDir
+		if relDir != "." {
+			sourceFileDir = filepath.Join(sourceDir, relDir)
+		}
+		sourceMap, err := core.DirectoryMapFromDir(core.Dirname(sourceFileDir), nil)
+		if err != nil {
+			t.Fatalf("Failed to read source metadata for %s: %v", relPath, err)
+		}
+		sourceFile, ok := sourceMap.Get(core.Fname(filepath.Base(relPath)))
+		if !ok {
+			t.Fatalf("Source metadata missing for %s", relPath)
+		}
+		if sourceFile.Checksum == "" || len(sourceFile.BackupDest) == 0 {
+			t.Fatalf("Source metadata for %s is missing checksum or backup destinations: %+v", relPath, sourceFile)
+		}
 
-	// Backup any remaining to VOL3
-	t.Log("Step 2c: Backing up remaining to VOL3...")
-	cmd = exec.Command(mdbackupBin, vol3Dir, sourceDir)
-	cmd.Env = append(os.Environ(), "MEDORG_NO_PROGRESS=1", "NO_COLOR=1", "TERM=dumb")
-	err = cmd.Run()
-	if err != nil {
-		t.Fatalf("mdbackup VOL3 failed: %v", err)
+		volumeDir, ok := volumeForSourceSubdir[relDir]
+		if !ok {
+			t.Fatalf("No backup volume configured for source directory %s", relDir)
+		}
+		volumeMap, err := core.DirectoryMapFromDir(core.Dirname(volumeDir), nil)
+		if err != nil {
+			t.Fatalf("Failed to read volume metadata for %s on %s: %v", relPath, volumeDir, err)
+		}
+		volumeFile, ok := volumeMap.Get(core.Fname(filepath.Base(relPath)))
+		if !ok || volumeFile.Checksum != sourceFile.Checksum {
+			t.Fatalf("Backup metadata for %s does not match expected volume %s", relPath, filepath.Base(volumeDir))
+		}
 	}
-	t.Log("mdbackup VOL3 completed")
 
 	// Label the source directory before journaling so mdjournal recognizes it
 	t.Log("Step 3a: Labeling source directory with mdlabel...")
@@ -250,9 +276,17 @@ func TestFullBackupRestoreWorkflow(t *testing.T) {
 	}
 	t.Logf("mdrestore copy VOL1 output: %s", output)
 
-	// Verify volume reporting shows remaining volumes
-	if !strings.Contains(string(output), "Remaining pending files by backup volume") {
-		t.Log("Warning: Volume reporting not shown in output")
+	// VOL1 intentionally contains only part of the backup, so pending work must remain.
+	expectedCopiedAfterVOL1 := 0
+	for relPath := range testFiles {
+		if volumeForSourceSubdir[filepath.Dir(relPath)] == vol1Dir {
+			expectedCopiedAfterVOL1++
+		}
+	}
+	pendingAfterVOL1, copiedAfterVOL1 := readRestoreCounts(t, dbFile)
+	if pendingAfterVOL1 != len(testFiles)-expectedCopiedAfterVOL1 || copiedAfterVOL1 != expectedCopiedAfterVOL1 {
+		t.Fatalf("Unexpected restore state after VOL1: pending=%d copied=%d; want pending=%d copied=%d",
+			pendingAfterVOL1, copiedAfterVOL1, len(testFiles)-expectedCopiedAfterVOL1, expectedCopiedAfterVOL1)
 	}
 
 	// Step 5b: Restore from VOL2
@@ -263,15 +297,6 @@ func TestFullBackupRestoreWorkflow(t *testing.T) {
 		t.Fatalf("mdrestore copy VOL2 failed: %v\nOutput: %s", err, output)
 	}
 	t.Logf("mdrestore copy VOL2 output: %s", output)
-
-	// Step 5c: Restore from VOL3
-	t.Log("Step 5c: Restoring from VOL3...")
-	cmd = exec.Command(mdrestoreBin, "copy", "--config", testConfigFile, "--db", dbFile, vol3Dir)
-	output, err = cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("mdrestore copy VOL3 failed: %v\nOutput: %s", err, output)
-	}
-	t.Logf("mdrestore copy VOL3 output: %s", output)
 
 	// Step 6: Compare original and restored directories
 	t.Log("Step 6: Comparing original and restored files...")
@@ -292,61 +317,7 @@ func TestFullBackupRestoreWorkflow(t *testing.T) {
 	})
 
 	if restoredCount == 0 {
-		t.Log("No files found in restore directory; checking backup volumes for integrity")
-		t.Log("Checking volumes to see if files were copied...")
-
-		// Instead, let's verify files are present in the backup volumes
-		vol1Count := countFiles(vol1Dir)
-		vol2Count := countFiles(vol2Dir)
-		vol3Count := countFiles(vol3Dir)
-
-		t.Logf("VOL1 contains %d files", vol1Count)
-		t.Logf("VOL2 contains %d files", vol2Count)
-		t.Logf("VOL3 contains %d files", vol3Count)
-
-		totalBackedUp := vol1Count + vol2Count + vol3Count
-		if totalBackedUp == 0 {
-			t.Fatalf("No files were backed up to any volume")
-		}
-
-		t.Logf("Total files backed up across all volumes: %d (expected: %d)", totalBackedUp, len(testFiles))
-
-		// Verify at least some files were backed up
-		if totalBackedUp < len(testFiles) {
-			t.Logf("Warning: Not all files were backed up (backed up %d, created %d)", totalBackedUp, len(testFiles))
-		}
-
-		// Verify content integrity of backed up files
-		t.Log("Verifying content integrity of backed up files...")
-		matchCount := 0
-		for relPath, originalContent := range testFiles {
-			found := false
-			for _, volDir := range []string{vol1Dir, vol2Dir, vol3Dir} {
-				// Check if file exists in this volume
-				checkPath := filepath.Join(volDir, relPath)
-				content, err := os.ReadFile(checkPath)
-				if err == nil {
-					found = true
-					if string(content) != originalContent {
-						t.Errorf("Content mismatch for %s in %s", relPath, volDir)
-					} else {
-						matchCount++
-					}
-					break
-				}
-			}
-			if !found {
-				t.Logf("Warning: File %s not found in any volume", relPath)
-			}
-		}
-
-		t.Logf("Content verification: %d/%d files matched", matchCount, len(testFiles))
-
-		if matchCount == 0 {
-			t.Fatalf("No files matched - backup may have failed")
-		}
-
-		return // Skip restored directory content verification
+		t.Fatal("No files found in restore directory")
 	}
 
 	t.Logf("Found %d files in restore directory", restoredCount)
@@ -386,24 +357,38 @@ func TestFullBackupRestoreWorkflow(t *testing.T) {
 
 	t.Logf("Verified %d/%d files successfully restored with correct content", verifiedCount, len(testFiles))
 
-	if verifiedCount == 0 {
-		t.Fatalf("No files were successfully verified - restore may have failed")
+	if verifiedCount != len(testFiles) {
+		t.Fatalf("Verified %d/%d files; expected every file to be restored", verifiedCount, len(testFiles))
+	}
+
+	pendingCount, copiedCount := readRestoreCounts(t, dbFile)
+	if pendingCount != 0 || copiedCount != len(testFiles) {
+		t.Fatalf("Unexpected restore state: pending content=%d, copied content=%d; want 0 and %d", pendingCount, copiedCount, len(testFiles))
 	}
 
 	t.Log("Integration test completed successfully")
 }
 
-// countFiles counts the number of regular files in a directory tree
-func countFiles(dir string) int {
-	count := 0
-	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return nil
+func readRestoreCounts(t *testing.T, dbPath string) (int, int) {
+	t.Helper()
+
+	db, err := consumers.OpenRestoreDB(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to open restore database: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("Failed to close restore database: %v", err)
 		}
-		if !info.IsDir() && info.Name() != ".medorg.xml" {
-			count++
-		}
-		return nil
 	})
-	return count
+
+	pendingCount, err := db.CountPending()
+	if err != nil {
+		t.Fatalf("Failed to count pending restore content: %v", err)
+	}
+	copiedCount, err := db.CountCopied()
+	if err != nil {
+		t.Fatalf("Failed to count copied restore content: %v", err)
+	}
+	return pendingCount, copiedCount
 }

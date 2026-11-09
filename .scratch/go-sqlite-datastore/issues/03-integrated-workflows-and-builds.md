@@ -4,10 +4,14 @@
 
 **Blocked by:** 01: Move Backup Inventory and Priority Planning to SQLite; 02: Move Restore-Context State to SQLite.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] An end-to-end backup and multi-volume restore verifies restored file contents and expected backup and restore metadata.
-- [ ] The full Go test suite is run; existing failures are distinguished from regressions, and no new failures remain.
-- [ ] The existing Linux, macOS, and Windows architecture targets build successfully with the pure-Go SQLite driver and without a CGO toolchain requirement.
-- [ ] Tests assert user-visible behavior and public store contracts, not SQLite schema, indexes, query text, or driver internals.
-- [ ] Python tests and behavior remain unchanged by the Go migration.
+- [x] An end-to-end backup and multi-volume restore verifies restored file contents and expected backup and restore metadata.
+- [x] The full Go test suite is run; existing failures are distinguished from regressions, and no new failures remain.
+- [x] The existing Linux, macOS, and Windows architecture targets build successfully with the pure-Go SQLite driver and without a CGO toolchain requirement.
+- [x] Tests assert user-visible behavior and public store contracts, not SQLite schema, indexes, query text, or driver internals.
+- [x] Python tests and behavior remain unchanged by the Go migration.
+
+## Comments
+
+Strengthened `cmd/mdrestore`'s end-to-end test to require all expected restored contents, verify source and volume `.medorg.xml` metadata, and check completed/pending restore counts through the public store API. Validation passed: focused workflow test; `go test ./...`; all 30 supported target-command builds with `CGO_ENABLED=0`; Python suite (`74 passed, 1 skipped`).

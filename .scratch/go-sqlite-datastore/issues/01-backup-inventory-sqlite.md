@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] Source and destination content are grouped by checksum, repeated-content destination metadata is merged, and the current source-path selection behavior is preserved.
 - [x] Content already on the destination or exceeding the configured backup limit is excluded using the current production boundary behavior.
@@ -15,3 +15,7 @@
 - [x] Large query results are iterated without materialising the full inventory or candidate set in Go memory.
 - [x] The temporary backup database and its SQLite sidecar files are removed when the backup run closes, including error paths.
 - [x] Workflow-level tests verify resulting file contents, metadata, ordering where observable, orphan behavior, and destination-full fallback without asserting SQLite schema or query internals.
+
+## Comments
+
+Implementation and acceptance checks are complete. The integrated backup/restore workflow, full Go test suite, and all supported command builds with `CGO_ENABLED=0` passed.
