@@ -1,10 +1,58 @@
 package core
 
 import (
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
+	"syscall"
 	"testing"
 )
+
+type metadataReadTestReader struct {
+	reader io.Reader
+	err    error
+}
+
+func (reader metadataReadTestReader) Read(buffer []byte) (int, error) {
+	if len(buffer) > 4096 {
+		return 0, syscall.ENOMEM
+	}
+	if reader.err != nil {
+		return 0, reader.err
+	}
+	return reader.reader.Read(buffer)
+}
+
+func TestReadDirectoryMapXMLBoundsReadRequests(t *testing.T) {
+	for _, size := range []int{0, 4095, 4096, 4097, 188631} {
+		t.Run(strconv.Itoa(size), func(t *testing.T) {
+			content := strings.Repeat("x", size)
+			reader := metadataReadTestReader{reader: strings.NewReader(content)}
+			data, err := readDirectoryMapXML(reader)
+			if err != nil {
+				t.Fatalf("read metadata: %v", err)
+			}
+			if string(data) != content {
+				t.Fatalf("metadata changed: got %d bytes, want %d", len(data), len(content))
+			}
+		})
+	}
+}
+
+func TestReadDirectoryMapXMLPropagatesReadError(t *testing.T) {
+	expectedErr := errors.New("metadata read failed")
+	reader := io.MultiReader(strings.NewReader("partial"), metadataReadTestReader{err: expectedErr})
+	data, err := readDirectoryMapXML(reader)
+	if !errors.Is(err, expectedErr) {
+		t.Fatalf("got error %v, want %v", err, expectedErr)
+	}
+	if string(data) != "partial" {
+		t.Fatalf("got partial data %q, want %q", data, "partial")
+	}
+}
 
 // TestDeleteMissingFiles verifies that DeleteMissingFiles correctly removes
 // file entries that exist in the DirectoryMap but not on disk

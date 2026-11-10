@@ -17,7 +17,10 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const backupQueryBatchSize = 128
+const (
+	backupQueryBatchSize = 128
+	backupWriteBatchSize = 128
+)
 
 var errBackupShutdown = errors.New("BackupProcessor is shutting down")
 
@@ -98,6 +101,9 @@ func (f fileData) SizeInBytes() int {
 
 type BackupProcessor struct {
 	db        *sql.DB
+	tx        *sql.Tx
+	txWrites  int
+	batchSize int
 	tempDir   string
 	mu        sync.Mutex
 	closed    bool
@@ -118,6 +124,10 @@ type orphanCursor struct {
 }
 
 func NewBackupProcessor() (*BackupProcessor, error) {
+	return newBackupProcessor(backupWriteBatchSize)
+}
+
+func newBackupProcessor(batchSize int) (*BackupProcessor, error) {
 	tempDir, err := os.MkdirTemp("", "medorg-backup-inventory-*")
 	if err != nil {
 		return nil, fmt.Errorf("create backup inventory directory: %w", err)
@@ -128,7 +138,7 @@ func NewBackupProcessor() (*BackupProcessor, error) {
 		return nil, fmt.Errorf("open backup inventory database: %w", err)
 	}
 	db.SetMaxOpenConns(1)
-	bp := &BackupProcessor{db: db, tempDir: tempDir}
+	bp := &BackupProcessor{db: db, tempDir: tempDir, batchSize: batchSize}
 	if err := db.Ping(); err != nil {
 		_ = bp.Close()
 		return nil, fmt.Errorf("connect to backup inventory database: %w", err)
@@ -170,6 +180,9 @@ func (bp *BackupProcessor) Close() error {
 		bp.mu.Lock()
 		defer bp.mu.Unlock()
 		bp.closed = true
+		if err := bp.flushLocked(); err != nil {
+			bp.closeErr = errors.Join(bp.closeErr, fmt.Errorf("commit backup inventory batch: %w", err))
+		}
 		if err := bp.db.Close(); err != nil {
 			bp.closeErr = errors.Join(bp.closeErr, fmt.Errorf("close backup inventory database: %w", err))
 		}
@@ -187,6 +200,36 @@ func (bp *BackupProcessor) ensureOpenLocked() error {
 	return nil
 }
 
+func (bp *BackupProcessor) transactionLocked() (*sql.Tx, error) {
+	if bp.tx != nil {
+		return bp.tx, nil
+	}
+	tx, err := bp.db.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("begin backup inventory batch: %w", err)
+	}
+	bp.tx = tx
+	return tx, nil
+}
+
+func (bp *BackupProcessor) recordWriteLocked() error {
+	bp.txWrites++
+	if bp.txWrites >= bp.batchSize {
+		return bp.flushLocked()
+	}
+	return nil
+}
+
+func (bp *BackupProcessor) flushLocked() error {
+	if bp.tx == nil {
+		return nil
+	}
+	tx := bp.tx
+	bp.tx = nil
+	bp.txWrites = 0
+	return tx.Commit()
+}
+
 func (bp *BackupProcessor) addSrcFile(checksum string, size int64, backupDest []string, file core.Fpath) error {
 	key, _, err := md5KeyFromString(checksum)
 	if err != nil {
@@ -200,14 +243,21 @@ func (bp *BackupProcessor) addSrcFile(checksum string, size int64, backupDest []
 		return err
 	}
 
+	tx, err := bp.transactionLocked()
+	if err != nil {
+		return err
+	}
 	var existingPath, destinationsJSON string
 	var existingSize int64
-	err = bp.db.QueryRow(
+	err = tx.QueryRow(
 		"SELECT size, backup_destinations, path FROM source_inventory WHERE checksum = ?",
 		checksum,
 	).Scan(&existingSize, &destinationsJSON, &existingPath)
 	if errors.Is(err, sql.ErrNoRows) {
-		return insertInventoryFile(bp.db, "source_inventory", checksum, size, backupDest, file)
+		if err := insertInventoryFile(tx, "source_inventory", checksum, size, backupDest, file); err != nil {
+			return err
+		}
+		return bp.recordWriteLocked()
 	}
 	if err != nil {
 		return fmt.Errorf("read source inventory entry %q: %w", checksum, err)
@@ -226,7 +276,7 @@ func (bp *BackupProcessor) addSrcFile(checksum string, size int64, backupDest []
 	if err != nil {
 		return fmt.Errorf("encode source inventory destinations for %q: %w", checksum, err)
 	}
-	_, err = bp.db.Exec(
+	_, err = tx.Exec(
 		`UPDATE source_inventory
 		 SET size = ?, backup_count = ?, backup_destinations = ?, path = ?
 		 WHERE checksum = ?`,
@@ -235,7 +285,7 @@ func (bp *BackupProcessor) addSrcFile(checksum string, size int64, backupDest []
 	if err != nil {
 		return fmt.Errorf("update source inventory entry %q: %w", checksum, err)
 	}
-	return nil
+	return bp.recordWriteLocked()
 }
 
 func (bp *BackupProcessor) addDstFile(checksum string, size int64, backupDest []string, file core.Fpath) error {
@@ -251,13 +301,20 @@ func (bp *BackupProcessor) addDstFile(checksum string, size int64, backupDest []
 		return err
 	}
 
+	tx, err := bp.transactionLocked()
+	if err != nil {
+		return err
+	}
 	var destinationsJSON string
-	err = bp.db.QueryRow(
+	err = tx.QueryRow(
 		"SELECT backup_destinations FROM destination_inventory WHERE checksum = ?",
 		checksum,
 	).Scan(&destinationsJSON)
 	if errors.Is(err, sql.ErrNoRows) {
-		return insertInventoryFile(bp.db, "destination_inventory", checksum, size, backupDest, file)
+		if err := insertInventoryFile(tx, "destination_inventory", checksum, size, backupDest, file); err != nil {
+			return err
+		}
+		return bp.recordWriteLocked()
 	}
 	if err != nil {
 		return fmt.Errorf("read destination inventory entry %q: %w", checksum, err)
@@ -271,24 +328,25 @@ func (bp *BackupProcessor) addDstFile(checksum string, size int64, backupDest []
 	if err != nil {
 		return fmt.Errorf("encode destination inventory destinations for %q: %w", checksum, err)
 	}
-	_, err = bp.db.Exec(
+	merged := mergeBackupDestinations(existingDestinations, backupDest)
+	_, err = tx.Exec(
 		`UPDATE destination_inventory
 		 SET backup_count = ?, backup_destinations = ?
 		 WHERE checksum = ?`,
-		len(mergeBackupDestinations(existingDestinations, backupDest)), string(mergedJSON), checksum,
+		len(merged), string(mergedJSON), checksum,
 	)
 	if err != nil {
 		return fmt.Errorf("update destination inventory entry %q: %w", checksum, err)
 	}
-	return nil
+	return bp.recordWriteLocked()
 }
 
-func insertInventoryFile(db *sql.DB, table, checksum string, size int64, backupDest []string, file core.Fpath) error {
+func insertInventoryFile(tx *sql.Tx, table, checksum string, size int64, backupDest []string, file core.Fpath) error {
 	destinationsJSON, err := json.Marshal(backupDest)
 	if err != nil {
 		return fmt.Errorf("encode backup destinations for %q: %w", checksum, err)
 	}
-	_, err = db.Exec(
+	_, err = tx.Exec(
 		"INSERT INTO "+table+" (checksum, size, backup_count, backup_destinations, path) VALUES (?, ?, ?, ?, ?)",
 		checksum, size, len(backupDest), string(destinationsJSON), file.String(),
 	)
@@ -311,7 +369,11 @@ func (bp *BackupProcessor) checkDstFileExists(checksum string) (core.Fpath, bool
 		return core.Fpath{}, false, err
 	}
 	var path string
-	err = bp.db.QueryRow("SELECT path FROM destination_inventory WHERE checksum = ?", checksum).Scan(&path)
+	if bp.tx != nil {
+		err = bp.tx.QueryRow("SELECT path FROM destination_inventory WHERE checksum = ?", checksum).Scan(&path)
+	} else {
+		err = bp.db.QueryRow("SELECT path FROM destination_inventory WHERE checksum = ?", checksum).Scan(&path)
+	}
 	if errors.Is(err, sql.ErrNoRows) {
 		return core.Fpath{}, false, nil
 	}
@@ -335,6 +397,10 @@ func (bp *BackupProcessor) getOrphanFiles(shutdown <-chan struct{}) (func(yield 
 			if err := bp.ensureOpenLocked(); err != nil {
 				bp.mu.Unlock()
 				return err
+			}
+			if err := bp.flushLocked(); err != nil {
+				bp.mu.Unlock()
+				return fmt.Errorf("commit backup inventory before orphan query: %w", err)
 			}
 			rows, err := bp.db.QueryContext(ctx, `
 				SELECT d.path, d.checksum
@@ -404,6 +470,10 @@ func (bp *BackupProcessor) prioritizedSrcFiles(maxNumBackups int, shutdown <-cha
 			if err := bp.ensureOpenLocked(); err != nil {
 				bp.mu.Unlock()
 				return err
+			}
+			if err := bp.flushLocked(); err != nil {
+				bp.mu.Unlock()
+				return fmt.Errorf("commit backup inventory before priority query: %w", err)
 			}
 			rows, err := bp.db.QueryContext(ctx, `
 				SELECT s.size, s.backup_destinations, s.path, s.backup_count, s.checksum

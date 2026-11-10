@@ -488,7 +488,7 @@ func BackupRunner(
 	skipCheckCalc bool,
 	ignoreFunc func(path string) bool,
 	srcDirs ...string,
-) error {
+) (runErr error) {
 	if len(srcDirs) == 0 {
 		return fmt.Errorf("at least one source directory required")
 	}
@@ -508,7 +508,11 @@ func BackupRunner(
 	if err != nil {
 		return err
 	}
-	defer bp.Close()
+	defer func() {
+		if closeErr := bp.Close(); closeErr != nil {
+			runErr = errors.Join(runErr, closeErr)
+		}
+	}()
 	backupLabelName, err := volumeLabel.GetVolumeLabel(destDir)
 	if err != nil {
 		return err

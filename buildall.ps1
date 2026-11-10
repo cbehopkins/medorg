@@ -46,7 +46,7 @@ foreach ($target in $Targets.Keys) {
         if ($GOOS -eq "windows") {
             $OutputPath += ".exe"
         }
-        & go build -o $OutputPath "./cmd/$cmd"
+        & go build -tags debugpprof -o $OutputPath "./cmd/$cmd"
         if ($LASTEXITCODE -ne 0) {
             throw "Build failed for $cmd on $GOOS/$GOARCH"
         }

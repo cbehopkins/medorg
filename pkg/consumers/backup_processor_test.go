@@ -2,7 +2,9 @@ package consumers
 
 import (
 	"fmt"
+	"os"
 	"testing"
+	"time"
 
 	"github.com/cbehopkins/medorg/pkg/core"
 )
@@ -544,5 +546,119 @@ func TestPrioritizedFilesWithManyFiles(t *testing.T) {
 	// Expect exactly the entries present in the processor's src map
 	if count != len(pathCounts) {
 		t.Errorf("expected %d files (unique keys), got %d", len(pathCounts), count)
+	}
+}
+
+func TestBackupProcessorBatchedInventoryParity(t *testing.T) {
+	for _, batchSize := range []int{1, 3} {
+		t.Run(fmt.Sprintf("batch_%d", batchSize), func(t *testing.T) {
+			bp, err := newBackupProcessor(batchSize)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer bp.Close()
+
+			const (
+				destinationOnly = "cccccccccccccccccccccccccccccccc"
+				sharedContent   = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+				uniqueContent   = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+			)
+			if err := bp.addDstFile(destinationOnly, 10, []string{"volume-dst"}, core.NewFpath("/dst/orphan")); err != nil {
+				t.Fatal(err)
+			}
+			if err := bp.addSrcFile(sharedContent, 20, []string{"volume-1", "volume-2"}, core.NewFpath("/src/older-copy")); err != nil {
+				t.Fatal(err)
+			}
+			if err := bp.addSrcFile(sharedContent, 20, []string{"volume-2"}, core.NewFpath("/src/preferred-copy")); err != nil {
+				t.Fatal(err)
+			}
+			if err := bp.addSrcFile(uniqueContent, 30, nil, core.NewFpath("/src/unique")); err != nil {
+				t.Fatal(err)
+			}
+
+			if _, exists, err := bp.checkDstFileExists(destinationOnly); err != nil || !exists {
+				t.Fatalf("destination lookup = %v, %v; want exists", exists, err)
+			}
+
+			orphans, err := bp.getOrphanFiles(nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var orphanPaths []string
+			if err := orphans(func(path core.Fpath) bool {
+				orphanPaths = append(orphanPaths, path.String())
+				return true
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if len(orphanPaths) != 1 || orphanPaths[0] != "/dst/orphan" {
+				t.Fatalf("orphan paths = %v, want [/dst/orphan]", orphanPaths)
+			}
+
+			iterator, err := bp.prioritizedSrcFiles(10, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			files := collectBackupFiles(t, iterator)
+			if len(files) != 2 {
+				t.Fatalf("planned files = %d, want 2", len(files))
+			}
+			if got := files[0].Fpath.String(); got != "/src/unique" {
+				t.Errorf("first planned path = %q, want /src/unique", got)
+			}
+			if got := files[1].Fpath.String(); got != "/src/preferred-copy" {
+				t.Errorf("deduplicated path = %q, want /src/preferred-copy", got)
+			}
+			if got := fmt.Sprint(files[1].BackupDest); got != "[volume-1 volume-2]" {
+				t.Errorf("merged destinations = %s, want [volume-1 volume-2]", got)
+			}
+		})
+	}
+}
+
+func BenchmarkBackupInventoryWriteBatching(b *testing.B) {
+	const (
+		fileCount       = 4096
+		directoryCount  = 64
+		uniqueChecksums = 1024
+	)
+	for _, benchmark := range []struct {
+		name      string
+		batchSize int
+	}{
+		{name: "single_record_commit", batchSize: 1},
+		{name: "batch_128", batchSize: backupWriteBatchSize},
+	} {
+		b.Run(benchmark.name, func(b *testing.B) {
+			b.ReportAllocs()
+			b.Logf("files=%d directories=%d duplicate_checksums=%d files_per_checksum=4 temp_root=%s cache_size_kib=2048 batch_size=%d", fileCount, directoryCount, fileCount-uniqueChecksums, os.TempDir(), benchmark.batchSize)
+			b.ResetTimer()
+			start := time.Now()
+			for iteration := 0; iteration < b.N; iteration++ {
+				bp, err := newBackupProcessor(benchmark.batchSize)
+				if err != nil {
+					b.Fatal(err)
+				}
+				for fileIndex := 0; fileIndex < fileCount; fileIndex++ {
+					checksum := fmt.Sprintf("%032x", fileIndex%uniqueChecksums)
+					path := core.NewFpath(
+						fmt.Sprintf("/src/dir-%02d", fileIndex%directoryCount),
+						fmt.Sprintf("file-%05d.dat", fileIndex),
+					)
+					if err := bp.addSrcFile(checksum, int64(fileIndex+1), []string{"volume-1"}, path); err != nil {
+						_ = bp.Close()
+						b.Fatal(err)
+					}
+				}
+				if err := bp.Close(); err != nil {
+					b.Fatal(err)
+				}
+			}
+			elapsed := time.Since(start)
+			elapsedSeconds := elapsed.Seconds()
+			b.ReportMetric(float64(fileCount*b.N)/elapsedSeconds, "files/s")
+			b.ReportMetric(float64(directoryCount*b.N)/elapsedSeconds, "directories/s")
+			b.Logf("elapsed=%s iterations=%d", elapsed, b.N)
+		})
 	}
 }

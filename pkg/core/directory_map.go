@@ -236,11 +236,12 @@ func DirectoryMapFromDir(directory Dirname, workerPool *workerPool) (dm Director
 	if err != nil {
 		return dm, fmt.Errorf("%w error opening directory map file, %s/%s", err, directory, mdFilePath)
 	}
-	byteValue, err := io.ReadAll(f)
+	byteValue, err := readDirectoryMapXML(f)
+	closeErr := f.Close()
 	if err != nil {
 		return
 	}
-	err = f.Close()
+	err = closeErr
 	if err != nil {
 		return
 	}
@@ -256,6 +257,18 @@ func DirectoryMapFromDir(directory Dirname, workerPool *workerPool) (dm Director
 	}
 
 	return dm, dm.RangeMutate(fc)
+}
+
+func readDirectoryMapXML(reader io.Reader) ([]byte, error) {
+	return io.ReadAll(directoryMapXMLReader{reader})
+}
+
+type directoryMapXMLReader struct {
+	io.Reader
+}
+
+func (reader directoryMapXMLReader) Read(buffer []byte) (int, error) {
+	return reader.Reader.Read(buffer[:min(len(buffer), 4096)])
 }
 
 // DirectoryMapFromDirEntries Create A Directory Map from a directory and a set of os.DirEntry
