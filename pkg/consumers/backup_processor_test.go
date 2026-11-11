@@ -1,8 +1,13 @@
 package consumers
 
 import (
+	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"os"
+	"slices"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -613,6 +618,219 @@ func TestBackupProcessorBatchedInventoryParity(t *testing.T) {
 				t.Errorf("merged destinations = %s, want [volume-1 volume-2]", got)
 			}
 		})
+	}
+}
+
+func TestBackupProcessorBufferedInventory(t *testing.T) {
+	for _, batchSize := range []int{1, 3, 128} {
+		t.Run(fmt.Sprintf("batch_%d", batchSize), func(t *testing.T) {
+			bp, err := newBackupProcessor(batchSize)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				if err := bp.Close(); err != nil {
+					t.Error(err)
+				}
+			})
+			const checksum = "abcdef0123456789abcdef0123456789"
+			decoded, err := hex.DecodeString(checksum)
+			if err != nil {
+				t.Fatal(err)
+			}
+			labels := []string{"volume-1", "volume-2"}
+			if err := bp.addSrcFile(strings.ToUpper(checksum), 20, labels, core.NewFpath("/src/first")); err != nil {
+				t.Fatal(err)
+			}
+			labels[0] = "mutated"
+			if err := bp.addSrcFile(base64.RawStdEncoding.EncodeToString(decoded), 30, []string{"volume-2"}, core.NewFpath("/src/preferred")); err != nil {
+				t.Fatal(err)
+			}
+			if err := bp.addSrcFile(checksum, 40, []string{"volume-3", "volume-4"}, core.NewFpath("/src/later")); err != nil {
+				t.Fatal(err)
+			}
+			iterator, err := bp.prioritizedSrcFiles(10, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			files := collectBackupFiles(t, iterator)
+			if len(files) != 1 {
+				t.Fatalf("source files = %d, want 1", len(files))
+			}
+			if files[0].Fpath.String() != "/src/preferred" || files[0].Size != 30 {
+				t.Errorf("source representative = %s (%d), want /src/preferred (30)", files[0].Fpath, files[0].Size)
+			}
+			if !slices.Equal(files[0].BackupDest, []string{"volume-1", "volume-2", "volume-3", "volume-4"}) {
+				t.Errorf("source destinations = %v", files[0].BackupDest)
+			}
+			for index, destinations := range [][]string{{"volume-1", "volume-2"}, {"volume-2"}, {"volume-3"}, {"volume-4"}} {
+				if err := bp.addDstFile(checksum, int64(index+1), destinations, core.NewFpath(fmt.Sprintf("/dst/copy-%d", index))); err != nil {
+					t.Fatal(err)
+				}
+				path, exists, err := bp.checkDstFileExists(strings.ToUpper(checksum))
+				if err != nil || !exists || path.String() != "/dst/copy-0" {
+					t.Fatalf("destination lookup = %s, %v, %v; want /dst/copy-0, true, nil", path, exists, err)
+				}
+			}
+			if files := collectBackupFiles(t, iterator); len(files) != 0 {
+				t.Fatalf("planned files = %d, want 0 after destination ingestion", len(files))
+			}
+			var size int64
+			var count int
+			var destinations string
+			if err := bp.db.QueryRow("SELECT size, backup_count, backup_destinations FROM destination_inventory WHERE checksum = ?", checksum).Scan(&size, &count, &destinations); err != nil {
+				t.Fatal(err)
+			}
+			if size != 1 || count != 4 || destinations != `["volume-1","volume-2","volume-3","volume-4"]` {
+				t.Errorf("destination record = %d, %d, %s; want first size and merged destinations", size, count, destinations)
+			}
+			if err := bp.addSrcFile("invalid", 1, nil, core.NewFpath("/src/invalid")); err == nil {
+				t.Error("invalid checksum accepted")
+			}
+		})
+	}
+}
+
+func TestBackupProcessorDestinationLookupKeepsSourceBatch(t *testing.T) {
+	bp, err := NewBackupProcessor()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := bp.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	const checksum = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	if err := bp.addSrcFile(checksum, 10, nil, core.NewFpath("/src/file")); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists, err := bp.checkDstFileExists(checksum); err != nil || exists {
+		t.Fatalf("destination lookup = %v, %v; want false, nil", exists, err)
+	}
+	if len(bp.pendingSrc) != 1 {
+		t.Fatal("destination lookup flushed the source batch")
+	}
+}
+
+func TestBackupProcessorConcurrentDuplicateSubmissions(t *testing.T) {
+	bp, err := newBackupProcessor(3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := bp.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	const checksum = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	const submissionCount = 40
+	var workers sync.WaitGroup
+	for index := 0; index < submissionCount; index++ {
+		workers.Add(1)
+		go func(index int) {
+			defer workers.Done()
+			if err := bp.addSrcFile(checksum, 10, []string{fmt.Sprintf("volume-%d", index)}, core.NewFpath(fmt.Sprintf("/src/copy-%d", index))); err != nil {
+				t.Error(err)
+			}
+		}(index)
+	}
+	workers.Wait()
+	iterator, err := bp.prioritizedSrcFiles(submissionCount, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := collectBackupFiles(t, iterator)
+	if len(files) != 1 {
+		t.Fatalf("source files = %d, want 1", len(files))
+	}
+	if len(files[0].BackupDest) != submissionCount {
+		t.Fatalf("merged destinations = %d, want %d", len(files[0].BackupDest), submissionCount)
+	}
+	for index := 0; index < submissionCount; index++ {
+		if !slices.Contains(files[0].BackupDest, fmt.Sprintf("volume-%d", index)) {
+			t.Errorf("missing destination volume-%d", index)
+		}
+	}
+}
+
+func TestBackupProcessorTemporaryInventoryDurability(t *testing.T) {
+	bp, err := NewBackupProcessor()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := bp.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	var synchronous int
+	if err := bp.db.QueryRow("PRAGMA synchronous").Scan(&synchronous); err != nil {
+		t.Fatal(err)
+	}
+	if synchronous != 0 {
+		t.Errorf("synchronous = %d, want OFF (0) for temporary inventory", synchronous)
+	}
+	var journalMode string
+	if err := bp.db.QueryRow("PRAGMA journal_mode").Scan(&journalMode); err != nil {
+		t.Fatal(err)
+	}
+	if journalMode != "delete" {
+		t.Errorf("journal_mode = %q, want unchanged DELETE journalling", journalMode)
+	}
+}
+
+func TestBackupProcessorBatchRollbackAndRetry(t *testing.T) {
+	bp, err := NewBackupProcessor()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := bp.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	const checksum = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	if err := bp.addSrcFile(checksum, 10, nil, core.NewFpath("/src/file")); err != nil {
+		t.Fatal(err)
+	}
+	if err := bp.addDstFile(checksum, 10, nil, core.NewFpath("/dst/file")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := bp.db.Exec(`CREATE TRIGGER reject_destination BEFORE INSERT ON destination_inventory
+		BEGIN SELECT RAISE(ABORT, 'injected batch failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	iterator, err := bp.prioritizedSrcFiles(2, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := iterator(func(fileData) bool { return true }); err == nil || !strings.Contains(err.Error(), "injected batch failure") {
+		t.Fatalf("flush error = %v, want injected batch failure", err)
+	}
+	for _, table := range []string{"source_inventory", "destination_inventory"} {
+		var count int
+		if err := bp.db.QueryRow("SELECT COUNT(*) FROM " + table).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != 0 {
+			t.Errorf("%s contains %d rows after rollback, want 0", table, count)
+		}
+	}
+	if _, err := bp.db.Exec("DROP TRIGGER reject_destination"); err != nil {
+		t.Fatal(err)
+	}
+	if files := collectBackupFiles(t, iterator); len(files) != 0 {
+		t.Errorf("planned files = %d, want 0 after retrying matching source and destination", len(files))
+	}
+	for _, table := range []string{"source_inventory", "destination_inventory"} {
+		var count int
+		if err := bp.db.QueryRow("SELECT COUNT(*) FROM " + table).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != 1 {
+			t.Errorf("%s contains %d rows after retry, want 1", table, count)
+		}
 	}
 }
 

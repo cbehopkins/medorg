@@ -142,70 +142,63 @@ func scanSrcTree(
 	shutdownChan chan struct{},
 	ignoreFunc func(path string) bool,
 	bp *BackupProcessor,
-) error {
+) (runErr error) {
 
 	// First pass: scan source and populate BackupProcessor
-	srcVisitor := func(file core.Fname, fm core.FileMetadata, fi os.FileInfo) error {
-		if core.IsMetadataFile(string(file)) {
-			return nil
+	srcMutator := func(fp core.Fpath, fi os.FileInfo, fs core.FileStruct) (core.FileStruct, error) {
+		if core.IsMetadataFile(string(fs.Name)) {
+			return fs, core.ErrIgnoreThisMutate
 		}
-		if fm.HasTag(volumeName) {
+		if fs.HasTag(volumeName) {
 			// This file is already backed up to that destination
 			// Add to BackupProcessor so it knows it's in both (not an orphan)
-			if err := bp.addSrcFile(fm.GetChecksum(), fm.GetSize(), fm.BackupDestinations(), fm.Path()); err != nil {
-				return fmt.Errorf("add src file failed (md5=%q size=%d path=%s): %w", fm.GetChecksum(), fm.GetSize(), fm.Path().String(), err)
+			if err := bp.addSrcFile(fs.Checksum, fs.Size, fs.BackupDest, fp); err != nil {
+				return fs, fmt.Errorf("add src file failed (md5=%q size=%d path=%s): %w", fs.Checksum, fs.Size, fp.String(), err)
 			}
-			return nil
+			return fs, core.ErrIgnoreThisMutate
 		}
 
 		// Check if file should be ignored
-		fp := fm.Path()
 		if ignoreFunc != nil && ignoreFunc(fp.String()) {
-			return nil
+			return fs, core.ErrIgnoreThisMutate
 		}
 
 		if shutdownChan != nil {
 			select {
 			case <-shutdownChan:
-				return fmt.Errorf("shutdown requested")
+				return fs, fmt.Errorf("shutdown requested")
 			default:
 			}
 		}
-		checksum := fm.GetChecksum()
+		checksum := fs.Checksum
 
-		dstPath, exists, err := bp.checkDstFileExists(checksum)
+		_, exists, err := bp.checkDstFileExists(checksum)
 		if err != nil {
-			return fmt.Errorf("check destination inventory for %s: %w", fp, err)
+			return fs, fmt.Errorf("check destination inventory for %s: %w", fp, err)
 		}
-		if exists {
-			// File already exists in destination with same checksum
-			// Add to srcFileCollection so Compare knows it's in both (not an orphan)
-			if err := bp.addSrcFile(checksum, fm.GetSize(), fm.BackupDestinations(), fp); err != nil {
-				return fmt.Errorf("add src file failed (md5=%q size=%d path=%s): %w", checksum, fm.GetSize(), fp.String(), err)
-			}
-			_, err := updateSourceDirectoryMap(fp.Dir(), core.Fname(fp.Base()), volumeName, fm.Path())
-			if err != nil {
-				return err
-			}
-			_ = dstPath
-			return nil
+		if err := bp.addSrcFile(checksum, fs.Size, fs.BackupDest, fp); err != nil {
+			return fs, fmt.Errorf("add src file failed (md5=%q size=%d path=%s): %w", checksum, fs.Size, fp.String(), err)
 		}
-
-		if err := bp.addSrcFile(checksum, fm.GetSize(), fm.BackupDestinations(), fp); err != nil {
-			return fmt.Errorf("add src file failed (md5=%q size=%d path=%s): %w", checksum, fm.GetSize(), fp.String(), err)
+		if !exists {
+			return fs, core.ErrIgnoreThisMutate
 		}
-		return nil
+		if !fs.AddTag(volumeName) {
+			return fs, fmt.Errorf("failed to add tag %s", volumeName)
+		}
+		return fs, nil
 	}
 	logFunc("Scanning source for files to backup")
 	dwSrc := core.NewProgressableDirectoryWalker(core.MakeTokenChan(4), srcDir)
-	defer dwSrc.Close()
+	defer func() {
+		runErr = errors.Join(runErr, dwSrc.Close())
+	}()
 	if factory != nil {
 		if err := factory.Register(dwSrc.Progress); err != nil {
 			log.Printf("failed to register source progress: %v", err)
 		}
 	}
 
-	dwSrc.AddFileVisitor(srcVisitor)
+	dwSrc.AddFileMutator(srcMutator)
 
 	if err := dwSrc.Walk(srcDir); err != nil {
 		return fmt.Errorf("error scanning source: %w", err)

@@ -1,8 +1,10 @@
 package consumers
 
 import (
+	"crypto/md5"
 	crand "crypto/rand"
 	"errors"
+	"fmt"
 	"log"
 	"math/rand"
 	"os"
@@ -94,6 +96,111 @@ func recalcTestDirectory(dir string) error {
 		return err
 	}
 	return dw.Close()
+}
+
+func makeSourceScanFixture(tb testing.TB, fileCount int) (string, core.DirectoryMap) {
+	tb.Helper()
+	directory := tb.TempDir()
+	dm, err := core.DirectoryMapFromDir(core.Dirname(directory), nil)
+	if err != nil {
+		tb.Fatal(err)
+	}
+	for index := 0; index < fileCount; index++ {
+		name := fmt.Sprintf("file-%04d", index)
+		content := []byte(name)
+		if err := os.WriteFile(filepath.Join(directory, name), content, 0o600); err != nil {
+			tb.Fatal(err)
+		}
+		file, err := core.NewFileStruct(directory, name)
+		if err != nil {
+			tb.Fatal(err)
+		}
+		file.Checksum = fmt.Sprintf("%x", md5.Sum(content))
+		file.BackupDest = []string{"prior-volume"}
+		dm.Add(file)
+	}
+	if err := dm.Persist(core.Dirname(directory)); err != nil {
+		tb.Fatal(err)
+	}
+	return directory, dm
+}
+
+func TestScanSrcTreePersistsDestinationTags(t *testing.T) {
+	directory, dm := makeSourceScanFixture(t, 32)
+	bp, err := NewBackupProcessor()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := bp.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	if err := dm.ForEachFile(func(name core.Fname, metadata core.FileMetadata, info os.FileInfo) error {
+		if name == "file-0000" {
+			return nil
+		}
+		return bp.addDstFile(metadata.GetChecksum(), metadata.GetSize(), nil, core.NewFpath("destination", string(name)))
+	}); err != nil {
+		t.Fatal(err)
+	}
+	ignore := func(path string) bool { return filepath.Base(path) == "file-0001" }
+	if err := scanSrcTree(directory, "current-volume", nil, 2, func(string) {}, nil, ignore, bp); err != nil {
+		t.Fatal(err)
+	}
+	persisted, err := core.DirectoryMapFromDir(core.Dirname(directory), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := persisted.ForEachFile(func(name core.Fname, metadata core.FileMetadata, info os.FileInfo) error {
+		wantTag := name != "file-0000" && name != "file-0001"
+		if metadata.HasTag("current-volume") != wantTag {
+			t.Errorf("%s: current-volume tag = %v, want %v", name, metadata.HasTag("current-volume"), wantTag)
+		}
+		if !metadata.HasTag("prior-volume") {
+			t.Errorf("%s: prior-volume tag lost", name)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func BenchmarkScanSrcTreeExistingDestination(b *testing.B) {
+	for _, fileCount := range []int{64, 256} {
+		b.Run(fmt.Sprintf("files_%d", fileCount), func(b *testing.B) {
+			b.StopTimer()
+			directory, dm := makeSourceScanFixture(b, fileCount)
+			metadataPath := filepath.Join(directory, core.Md5FileName)
+			originalXML, err := os.ReadFile(metadataPath)
+			if err != nil {
+				b.Fatal(err)
+			}
+			b.ReportAllocs()
+			for iteration := 0; iteration < b.N; iteration++ {
+				if err := os.WriteFile(metadataPath, originalXML, 0o600); err != nil {
+					b.Fatal(err)
+				}
+				bp, err := NewBackupProcessor()
+				if err != nil {
+					b.Fatal(err)
+				}
+				if err := dm.ForEachFile(func(name core.Fname, metadata core.FileMetadata, info os.FileInfo) error {
+					return bp.addDstFile(metadata.GetChecksum(), metadata.GetSize(), nil, core.NewFpath("destination", string(name)))
+				}); err != nil {
+					_ = bp.Close()
+					b.Fatal(err)
+				}
+				b.StartTimer()
+				err = scanSrcTree(directory, "current-volume", nil, 2, func(string) {}, nil, nil, bp)
+				b.StopTimer()
+				closeErr := bp.Close()
+				if err != nil || closeErr != nil {
+					b.Fatal(errors.Join(err, closeErr))
+				}
+			}
+		})
+	}
 }
 
 // TestPreExistingBackupTags verifies that BackupRunner skips files that already have backup tags
