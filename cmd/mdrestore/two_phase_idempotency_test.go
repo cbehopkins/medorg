@@ -48,6 +48,14 @@ func TestTwoPhaseRestoreCopyIsIdempotent(t *testing.T) {
 		t.Fatalf("WriteXmlCfg failed: %v", err)
 	}
 
+	restoredPath := filepath.Join(tmpDir, "restored", "summer", fileName)
+	if err := os.MkdirAll(filepath.Dir(restoredPath), 0o755); err != nil {
+		t.Fatalf("failed to create restore destination: %v", err)
+	}
+	if err := os.WriteFile(restoredPath, []byte("stale destination content"), 0o644); err != nil {
+		t.Fatalf("failed to create stale destination: %v", err)
+	}
+
 	journalContent := fmt.Sprintf(`<mdj alias="test">
   <dr dir="summer">
     <fr fname="%s" checksum="%s" size="%d" bd="VOL1" />
@@ -72,7 +80,6 @@ func TestTwoPhaseRestoreCopyIsIdempotent(t *testing.T) {
 	if exitCode != cli.ExitOk {
 		t.Fatalf("first copySubcommand exit code mismatch: got %d want %d", exitCode, cli.ExitOk)
 	}
-	restoredPath := filepath.Join(tmpDir, "restored", "summer", fileName)
 	restoredData, err := os.ReadFile(restoredPath)
 	if err != nil {
 		t.Fatalf("ReadFile restored file failed: %v", err)

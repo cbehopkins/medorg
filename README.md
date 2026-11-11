@@ -128,28 +128,18 @@ mdbackup /media/music /backup/volume2
 ### Restoring from Backups
 
 ```bash
-# Restore from first volume
-mdrestore --journal backup-journal.xml /backup/volume1
+# Create or update restore state from a journal
+mdrestore newdb --journal backup-journal.xml --db restore.db
 
-# Output shows:
-#   - Files restored: 150
-#   - Files skipped (already correct): 0
-#   - Missing volumes needed: VOL_2
-
-# Restore from second volume to complete restoration
-mdrestore --journal backup-journal.xml /backup/volume2
-
-# Output shows:
-#   - Files restored: 89
-#   - Files skipped (already correct): 150  (from volume1)
-#   - Restore complete!
-
-# The restore process:
-# - Checks existing files by checksum (idempotent - safe to re-run)
-# - Only copies files that don't exist or have wrong checksums
-# - Reports which volumes are needed for complete restore
-# - Can restore from volumes in any order
+# Restore from each available volume; repeat as needed
+mdrestore copy --db restore.db /backup/volume1
+mdrestore copy --db restore.db /backup/volume2
 ```
+
+`newdb` records the journal's pending restore targets. Each `copy` command scans
+one backup volume for matching content, streams each file to its destination,
+and checks its size and MD5 while copying. A failed copy or verification removes
+the incomplete destination and leaves the target pending for a later retry.
 
 ### Incremental Backup Updates
 

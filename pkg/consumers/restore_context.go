@@ -1,6 +1,7 @@
 package consumers
 
 import (
+	"crypto/md5"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -108,14 +109,54 @@ func copyRestoreFile(operation *CopyOperation) error {
 		return fmt.Errorf("failed to create destination directory: %w", err)
 	}
 
-	data, err := os.ReadFile(operation.SourcePath)
+	source, err := os.Open(operation.SourcePath)
 	if err != nil {
-		return fmt.Errorf("failed to read source: %w", err)
+		return fmt.Errorf("failed to open source: %w", err)
 	}
-	if err := os.WriteFile(operation.DestinationPath, data, 0644); err != nil {
-		return fmt.Errorf("failed to write destination: %w", err)
+	defer source.Close()
+
+	sourceInfo, err := source.Stat()
+	if err != nil {
+		return fmt.Errorf("failed to inspect source: %w", err)
+	}
+	if destinationInfo, err := os.Stat(operation.DestinationPath); err == nil {
+		if os.SameFile(sourceInfo, destinationInfo) {
+			return fmt.Errorf("source and destination refer to the same file")
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("failed to inspect destination: %w", err)
+	}
+
+	destination, err := os.OpenFile(operation.DestinationPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to open destination: %w", err)
+	}
+	checksum := md5.New()
+	copiedSize, copyErr := io.Copy(io.MultiWriter(destination, checksum), source)
+	closeErr := destination.Close()
+	if copyErr != nil {
+		return removeFailedRestoreCopy(operation.DestinationPath, fmt.Errorf("failed to copy source to destination: %w", copyErr))
+	}
+	if closeErr != nil {
+		return removeFailedRestoreCopy(operation.DestinationPath, fmt.Errorf("failed to close destination: %w", closeErr))
+	}
+	if copiedSize != operation.Size {
+		return removeFailedRestoreCopy(operation.DestinationPath,
+			fmt.Errorf("copied size mismatch: got %d bytes, expected %d", copiedSize, operation.Size))
+	}
+	actualChecksum := core.ReturnChecksumString(checksum)
+	if actualChecksum != operation.MD5 {
+		return removeFailedRestoreCopy(operation.DestinationPath,
+			fmt.Errorf("checksum mismatch: got %s, expected %s", actualChecksum, operation.MD5))
 	}
 	return nil
+}
+
+func removeFailedRestoreCopy(destinationPath string, cause error) error {
+	if err := os.Remove(destinationPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("%w; failed to remove incomplete destination: %v", cause, err)
+	}
+	return cause
 }
 
 func ingestJournalAndInsert(journal io.Reader, db *RestoreDB, config *core.MdConfig) (JournalIngestResult, error) {
