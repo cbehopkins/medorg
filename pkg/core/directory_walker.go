@@ -84,6 +84,11 @@ type DirectoryWalker struct {
 	workerPool *workerPool
 }
 
+// SetIgnoreFunc sets a predicate; matching directories are skipped entirely (not read or persisted).
+func (dw *DirectoryWalker) SetIgnoreFunc(ignore func(path string) bool) {
+	dw.shouldIgnore = ignore
+}
+
 func (dw *DirectoryWalker) AddFileMutator(fm DmMutCallback) {
 	dw.fileMutators = append(dw.fileMutators, fm)
 }

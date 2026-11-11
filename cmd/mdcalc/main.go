@@ -89,6 +89,9 @@ func main() {
 		AutoFix:   AF,
 		Tuner:     tuner,
 	}
+	if xc != nil {
+		opts.Ignore = xc.ShouldIgnore
+	}
 
 	err = consumers.RunCheckCalc(directories, opts)
 	if err != nil {

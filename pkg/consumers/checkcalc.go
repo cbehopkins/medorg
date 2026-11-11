@@ -19,6 +19,7 @@ type CheckCalcOptions struct {
 	ShowProgress bool            // Show progress during checksum calculation
 	AutoFix      *AutoFix        // Optional auto-fix for file renaming/deletion
 	Tuner        *adaptive.Tuner // Optional adaptive tuner for dynamic token adjustment
+	Ignore       func(path string) bool // Optional: directories matching are skipped entirely
 }
 
 // makeScrubMutator returns a mutator that removes backup destination tags from files
@@ -157,6 +158,7 @@ func RunCheckCalc(directories []string, opts CheckCalcOptions) error {
 	// Create DirectoryWalker with mutators for each operation
 	dw := core.NewDirectoryWalker(core.MakeTokenChan(core.NumTrackerOutstanding))
 	defer dw.Close()
+	dw.SetIgnoreFunc(opts.Ignore)
 
 	// Add appropriate mutators based on flags
 	if opts.Scrub {

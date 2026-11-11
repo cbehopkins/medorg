@@ -198,6 +198,7 @@ func scanSrcTree(
 		}
 	}
 
+	dwSrc.SetIgnoreFunc(ignoreFunc)
 	dwSrc.AddFileMutator(srcMutator)
 
 	if err := dwSrc.Walk(srcDir); err != nil {
@@ -524,6 +525,7 @@ func BackupRunner(
 		Validate:  false,
 		Scrub:     false,
 		AutoFix:   nil,
+		Ignore:    ignoreFunc,
 	}
 	if !skipCheckCalc {
 		logFunc("Running mdcalc on all directories (destination + sources)")
