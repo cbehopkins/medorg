@@ -216,12 +216,17 @@ func TestParseJournalAndInsert(t *testing.T) {
   </dr>
 </mdj>`
 
-	inserted, failed, err := parseJournalAndInsert(bytes.NewReader([]byte(journalContent)), db, xc)
+	var ingestResult consumers.JournalIngestResult
+	err = consumers.WithRestoreContext(dbPath, func(restore *consumers.RestoreContext) error {
+		var ingestErr error
+		ingestResult, ingestErr = restore.IngestJournal(bytes.NewReader([]byte(journalContent)), xc)
+		return ingestErr
+	})
 	if err != nil {
-		t.Fatalf("parseJournalAndInsert failed: %v", err)
+		t.Fatalf("IngestJournal failed: %v", err)
 	}
-	if inserted != 1 || failed != 0 {
-		t.Fatalf("expected 1 inserted and 0 failed, got %d inserted and %d failed", inserted, failed)
+	if ingestResult.InsertedCount != 1 || ingestResult.FailedCount != 0 || ingestResult.PendingCount != 1 {
+		t.Fatalf("unexpected journal ingest result: %+v", ingestResult)
 	}
 
 	results, err := db.FindPendingByContent("checksum123", 12)

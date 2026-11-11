@@ -2,21 +2,13 @@ package main
 
 import (
 	"bytes"
-	"encoding/xml"
 	"flag"
 	"fmt"
-	"io"
 	"os"
-	"path/filepath"
-	"time"
 
 	"github.com/cbehopkins/medorg/pkg/cli"
 	"github.com/cbehopkins/medorg/pkg/consumers"
-	core "github.com/cbehopkins/medorg/pkg/core"
 )
-
-var scanSourceForPendingFunc = consumers.ScanSourceForPending
-var executeCopyOperationFunc = executeCopy
 
 // newdbSubcommand implements the "newdb" phase: load journal into database.
 func newdbSubcommand(args []string) (int, error) {
@@ -51,22 +43,14 @@ func newdbSubcommand(args []string) (int, error) {
 		return cli.ExitJournalNotFound, nil
 	}
 
-	var insertedCount int
-	var failedCount int
-	var pendingCount int
+	var ingestResult consumers.JournalIngestResult
 
-	err = consumers.WithRestoreDB(*dbPath, func(db *consumers.RestoreDB) error {
+	err = consumers.WithRestoreContext(*dbPath, func(restore *consumers.RestoreContext) error {
 		var innerErr error
-		insertedCount, failedCount, innerErr = parseJournalAndInsert(bytes.NewReader(journalContent), db, xc)
+		ingestResult, innerErr = restore.IngestJournal(bytes.NewReader(journalContent), xc)
 		if innerErr != nil {
 			return fmt.Errorf("failed to parse journal: %w", innerErr)
 		}
-
-		pendingCount, innerErr = db.CountPending()
-		if innerErr != nil {
-			return fmt.Errorf("failed to count pending tasks: %w", innerErr)
-		}
-
 		return nil
 	})
 	if err != nil {
@@ -74,11 +58,14 @@ func newdbSubcommand(args []string) (int, error) {
 		return cli.ExitRestoreError, nil
 	}
 
+	for _, warning := range ingestResult.Warnings {
+		fmt.Printf("Warning: failed to insert %s: %v\n", warning.FileName, warning.Err)
+	}
 	fmt.Printf("Journal loaded from %s (%d bytes)\n", *journalPath, len(journalContent))
 	fmt.Printf("Config loaded with %d restore destinations\n", len(xc.RestoreDestinations))
-	fmt.Printf("Ingested %d restore targets, %d failed\n", insertedCount, failedCount)
+	fmt.Printf("Ingested %d restore targets, %d failed\n", ingestResult.InsertedCount, ingestResult.FailedCount)
 
-	fmt.Printf("Database state: %d pending content nodes\n", pendingCount)
+	fmt.Printf("Database state: %d pending content nodes\n", ingestResult.PendingCount)
 
 	return cli.ExitOk, nil
 }
@@ -112,47 +99,24 @@ func copySubcommand(args []string) (int, error) {
 	}
 	_ = xc // Config loaded for future use (e.g., restore destination mapping)
 
-	var plan *consumers.CopyPlan
-	var copiedCount int
-	var errorCount int
-	var pendingByVol map[string]int
+	var result *consumers.CopyResult
 
-	if err := consumers.WithRestoreDB(*dbPath, func(db *consumers.RestoreDB) error {
+	if err := consumers.WithRestoreContext(*dbPath, func(restore *consumers.RestoreContext) error {
 		var innerErr error
-		// Scan source directory for pending content
-		plan, innerErr = buildCopyPlan(sourceDir, db)
-		if innerErr != nil {
-			return fmt.Errorf("failed to scan source: %w", innerErr)
-		}
-
-		if *dryRun {
-			return nil
-		}
-
-		// Execute copy operations
-		for _, op := range plan.Operations {
-			if innerErr = executeCopyOperationFunc(&op); innerErr != nil {
-				fmt.Printf("Error copying %s: %v\n", op.SourcePath, innerErr)
-				errorCount++
-				continue
-			}
-
-			// Move target from pending to copied
-			if innerErr = db.MoveToCopied(op.DestinationPath, op.MD5, op.Size); innerErr != nil {
-				fmt.Printf("Error updating database for %s: %v\n", op.DestinationPath, innerErr)
-				errorCount++
-				continue
-			}
-
-			copiedCount++
-		}
-
-		pendingByVol, _ = db.CountPendingByBackupDest()
-		return nil
+		result, innerErr = restore.CopyFrom(sourceDir, *dryRun)
+		return innerErr
 	}); err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return cli.ExitRestoreError, nil
 	}
+	for _, failure := range result.Failures {
+		if failure.StateUpdate {
+			fmt.Printf("Error updating database for %s: %v\n", failure.Operation.DestinationPath, failure.Err)
+			continue
+		}
+		fmt.Printf("Error copying %s: %v\n", failure.Operation.SourcePath, failure.Err)
+	}
+	plan := result.Plan
 
 	fmt.Printf("Scan complete: %d matched, %d unmatched, %d errors\n",
 		plan.MatchedCount, plan.UnmatchedCount, plan.ErrorCount)
@@ -166,15 +130,15 @@ func copySubcommand(args []string) (int, error) {
 		return cli.ExitOk, nil
 	}
 
-	fmt.Printf("\nCopy results: %d successful, %d errors\n", copiedCount, errorCount)
+	fmt.Printf("\nCopy results: %d successful, %d errors\n", result.CopiedCount, len(result.Failures))
 
 	// Show remaining pending files grouped by backup volume
-	if len(pendingByVol) > 0 {
+	if len(result.PendingByBackupDest) > 0 {
 		fmt.Println("\n=== Remaining pending files by backup volume ===")
 		fmt.Println("Volume          Files Remaining")
 		fmt.Println("--------------- ---------------")
 		totalRemaining := 0
-		for vol, count := range pendingByVol {
+		for vol, count := range result.PendingByBackupDest {
 			fmt.Printf("%-15s %d\n", vol, count)
 			totalRemaining += count
 		}
@@ -188,149 +152,9 @@ func copySubcommand(args []string) (int, error) {
 		}
 	}
 
-	if errorCount > 0 {
+	if len(result.Failures) > 0 {
 		return cli.ExitRestoreError, nil
 	}
 
 	return cli.ExitOk, nil
-}
-
-func buildCopyPlan(sourceDir string, db *consumers.RestoreDB) (*consumers.CopyPlan, error) {
-	return scanSourceForPendingFunc(sourceDir, db)
-}
-
-// executeCopy performs a single file copy operation.
-func executeCopy(op *consumers.CopyOperation) error {
-	// Ensure destination directory exists
-	destDir := filepath.Dir(op.DestinationPath)
-	if err := os.MkdirAll(destDir, 0755); err != nil {
-		return fmt.Errorf("failed to create destination directory: %w", err)
-	}
-
-	// Copy file
-	data, err := os.ReadFile(op.SourcePath)
-	if err != nil {
-		return fmt.Errorf("failed to read source: %w", err)
-	}
-
-	if err := os.WriteFile(op.DestinationPath, data, 0644); err != nil {
-		return fmt.Errorf("failed to write destination: %w", err)
-	}
-
-	return nil
-}
-
-// parseJournalAndInsert reads journal XML and inserts restore targets into the database.
-// It maps journal aliases to restore destinations from the config and creates RestoreTaskTarget entries.
-// Returns (insertedCount, failedCount, error).
-func parseJournalAndInsert(r io.Reader, db *consumers.RestoreDB, xc *core.MdConfig) (int, int, error) {
-	insertedCount := 0
-	failedCount := 0
-
-	decoder := xml.NewDecoder(r)
-
-	// We need to parse the XML stream manually to handle the mdj/dr/fr structure
-	// The format is: <mdj alias="..."><dr dir="..."><fr fname="..." checksum="..." size="..." mtime="..." />...</dr>...</mdj>
-
-	var currentAlias string
-	var currentDir string
-
-	for {
-		token, err := decoder.Token()
-		if err != nil {
-			if err.Error() == "EOF" {
-				break
-			}
-			return insertedCount, failedCount, fmt.Errorf("error reading journal XML: %w", err)
-		}
-
-		// Handle start elements
-		startElem, ok := token.(xml.StartElement)
-		if !ok {
-			continue
-		}
-
-		switch startElem.Name.Local {
-		case "mdj":
-			// Extract alias from <mdj alias="...">
-			for _, attr := range startElem.Attr {
-				if attr.Name.Local == "alias" {
-					currentAlias = attr.Value
-					break
-				}
-			}
-
-		case "dr":
-			// Extract dir from <dr dir="...">
-			for _, attr := range startElem.Attr {
-				if attr.Name.Local == "dir" {
-					currentDir = attr.Value
-					break
-				}
-			}
-
-		case "fr":
-			// Parse file entry: <fr fname="..." checksum="..." size="..." mtime="..." bd="..."/>
-			if currentAlias == "" {
-				failedCount++
-				continue
-			}
-
-			// Resolve restore base path from config for this alias.
-			restoreBasePath, found := xc.GetRestoreDestination(currentAlias)
-			if !found {
-				if srcDir, ok := xc.GetSourceDirectory(currentAlias); ok {
-					restoreBasePath = srcDir.Path
-					found = true
-				}
-			}
-			if !found || restoreBasePath == "" {
-				failedCount++
-				continue
-			}
-
-			var fileName string
-			var checksum string
-			var size int64
-			var backupDests []string
-
-			for _, attr := range startElem.Attr {
-				switch attr.Name.Local {
-				case "fname":
-					fileName = attr.Value
-				case "checksum":
-					checksum = attr.Value
-				case "size":
-					fmt.Sscanf(attr.Value, "%d", &size)
-				case "bd":
-					// BackupDest is stored as a single value in file entries
-					// For files with multiple backup destinations, they're duplicated
-					// or stored separately. For now, handle single value.
-					backupDests = append(backupDests, attr.Value)
-				}
-			}
-
-			// Create restore target path rooted in configured restore destination.
-			targetAbsPath := filepath.Join(restoreBasePath, filepath.Base(currentDir), fileName)
-			taskID := fmt.Sprintf("%s:%d:%s", checksum, size, targetAbsPath)
-
-			target := &consumers.RestoreTaskTarget{
-				TaskID:        taskID,
-				Alias:         currentAlias,
-				TargetAbsPath: targetAbsPath,
-				CreatedAtUnix: time.Now().Unix(),
-			}
-
-			// Insert into database
-			if err := db.InsertPending(target, checksum, size, backupDests); err != nil {
-				fmt.Printf("Warning: failed to insert %s: %v\n", fileName, err)
-				failedCount++
-				continue
-			}
-
-			insertedCount++
-		}
-	}
-
-	return insertedCount, failedCount, nil
 }
