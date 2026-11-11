@@ -12,13 +12,13 @@ import (
 
 // CheckCalcOptions configures the mdcalc operation
 type CheckCalcOptions struct {
-	CalcCount    int             // Number of parallel MD5 calculators (default: 2)
-	Recalc       bool            // Force recalculation of all checksums
-	Validate     bool            // Validate existing checksums
-	Scrub        bool            // Remove backup destination tags
-	ShowProgress bool            // Show progress during checksum calculation
-	AutoFix      *AutoFix        // Optional auto-fix for file renaming/deletion
-	Tuner        *adaptive.Tuner // Optional adaptive tuner for dynamic token adjustment
+	CalcCount    int                    // Number of parallel MD5 calculators (default: 2)
+	Recalc       bool                   // Force recalculation of all checksums
+	Validate     bool                   // Validate existing checksums
+	Scrub        bool                   // Remove backup destination tags
+	ShowProgress bool                   // Show progress during checksum calculation
+	AutoFix      *AutoFix               // Optional auto-fix for file renaming/deletion
+	Tuner        *adaptive.Tuner        // Optional adaptive tuner for dynamic token adjustment
 	Ignore       func(path string) bool // Optional: directories matching are skipped entirely
 }
 

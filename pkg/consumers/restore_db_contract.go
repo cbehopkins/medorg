@@ -32,7 +32,7 @@ type RestoreTaskTarget struct {
 type RestoreTaskNode struct {
 	MD5         string
 	Size        int64
-	BackupDests []string           // All known backup locations that have this content
+	BackupDests []string            // All known backup locations that have this content
 	Targets     []RestoreTaskTarget // All destinations that need this content
 }
 

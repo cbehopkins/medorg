@@ -18,11 +18,11 @@ type CopyOperation struct {
 
 // CopyPlan is the result of scanning a source directory against pending restore tasks.
 type CopyPlan struct {
-	SourcePath  string           // Root source directory scanned
-	Operations  []CopyOperation  // Planned copy operations
-	UnmatchedCount int            // Number of files in source that don't match any pending task
-	MatchedCount   int            // Number of files that match pending tasks
-	ErrorCount  int            // Number of files that could not be processed (read errors, etc.)
+	SourcePath     string          // Root source directory scanned
+	Operations     []CopyOperation // Planned copy operations
+	UnmatchedCount int             // Number of files in source that don't match any pending task
+	MatchedCount   int             // Number of files that match pending tasks
+	ErrorCount     int             // Number of files that could not be processed (read errors, etc.)
 }
 
 // ScanSourceForPending walks a source directory using DirectoryWalker metadata,

@@ -1,6 +1,7 @@
 package consumers
 
 import (
+	"bytes"
 	"crypto/md5"
 	crand "crypto/rand"
 	"errors"
@@ -9,6 +10,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -20,6 +22,23 @@ import (
 
 func TestMain(m *testing.M) {
 	goleak.VerifyTestMain(m)
+}
+
+func TestScanSrcTreeReportsMemoryOnError(t *testing.T) {
+	var output bytes.Buffer
+	previousOutput := log.Writer()
+	log.SetOutput(&output)
+	t.Cleanup(func() { log.SetOutput(previousOutput) })
+	missingRoot := filepath.Join(t.TempDir(), "missing")
+	err := scanSrcTree(missingRoot, "test", nil, 2, func(string) {}, nil, nil, nil)
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected original missing-directory error, got %v", err)
+	}
+	for _, field := range []string{"[SOURCE SCAN ERROR]", missingRoot, "error=", "Memory: Alloc=", "HeapInuse=", "Goroutines="} {
+		if !strings.Contains(output.String(), field) {
+			t.Errorf("missing %q in scan failure report: %s", field, output.String())
+		}
+	}
 }
 
 var (

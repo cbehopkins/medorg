@@ -9,7 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -27,17 +27,9 @@ var (
 
 // logMemoryStats logs current memory statistics
 func logMemoryStats(prefix string) {
-	var m runtime.MemStats
-	runtime.ReadMemStats(&m)
-	log.Printf("%s Memory: Alloc=%v MB, HeapInuse=%v MB, TotalAlloc=%v MB, Sys=%v MB, NumGC=%v, HeapObjects=%v, Goroutines=%v",
-		prefix,
-		m.Alloc/1024/1024,
-		m.HeapInuse/1024/1024,
-		m.TotalAlloc/1024/1024,
-		m.Sys/1024/1024,
-		m.NumGC,
-		m.HeapObjects,
-		runtime.NumGoroutine())
+	var report strings.Builder
+	core.LogMemoryStats(&report, prefix)
+	log.Print(report.String())
 }
 
 // startMemoryMonitor starts periodic memory monitoring
@@ -284,7 +276,7 @@ func main() {
 	// Start periodic memory monitoring (every 30 seconds)
 	monitorDone := make(chan struct{})
 	defer close(monitorDone)
-	// startMemoryMonitor(30*time.Second, monitorDone)
+	startMemoryMonitor(30*time.Second, monitorDone)
 
 	// Initialize optional pprof (no-op unless built with -tags debugpprof)
 	onInterrupt := pprofInit(monitorDone, f)
