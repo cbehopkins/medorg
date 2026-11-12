@@ -48,6 +48,14 @@ func TestTwoPhaseRestoreCopyIsIdempotent(t *testing.T) {
 		t.Fatalf("WriteXmlCfg failed: %v", err)
 	}
 
+	restoredPath := filepath.Join(tmpDir, "restored", "summer", fileName)
+	if err := os.MkdirAll(filepath.Dir(restoredPath), 0o755); err != nil {
+		t.Fatalf("failed to create restore destination: %v", err)
+	}
+	if err := os.WriteFile(restoredPath, []byte("stale destination content"), 0o644); err != nil {
+		t.Fatalf("failed to create stale destination: %v", err)
+	}
+
 	journalContent := fmt.Sprintf(`<mdj alias="test">
   <dr dir="summer">
     <fr fname="%s" checksum="%s" size="%d" bd="VOL1" />
@@ -65,15 +73,6 @@ func TestTwoPhaseRestoreCopyIsIdempotent(t *testing.T) {
 		t.Fatalf("newdbSubcommand exit code mismatch: got %d want %d", exitCode, cli.ExitOk)
 	}
 
-	originalCopy := executeCopyOperationFunc
-	defer func() { executeCopyOperationFunc = originalCopy }()
-
-	copyCalls := 0
-	executeCopyOperationFunc = func(op *consumers.CopyOperation) error {
-		copyCalls++
-		return nil
-	}
-
 	exitCode, err = copySubcommand([]string{"-config", configPath, "-db", dbPath, sourceDir})
 	if err != nil {
 		t.Fatalf("first copySubcommand returned error: %v", err)
@@ -81,8 +80,12 @@ func TestTwoPhaseRestoreCopyIsIdempotent(t *testing.T) {
 	if exitCode != cli.ExitOk {
 		t.Fatalf("first copySubcommand exit code mismatch: got %d want %d", exitCode, cli.ExitOk)
 	}
-	if copyCalls != 1 {
-		t.Fatalf("expected first copy pass to execute 1 copy, got %d", copyCalls)
+	restoredData, err := os.ReadFile(restoredPath)
+	if err != nil {
+		t.Fatalf("ReadFile restored file failed: %v", err)
+	}
+	if string(restoredData) != string(fileData) {
+		t.Fatalf("restored file content mismatch: got %q want %q", restoredData, fileData)
 	}
 
 	db, err := consumers.OpenRestoreDB(dbPath)
@@ -105,7 +108,6 @@ func TestTwoPhaseRestoreCopyIsIdempotent(t *testing.T) {
 		t.Fatalf("unexpected DB state after first copy: pending=%d copied=%d", pendingCount, copiedCount)
 	}
 
-	copyCalls = 0
 	exitCode, err = copySubcommand([]string{"-config", configPath, "-db", dbPath, sourceDir})
 	if err != nil {
 		t.Fatalf("second copySubcommand returned error: %v", err)
@@ -113,10 +115,6 @@ func TestTwoPhaseRestoreCopyIsIdempotent(t *testing.T) {
 	if exitCode != cli.ExitOk {
 		t.Fatalf("second copySubcommand exit code mismatch: got %d want %d", exitCode, cli.ExitOk)
 	}
-	if copyCalls != 0 {
-		t.Fatalf("expected second copy pass to execute 0 copies, got %d", copyCalls)
-	}
-
 	db, err = consumers.OpenRestoreDB(dbPath)
 	if err != nil {
 		t.Fatalf("OpenRestoreDB failed on second check: %v", err)

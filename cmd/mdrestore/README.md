@@ -2,14 +2,6 @@
 
 Restore files from backup using journal files.
 
-## Design Proposal
-
-For the planned two-phase restore redesign with a bobbob intermediary database,
-see [REWORK_TWO_PHASE_RESTORE.md](REWORK_TWO_PHASE_RESTORE.md).
-
-For the locked initial DB schema/semantics used during migration, see
-[RESTORE_DB_CONTRACT.md](RESTORE_DB_CONTRACT.md).
-
 ## Usage
 
 Before restoring, configure restore destinations using `mdsource`:
@@ -22,52 +14,37 @@ mdsource restore -alias media -path /restore/to/here
 mdsource restore -alias media
 ```
 
-Then restore files from a backup volume:
+Load the journal into a restore database, then scan each available backup
+volume. Keep using the same database while restoring across volumes:
 
 ```bash
-# Restore from backup using journal file
-mdrestore --journal backup.journal /mnt/backup1
+# Load restore targets from the journal
+mdrestore newdb --journal backup.journal --db restore.db
+
+# Restore from available volumes
+mdrestore copy --db restore.db /mnt/backup1
+mdrestore copy --db restore.db /mnt/backup2
 ```
 
 ## How it works
 
-1. **Read volume label** - Reads the volume label from the source directory (backup location)
-2. **Parse journal** - Reads the journal file to understand what files should exist
-3. **Map aliases** - Maps each alias in the journal to a restore destination from MdConfig
-4. **Calculate checksums** - Runs check_calc on each restore destination
-5. **Compare and copy** - For each file in the journal:
-   - Checks if file exists in destination with correct MD5
-   - If not, and the file's volume matches current source volume, copies from source
-   - If not on current volume, notes which volume has the file
-6. **Report missing volumes** - After processing, prints list of volumes needed to complete restore
+1. **Load journal targets** - `newdb` resolves each journal alias to a restore destination and stores pending targets in SQLite.
+2. **Reconcile destinations** - `copy` trusts a named `.medorg.xml` checksum when its recorded size and modification time are unchanged, matching the `mdcalc` cache rule. Otherwise it calculates the destination checksum. Exact matches move to copied state without a source-volume scan when no pending targets remain.
+3. **Scan a volume** - `copy` matches files on the supplied volume to remaining pending targets by MD5 and size.
+4. **Stream and verify** - Each matching file is streamed to its destination while calculating MD5; the copied size and checksum must match the journal.
+5. **Track progress** - Successful copies move to copied state. Failed or mismatched copies are removed and remain pending for retry.
 
 ## Multi-volume restore
 
-If your backup spans multiple volumes, mdrestore will:
+Run `copy` once for each available backup volume, in any order, using the same
+restore database. Pending targets remain available for later volumes and retries.
 
-1. Restore all files it can find on the current volume
-2. Report which other volumes are needed
-3. You can then mount each volume and run mdrestore again
-
-Example:
-
-```bash
-# Restore from first volume
-mdrestore --journal backup.journal /mnt/backup1
-
-# Output shows you need volumes: BACKUP_VOL2, BACKUP_VOL3
-# Mount volume 2 and run again
-mdrestore --journal backup.journal /mnt/backup2
-
-# Mount volume 3 and run again
-mdrestore --journal backup.journal /mnt/backup3
-```
+Use `--dry-run` with `copy` to display planned operations without writing files.
+Both subcommands accept `--config`; `newdb` accepts `--journal`, and both accept
+`--db` (default: `restore.db`).
 
 ## Exit codes
 
-- `0` - Success
-- `1` - No config file
-- `2` - Invalid arguments
-- `3` - Journal file not found
-- `4` - Source directory not found
-- `5` - Restore error
+Exit codes use the shared definitions in `pkg/cli`: invalid arguments (`1`),
+configuration error (`2`), journal not found (`9`), source not found (`10`),
+and restore error (`11`).

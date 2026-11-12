@@ -21,6 +21,18 @@ type restoreContent struct {
 	backupDests []string
 }
 
+type pendingRestoreTarget struct {
+	destinationPath string
+	md5             string
+	size            int64
+}
+
+type restoreTargetIdentity struct {
+	destinationPath string
+	md5             string
+	size            int64
+}
+
 // RestoreDB manages persistent restore targets for one active restore context.
 type RestoreDB struct {
 	db        *sql.DB
@@ -224,6 +236,37 @@ func (db *RestoreDB) FindPendingByContent(md5 string, size int64) ([]RestoreTask
 			&target.CreatedAtUnix, &target.UpdatedAtUnix, &target.CompletedAtUnix,
 			&target.CopySourcePath,
 		); err != nil {
+			return nil, fmt.Errorf("read pending restore target: %w", err)
+		}
+		targets = append(targets, target)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate pending restore targets: %w", err)
+	}
+	return targets, nil
+}
+
+func (db *RestoreDB) pendingTargets() ([]pendingRestoreTarget, error) {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	if err := db.ensureOpenLocked(); err != nil {
+		return nil, err
+	}
+
+	rows, err := db.db.Query(`
+		SELECT target_abs_path, md5, size
+		FROM restore_targets
+		WHERE state = ?
+		ORDER BY rowid`, restoreStatePending)
+	if err != nil {
+		return nil, fmt.Errorf("list pending restore targets: %w", err)
+	}
+	defer rows.Close()
+
+	targets := make([]pendingRestoreTarget, 0)
+	for rows.Next() {
+		var target pendingRestoreTarget
+		if err := rows.Scan(&target.destinationPath, &target.md5, &target.size); err != nil {
 			return nil, fmt.Errorf("read pending restore target: %w", err)
 		}
 		targets = append(targets, target)
