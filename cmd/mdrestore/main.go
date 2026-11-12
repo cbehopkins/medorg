@@ -1,7 +1,6 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"os"
 
@@ -34,55 +33,6 @@ func run() (int, error) {
 		printUsage()
 		return cli.ExitInvalidArgs, nil
 	}
-}
-
-// legacyRun preserves original single-phase behavior for backward compatibility
-func legacyRun() (int, error) {
-	configPath := flag.String("config", "", "Path to config file (optional, defaults to ~/.mdcfg.xml)")
-	journalPath := flag.String("journal", "", "Path to journal file (required)")
-	flag.Parse()
-
-	if *journalPath == "" {
-		printUsage()
-		return cli.ExitInvalidArgs, nil
-	}
-
-	if flag.NArg() < 1 {
-		fmt.Println("Error: source directory (backup location) required")
-		printUsage()
-		return cli.ExitInvalidArgs, nil
-	}
-
-	sourceDir := flag.Arg(0)
-
-	// Verify journal exists
-	if err := cli.ValidatePath(*journalPath, false); err != nil {
-		fmt.Printf("Error: journal file '%s' does not exist\n", *journalPath)
-		return cli.ExitJournalNotFound, nil
-	}
-
-	// Verify source directory exists
-	if err := cli.ValidatePath(sourceDir, true); err != nil {
-		fmt.Printf("Error: source directory '%s' does not exist\n", sourceDir)
-		return cli.ExitSourceNotFound, nil
-	}
-
-	// Load config using common loader
-	loader := cli.NewConfigLoader(*configPath, os.Stderr)
-	xc, exitCode := loader.Load()
-	if exitCode != cli.ExitOk {
-		return exitCode, nil
-	}
-
-	// Run restore
-	cfg := Config{
-		JournalPath: *journalPath,
-		SourceDir:   sourceDir,
-		XMLConfig:   xc,
-		Stdout:      os.Stdout,
-	}
-
-	return Run(cfg)
 }
 
 func printUsage() {

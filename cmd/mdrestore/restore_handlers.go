@@ -123,14 +123,16 @@ func copySubcommand(args []string) (int, error) {
 	fmt.Printf("Planned %d copy operations\n", len(plan.Operations))
 
 	if *dryRun {
-		fmt.Println("\n[DRY RUN] Would copy:")
+		fmt.Printf("\n[DRY RUN] Already correct: %d\n", result.AlreadyPresentCount)
+		fmt.Println("Would copy:")
 		for _, op := range plan.Operations {
 			fmt.Printf("  %s -> %s (%s)\n", op.SourcePath, op.DestinationPath, op.Alias)
 		}
 		return cli.ExitOk, nil
 	}
 
-	fmt.Printf("\nCopy results: %d successful, %d errors\n", result.CopiedCount, len(result.Failures))
+	fmt.Printf("\nCopy results: %d copied, %d already correct, %d errors\n",
+		result.CopiedCount, result.AlreadyPresentCount, len(result.Failures))
 
 	// Show remaining pending files grouped by backup volume
 	if len(result.PendingByBackupDest) > 0 {

@@ -35,6 +35,7 @@ type JournalIngestWarning struct {
 type CopyResult struct {
 	Plan                *CopyPlan
 	CopiedCount         int
+	AlreadyPresentCount int
 	Failures            []CopyFailure
 	PendingByBackupDest map[string]int
 }
@@ -77,11 +78,41 @@ func (restore *RestoreContext) copyFrom(
 	scan func(string, *RestoreDB) (*CopyPlan, error),
 	execute func(*CopyOperation) error,
 ) (*CopyResult, error) {
+	alreadyPresent, err := restore.findAlreadyPresentTargets(dryRun)
+	if err != nil {
+		return nil, fmt.Errorf("check existing restore destinations: %w", err)
+	}
+	result := &CopyResult{AlreadyPresentCount: len(alreadyPresent)}
+
+	pendingTargets, err := restore.db.pendingTargets()
+	if err != nil {
+		return nil, fmt.Errorf("list pending restore targets: %w", err)
+	}
+	if (!dryRun && len(pendingTargets) == 0) || (dryRun && len(alreadyPresent) == len(pendingTargets)) {
+		result.Plan = &CopyPlan{SourcePath: sourceDir, Operations: make([]CopyOperation, 0)}
+		if !dryRun {
+			result.PendingByBackupDest, _ = restore.db.CountPendingByBackupDest()
+		}
+		return result, nil
+	}
+
 	plan, err := scan(sourceDir, restore.db)
 	if err != nil {
 		return nil, fmt.Errorf("failed to scan source: %w", err)
 	}
-	result := &CopyResult{Plan: plan}
+	remainingOperations := plan.Operations[:0]
+	for _, operation := range plan.Operations {
+		identity := restoreTargetIdentity{
+			destinationPath: operation.DestinationPath,
+			md5:             operation.MD5,
+			size:            operation.Size,
+		}
+		if _, ok := alreadyPresent[identity]; !ok {
+			remainingOperations = append(remainingOperations, operation)
+		}
+	}
+	plan.Operations = remainingOperations
+	result.Plan = plan
 	if dryRun {
 		return result, nil
 	}
@@ -101,6 +132,84 @@ func (restore *RestoreContext) copyFrom(
 
 	result.PendingByBackupDest, _ = restore.db.CountPendingByBackupDest()
 	return result, nil
+}
+
+func (restore *RestoreContext) findAlreadyPresentTargets(dryRun bool) (map[restoreTargetIdentity]struct{}, error) {
+	targets, err := restore.db.pendingTargets()
+	if err != nil {
+		return nil, err
+	}
+
+	alreadyPresent := make(map[restoreTargetIdentity]struct{})
+	directoryMaps := make(map[string]*core.DirectoryMap)
+	for _, target := range targets {
+		destinationDir := filepath.Dir(target.destinationPath)
+		directoryMap, loaded := directoryMaps[destinationDir]
+		if !loaded {
+			if loadedMap, loadErr := core.DirectoryMapFromDir(core.Dirname(destinationDir), nil); loadErr == nil {
+				directoryMap = &loadedMap
+			}
+			directoryMaps[destinationDir] = directoryMap
+		}
+
+		matches, err := restoreDestinationMatches(target, directoryMap)
+		if err != nil {
+			return nil, fmt.Errorf("verify destination %q: %w", target.destinationPath, err)
+		}
+		if !matches {
+			continue
+		}
+
+		identity := restoreTargetIdentity{
+			destinationPath: target.destinationPath,
+			md5:             target.md5,
+			size:            target.size,
+		}
+		alreadyPresent[identity] = struct{}{}
+		if !dryRun {
+			if err := restore.db.MoveToCopied(target.destinationPath, target.md5, target.size); err != nil {
+				return nil, fmt.Errorf("mark existing destination copied: %w", err)
+			}
+		}
+	}
+	return alreadyPresent, nil
+}
+
+func restoreDestinationMatches(target pendingRestoreTarget, directoryMap *core.DirectoryMap) (bool, error) {
+	info, err := os.Stat(target.destinationPath)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if !info.Mode().IsRegular() || info.Size() != target.size {
+		return false, nil
+	}
+	if directoryMap != nil {
+		if metadata, ok := directoryMap.Get(core.Fname(filepath.Base(target.destinationPath))); ok {
+			changed, err := metadata.Changed(info)
+			if err != nil {
+				return false, err
+			}
+			if !changed && metadata.Checksum != "" {
+				return metadata.Checksum == target.md5, nil
+			}
+		}
+	}
+
+	destination, err := os.Open(target.destinationPath)
+	if err != nil {
+		return false, err
+	}
+	defer destination.Close()
+
+	checksum := md5.New()
+	copiedSize, err := io.Copy(checksum, destination)
+	if err != nil {
+		return false, err
+	}
+	return copiedSize == target.size && core.ReturnChecksumString(checksum) == target.md5, nil
 }
 
 func copyRestoreFile(operation *CopyOperation) error {

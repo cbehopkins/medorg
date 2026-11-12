@@ -136,10 +136,14 @@ mdrestore copy --db restore.db /backup/volume1
 mdrestore copy --db restore.db /backup/volume2
 ```
 
-`newdb` records the journal's pending restore targets. Each `copy` command scans
-one backup volume for matching content, streams each file to its destination,
-and checks its size and MD5 while copying. A failed copy or verification removes
-the incomplete destination and leaves the target pending for a later retry.
+`newdb` records the journal's pending restore targets. Before scanning a volume,
+`copy` checks pending destinations using the mdcalc cache rule: it trusts a named
+`.medorg.xml` checksum when the recorded size and modification time are unchanged;
+otherwise it calculates the destination checksum. Matching destinations are
+marked copied. The volume scan then handles only remaining targets. Source files
+are streamed to destinations and checked for expected size and MD5 while copying.
+A failed copy or verification removes the incomplete destination and leaves the
+target pending for a later retry.
 
 ### Incremental Backup Updates
 
@@ -186,7 +190,8 @@ mdcalc --config /path/to/config.xml /path/to/scan
 mdjournal --config /path/to/config.xml --scan /source/path
 mdbackup --config /path/to/config.xml /source /destination
 mdsource --config /path/to/config.xml list
-mdrestore --config /path/to/config.xml --journal journal.xml /volume
+mdrestore newdb --config /path/to/config.xml --journal journal.xml --db restore.db
+mdrestore copy --config /path/to/config.xml --db restore.db /volume
 ```
 
 If not specified, commands look for `.mdcfg.xml` in the current directory or home directory (`~/.mdcfg.xml`).
@@ -408,29 +413,30 @@ Restore files from backup volumes using journal files.
 
 **Usage:**
 ```bash
-# Restore from a volume
-mdrestore --journal backup.xml /backup/volume1
+# Load journal targets into persistent restore state
+mdrestore newdb --journal backup.xml --db restore.db
 
-# Restore from another volume to complete restoration
-mdrestore --journal backup.xml /backup/volume2
+# Scan each backup volume, reusing the same database
+mdrestore copy --db restore.db /backup/volume1
+mdrestore copy --db restore.db /backup/volume2
 
 # Custom configuration
-mdrestore --config /path/to/config.xml --journal backup.xml /backup/volume1
+mdrestore newdb --config /path/to/config.xml --journal backup.xml --db restore.db
+mdrestore copy --config /path/to/config.xml --db restore.db /backup/volume1
 ```
 
 **How it works:**
-1. Reads volume label from backup volume
-2. Parses journal to determine which files should be restored
-3. Maps aliases to restore destinations (configured via `mdsource restore`)
-4. Calculates checksums for existing files at destinations
-5. Copies files that don't exist or have incorrect checksums
-6. Reports which additional volumes are needed
+1. Loads journal targets and maps aliases to configured restore destinations
+2. Checks pending destinations using unchanged `.medorg.xml` metadata when available, otherwise calculating their checksums
+3. Scans each supplied backup volume for content matching remaining pending targets by MD5 and size
+4. Streams each matched file to its destination while verifying size and MD5
+5. Persists already-present and successfully copied targets so later volume scans resume pending work
 
 **Key features:**
-- **Idempotent**: Safe to re-run - skips files with correct checksums
+- **Resumable**: Pending targets remain available across `copy` invocations
 - **Multi-volume**: Run once per volume, in any order
-- **Smart restore**: Only copies what's needed
-- **Progress tracking**: Shows what's restored and what's still needed
+- **Streaming verification**: Bounded-memory copies; failed or mismatched output is removed
+- **Progress tracking**: Reports remaining work by backup volume
 
 # Technical Details
 

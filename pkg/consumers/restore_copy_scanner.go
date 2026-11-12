@@ -11,7 +11,7 @@ import (
 type CopyOperation struct {
 	SourcePath      string // Absolute path to source file to copy from (e.g., /backup/file.txt)
 	DestinationPath string // Absolute path where file should be restored (e.g., /restore/photos/file.txt)
-	MD5             string // Content identifier (lowercase hex)
+	MD5             string // Medorg's unpadded Base64 MD5 checksum
 	Size            int64  // File size in bytes
 	Alias           string // Source alias for logging/tracking
 }
